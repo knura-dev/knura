@@ -2,6 +2,7 @@ package io.knura.knurd;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -26,6 +27,15 @@ class KnurdConfigTest {
         assertEquals(dir.resolve("knurd-counters.properties").toAbsolutePath(), config.countersFile());
         assertTrue(config.keys().metaReadKey().isPresent());
         assertTrue(config.keys().fileReadKey("04DE5F1EACC040").isPresent());
+        assertNull(config.actionsFile());
+    }
+
+    @Test
+    void actionsFileIsRelativeToConfig() {
+        Properties p = new Properties();
+        p.setProperty("master.key", "00112233445566778899AABBCCDDEEFF");
+        p.setProperty("actions.file", "knurgn.properties");
+        assertEquals(dir.resolve("knurgn.properties"), KnurdConfig.fromProperties(p, dir).actionsFile());
     }
 
     @Test

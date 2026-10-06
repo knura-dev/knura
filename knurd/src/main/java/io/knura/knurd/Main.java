@@ -1,8 +1,11 @@
 package io.knura.knurd;
 
+import io.knura.knurgn.Knurgn;
+import io.knura.knurgn.KnurgnConfig;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 
 /** Starts knurd: {@code knurd [config-file]}, default {@code knurd.properties}. */
 public final class Main {
@@ -27,12 +30,37 @@ public final class Main {
             System.exit(1);
             return;
         }
+        Knurgn knurgn = null;
+        if (config.actionsFile() != null) {
+            if (!Files.exists(config.actionsFile())) {
+                System.err.println("knurd: actions file not found: " + config.actionsFile());
+                System.exit(1);
+            }
+            try {
+                knurgn = KnurgnConfig.load(config.actionsFile(), Clock.systemUTC());
+            } catch (IllegalArgumentException e) {
+                System.err.println("knurd: bad actions file " + config.actionsFile() + ": " + e.getMessage());
+                System.exit(1);
+                return;
+            }
+        }
         TapVerifier verifier = new TapVerifier(config.keys(), new FileCounterStore(config.countersFile()));
-        KnurdServer server = new KnurdServer(config.host(), config.port(), verifier);
+        KnurdServer server = knurgn == null
+                ? new KnurdServer(config.host(), config.port(), verifier)
+                : new KnurdServer(config.host(), config.port(), verifier, knurgn::onVerifiedTap);
         server.start();
         System.out.printf(
                 "knurd listening on http://%s:%d (counters in %s)%n",
                 config.host(), server.port(), config.countersFile());
-        Runtime.getRuntime().addShutdownHook(new Thread(server::close));
+        if (knurgn != null) {
+            System.out.printf("knurgN: %d knot(s) with actions, from %s%n", knurgn.knotCount(), config.actionsFile());
+        }
+        Knurgn actions = knurgn;
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            server.close();
+            if (actions != null) {
+                actions.close();
+            }
+        }));
     }
 }

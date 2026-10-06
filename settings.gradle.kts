@@ -1,3 +1,3 @@
 rootProject.name = "knura"
 
-include("knura-core", "knurctl", "knurd")
+include("knura-core", "knurctl", "knurd", "knurgn")

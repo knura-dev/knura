@@ -8,6 +8,7 @@ genuine tag, then trigger actions from it.
 | `knura-core` | Crypto and NTAG 424 DNA logic, JDK only | SDM tap verifier, per-tag keys, tag commands |
 | `knurctl` | Provisioning and management CLI | sets up NTAG 424 DNA tags over a PC/SC reader |
 | `knurd` | Verification daemon | HTTP tap endpoint with replay protection |
+| `knurgn` | Actions engine (knurgN) | signed webhooks for verified taps |
 
 ## Build
 
@@ -115,3 +116,46 @@ unknown tag), `replay` (409). `knurd.properties` and the counters file are git-i
 own keys there. For now the MAC must cover an empty input (SDMMACInputOffset equal to
 SDMMACOffset). knurd listens on 127.0.0.1 by default; phones need to reach it over HTTPS, so put
 a reverse proxy in front of it.
+
+## knurgn
+
+knurgN is Knura's actions engine: it decides what a tap does. knurd hands it each tap that came
+back `ok`, and only those, so malformed, forged and replayed taps can never start an action.
+knurgN looks up the tag's rule by its verified UID; nothing in the tap link can choose or change
+the action.
+
+The first connector is a **signed webhook**: each verified tap sends a JSON POST to an address
+you choose (your own code, Node-RED, a home server):
+
+```json
+{"type":"tap.verified","timestamp":"2026-10-06T21:14:03.120Z",
+ "data":{"id":"042D6B02936980:61","knot":"desk-candle","uid":"042D6B02936980","counter":61,
+         "tappedAt":"2026-10-06T21:14:03.120Z","action":"desk-webhook"}}
+```
+
+Signatures follow [Standard Webhooks](https://www.standardwebhooks.com): headers `webhook-id`
+(the tap id, `UID:counter`, the same on every retry), `webhook-timestamp` and
+`webhook-signature` (`v1,` + base64 HMAC-SHA256 of `id.timestamp.body`). Receivers should check
+the signature, refuse old timestamps and ignore ids they have already seen.
+`examples/webhook-receiver/WebhookReceiver.java` does all three in one file.
+
+Set it up next to `knurd.properties`:
+
+```sh
+cp knurgn/knurgn.example.properties knurgn.properties     # then set your tag's UID in it
+echo 'actions.file=knurgn.properties' >> knurd.properties
+(umask 077; printf 'desk-webhook=whsec_%s\n' "$(openssl rand -base64 32)" > knurgn-secrets.properties)
+```
+
+Rules:
+
+- Secrets live in their own file, which knurd refuses to read if other users can. They never
+  appear in logs; neither do webhook addresses, since some services put a secret in them.
+- Addresses must use HTTPS, except `localhost` and private network addresses. Redirects are not
+  followed.
+- Deliveries run in the background. Failures (network errors, 408, 429, 5xx) are retried after
+  1, 2, 4... seconds; other answers are final. An action that hasn't gone through 30 seconds
+  after the tap is dropped rather than run late. Each action is logged as delivered, refused or
+  expired.
+- Not yet: sensitive actions (locks, garage, alarm), a saved outbox that survives a restart, and
+  encrypting the secrets file. See the knurgN connectors design.

@@ -14,8 +14,9 @@ import java.util.Properties;
 /**
  * knurd settings, read from a properties file. See {@code knurd.example.properties} for every
  * key. Keys are 32 hex digits; tag UIDs in key names are matched case-insensitively.
+ * {@code actionsFile} is null when no knurgN actions are set up.
  */
-public record KnurdConfig(String host, int port, TagKeys keys, Path countersFile) {
+public record KnurdConfig(String host, int port, TagKeys keys, Path countersFile, Path actionsFile) {
     public static final String DEFAULT_HOST = "127.0.0.1";
     public static final int DEFAULT_PORT = 8424;
 
@@ -64,7 +65,8 @@ public record KnurdConfig(String host, int port, TagKeys keys, Path countersFile
         }
 
         Path counters = baseDir.resolve(p.getProperty("counters.file", "knurd-counters.properties").trim());
-        return new KnurdConfig(host, port, keys, counters);
+        String actions = p.getProperty("actions.file", "").trim();
+        return new KnurdConfig(host, port, keys, counters, actions.isEmpty() ? null : baseDir.resolve(actions));
     }
 
     private static byte[] optionalKey(Properties p, String name) {

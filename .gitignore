@@ -10,3 +10,6 @@ out/
 # Local knurd config (holds keys) and tap counters.
 knurd.properties
 knurd-counters.properties
+# Local knurgN rules and webhook secrets.
+knurgn.properties
+knurgn-secrets.properties
