@@ -5,8 +5,8 @@ genuine tag, then trigger actions from it.
 
 | Module | What it is | Status |
 | --- | --- | --- |
-| `knura-core` | Crypto and NTAG 424 DNA logic, JDK only | SDM tap verifier, per-tag keys |
-| `knurctl` | Provisioning and management CLI | placeholder |
+| `knura-core` | Crypto and NTAG 424 DNA logic, JDK only | SDM tap verifier, per-tag keys, tag commands |
+| `knurctl` | Provisioning and management CLI | sets up NTAG 424 DNA tags over a PC/SC reader |
 | `knurd` | Verification daemon | HTTP tap endpoint with replay protection |
 
 ## Build
@@ -39,6 +39,38 @@ change, or provisioned tags would stop verifying.
 
 Tests use NXP's published AN12196 example (all-zero keys), NXP's AN10922 example and RFC 4493
 CMAC vectors. No real or development keys belong in this repository.
+
+`Ntag424` speaks to the tag itself over any `Transceiver`: AuthenticateEV2First and EV2 secure
+messaging, GetCardUid, GetFileSettings, ChangeFileSettings, WriteData, ChangeKey and reading the
+NDEF file. It is tested byte for byte against APDU traces recorded from a real tag on an ACR122U.
+`TagProvisioner` uses it to set a tag up for Knura or reset it, and `TapUrlLayout` builds the tap
+URL and SDM settings. `FakeNtag424` (test fixtures) simulates a tag for tests.
+
+## knurctl
+
+knurctl sets up NTAG 424 DNA tags on a PC/SC reader such as the ACR122U. On Linux it needs the
+PC/SC daemon and CCID driver (Fedora: `sudo dnf install pcsc-lite pcsc-lite-ccid`, then
+`sudo systemctl enable --now pcscd.socket`).
+
+```sh
+./gradlew :knurctl:installDist
+alias knurctl="$PWD/knurctl/build/install/knurctl/bin/knurctl"
+knurctl init        # writes knurd.properties with a new random master.key (back it up)
+knurctl readers     # lists readers
+knurctl provision   # put a tag on the reader: Knura keys and a tap URL for knurd
+knurctl tap         # read the tag like a phone does and check the URL
+```
+
+`provision` writes a tap URL `<base>?e=<encrypted UID and counter>&c=<MAC>`, which knurd verifies
+with the same `master.key`. The base defaults to `http://127.0.0.1:8424/tap` (local knurd); set
+another with `--base-url`. It gives the tag Knura's keys (see `TagKeyDerivation`): anyone may
+read the URL, but only key 0 can rewrite it or change settings. It finishes by reading the tag back
+and checking the URL. Other commands: `info` (UID, URL and whose keys the tag has) and `reset`
+(back to factory keys).
+
+`--from` says which keys the tag has now: `factory` (the default for `provision`), `knura` (set up
+by Knura with this master key), or a file with `key0=` to `key4=` lines (32 hex digits each) for a
+tag set up by other software. `--verbose` prints every command sent to the tag.
 
 ## knurd
 
