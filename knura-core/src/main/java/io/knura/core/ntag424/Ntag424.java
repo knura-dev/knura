@@ -25,7 +25,11 @@ public final class Ntag424 {
     /** Every key on a tag fresh from the factory. */
     public static final byte[] FACTORY_KEY = new byte[16];
 
-    private static final byte[] SELECT_NDEF_APPLICATION = bytes("00A4000C02E11000");
+    /**
+     * SELECT by DF name D2760000850101 (NXP AN12196). Selecting by file ID E110 only works from
+     * the card level: once the application is selected, the tag answers 6A82.
+     */
+    private static final byte[] SELECT_NDEF_APPLICATION = bytes("00A4040C07D276000085010100");
     private static final byte[] SELECT_NDEF_FILE = bytes("00A4000C02E10400");
     private static final int CMD_AUTH_EV2_FIRST = 0x71;
     private static final int CMD_ADDITIONAL_FRAME = 0xAF;

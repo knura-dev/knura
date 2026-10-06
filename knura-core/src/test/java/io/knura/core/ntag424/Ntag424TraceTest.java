@@ -24,7 +24,13 @@ import org.junit.jupiter.api.Test;
  * development tag (UID 041C6B02936980) and protect nothing else.
  */
 class Ntag424TraceTest {
-    private static final String SELECT = "00a4000c02e11000";
+    /**
+     * The recorded runs selected the application by file ID ({@code 00a4000c02e11000}), which
+     * fails once the application is already selected (6A82, seen on hardware on 2026-10-06), so
+     * this implementation selects by DF name instead. Both answer 9000 and nothing after them
+     * depends on which was used.
+     */
+    private static final String SELECT = "00a4040c07d276000085010100";
     private static final String UID = "041C6B02936980";
 
     /** Keys the recorded provisioning run wrote to slots 0 to 4, recovered from its ChangeKey data. */
