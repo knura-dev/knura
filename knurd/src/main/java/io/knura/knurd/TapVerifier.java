@@ -79,6 +79,9 @@ public final class TapVerifier {
     private VerifiedTap verifyPlain(String uidHex, String ctrHex, String macHex)
             throws SdmVerificationException, UnknownTagException {
         byte[] uid = Hex.decode(uidHex);
+        if (uid.length != SdmVerifier.UID_LENGTH) {
+            throw new SdmVerificationException(Reason.MALFORMED, "uid must be 14 hex digits");
+        }
         byte[] ctr = Hex.decode(ctrHex);
         if (ctr.length != 3) {
             throw new SdmVerificationException(Reason.MALFORMED, "ctr must be 6 hex digits");

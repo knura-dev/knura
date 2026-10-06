@@ -5,6 +5,8 @@ import static io.knura.knurd.Taps.AN12196_UID;
 import static io.knura.knurd.Taps.ZERO_KEY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import io.knura.core.crypto.Hex;
+import io.knura.core.keys.TagKeyDerivation;
 import io.knura.knurd.TapResult.Status;
 import java.util.HashMap;
 import java.util.Map;
@@ -92,5 +94,27 @@ class TapVerifierTest {
     void encryptedTapWithoutMetaKeyIsRejected() {
         TapVerifier plainOnly = new TapVerifier(new TagKeys(null, ZERO_KEY, Map.of()), new MemoryCounterStore());
         assertEquals(Status.REJECTED, plainOnly.verify(AN12196).status());
+    }
+
+    @Test
+    void masterKeyVerifiesEachTagWithItsOwnKey() throws Exception {
+        byte[] master = Hex.decode("00112233445566778899AABBCCDDEEFF");
+        TapVerifier derived = new TapVerifier(TagKeys.derived(master, Map.of()), new MemoryCounterStore());
+        byte[] meta = TagKeyDerivation.fleetKey(master, TagKeyDerivation.SDM_META_READ_KEY);
+        String other = "04000000000001";
+        byte[] otherKey = TagKeyDerivation.tagKey(master, Hex.decode(other), TagKeyDerivation.SDM_FILE_READ_KEY);
+        byte[] ownKey =
+                TagKeyDerivation.tagKey(master, Hex.decode(AN12196_UID), TagKeyDerivation.SDM_FILE_READ_KEY);
+
+        assertEquals(Status.OK, derived.verify(Taps.encrypted(AN12196_UID, 1, meta, ownKey)).status());
+        assertEquals(Status.OK, derived.verify(Taps.plain(other, 1, otherKey)).status());
+        // Another tag's key, or the old shared key, does not pass.
+        assertEquals(Status.REJECTED, derived.verify(Taps.encrypted(AN12196_UID, 2, meta, otherKey)).status());
+        assertEquals(Status.REJECTED, derived.verify(Taps.plain(AN12196_UID, 3, ZERO_KEY)).status());
+        // A tap encrypted under a different meta key does not even decrypt.
+        assertEquals(Status.MALFORMED, derived.verify(AN12196).status());
+        assertEquals(
+                Status.MALFORMED,
+                derived.verify(Map.of("uid", "04DE5F", "ctr", "000001", "c", "94EED9EE65337086")).status());
     }
 }
