@@ -5,6 +5,7 @@ plugins {
 
 dependencies {
     implementation(project(":knura-core"))
+    testImplementation(testFixtures(project(":knura-core")))
 }
 
 application {
