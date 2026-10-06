@@ -62,10 +62,6 @@ public final class SdmVerifier {
             byte[] sdmMetaReadKey,
             byte[] sdmFileReadKey)
             throws SdmVerificationException {
-        if (encryptedPiccData.length != PICC_DATA_LENGTH) {
-            throw new SdmVerificationException(
-                    Reason.MALFORMED, "PICC data must be 16 bytes, got " + encryptedPiccData.length);
-        }
         VerifiedTap picc = decryptPiccData(encryptedPiccData, sdmMetaReadKey);
         return verifyPlain(picc.uid(), picc.readCounter(), macInput, mac, sdmFileReadKey);
     }
@@ -111,9 +107,17 @@ public final class SdmVerifier {
         }
     }
 
-    /** Decrypts 16 bytes of PICC data and returns the UID and read counter inside. */
-    static VerifiedTap decryptPiccData(byte[] encryptedPiccData, byte[] sdmMetaReadKey)
+    /**
+     * Decrypts 16 bytes of PICC data and returns the UID and read counter inside, without checking
+     * the MAC. The result is not trustworthy on its own; it lets a caller look up the per-tag
+     * SDMFileReadKey before calling {@link #verifyPlain}.
+     */
+    public static VerifiedTap decryptPiccData(byte[] encryptedPiccData, byte[] sdmMetaReadKey)
             throws SdmVerificationException {
+        if (encryptedPiccData.length != PICC_DATA_LENGTH) {
+            throw new SdmVerificationException(
+                    Reason.MALFORMED, "PICC data must be 16 bytes, got " + encryptedPiccData.length);
+        }
         byte[] plain = aesCbcDecryptZeroIv(sdmMetaReadKey, encryptedPiccData);
         try {
             byte tag = plain[0];
