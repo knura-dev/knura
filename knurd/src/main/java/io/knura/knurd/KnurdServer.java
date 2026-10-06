@@ -21,15 +21,31 @@ import java.util.concurrent.Executors;
  *       ({@code malformed} 400, {@code rejected} 403, {@code replay} 409).
  *   <li>{@code GET /health}: {@code {"status":"up"}}.
  * </ul>
+ *
+ * <p>Only a tap that comes back {@code ok} is passed on to the {@link TapListener} (knurgN), so
+ * malformed, forged and replayed taps can never start an action.
  */
 public final class KnurdServer implements AutoCloseable {
     private static final System.Logger LOG = System.getLogger("knurd");
 
     private final HttpServer server;
     private final TapVerifier verifier;
+    private final TapListener listener;
+
+    /** Hears about taps that verified and were seen for the first time. */
+    @FunctionalInterface
+    public interface TapListener {
+        /** Must return quickly; the phone is waiting for its answer. */
+        void onVerifiedTap(String uid, int counter);
+    }
 
     public KnurdServer(String host, int port, TapVerifier verifier) throws IOException {
+        this(host, port, verifier, (uid, counter) -> {});
+    }
+
+    public KnurdServer(String host, int port, TapVerifier verifier, TapListener listener) throws IOException {
         this.verifier = verifier;
+        this.listener = listener;
         this.server = HttpServer.create(new InetSocketAddress(host, port), 0);
         server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
         server.createContext("/tap", this::handleTap);
@@ -77,6 +93,14 @@ public final class KnurdServer implements AutoCloseable {
                 result.status().jsonName(),
                 result.uid() == null ? "-" : result.uid(),
                 result.counter());
+        if (result.status() == TapResult.Status.OK) {
+            try {
+                listener.onVerifiedTap(result.uid(), result.counter());
+            } catch (RuntimeException e) {
+                // The tap itself is fine and its counter is already used; only the actions failed.
+                LOG.log(Level.ERROR, "could not start actions for tap " + result.uid() + ":" + result.counter(), e);
+            }
+        }
         send(exchange, result.status().httpStatus(), toJson(result));
     }
 
