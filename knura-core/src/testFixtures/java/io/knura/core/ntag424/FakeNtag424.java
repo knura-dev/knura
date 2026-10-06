@@ -77,7 +77,7 @@ public final class FakeNtag424 implements Transceiver {
             return concat(uid, new byte[] {(byte) 0x90, 0x00});
         }
         if (c[0] == 0x00 && c[1] == (byte) 0xA4) {
-            return select(Arrays.copyOfRange(c, 5, 7));
+            return select(c[2], Arrays.copyOfRange(c, 5, 5 + (c[4] & 0xFF)));
         }
         if (c[0] == 0x00 && c[1] == (byte) 0xB0) {
             return readBinary((c[2] & 0xFF) << 8 | (c[3] & 0xFF), c[4] & 0xFF);
@@ -102,14 +102,18 @@ public final class FakeNtag424 implements Transceiver {
         };
     }
 
-    private byte[] select(byte[] fid) {
-        if (Arrays.equals(fid, Hex.decode("E110"))) {
+    private byte[] select(byte p1, byte[] id) {
+        boolean byName = p1 == 0x04 && Arrays.equals(id, Hex.decode("D2760000850101"));
+        // Like the real tag, file ID E110 is only found from the card level, not from inside
+        // the application itself.
+        boolean byId = p1 == 0x00 && Arrays.equals(id, Hex.decode("E110")) && !appSelected;
+        if (byName || byId) {
             appSelected = true;
             ndefSelected = false;
             session = null;
             return sw(0x9000);
         }
-        if (Arrays.equals(fid, Hex.decode("E104")) && appSelected) {
+        if (p1 == 0x00 && Arrays.equals(id, Hex.decode("E104")) && appSelected) {
             ndefSelected = true;
             countedSinceSelect = false;
             return sw(0x9000);
