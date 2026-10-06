@@ -1,6 +1,7 @@
 package io.knura.core.crypto;
 
 import java.security.GeneralSecurityException;
+import java.util.Arrays;
 import javax.crypto.Cipher;
 import javax.crypto.spec.SecretKeySpec;
 
@@ -17,36 +18,38 @@ public final class AesCmac {
 
     /** Returns the full 16-byte CMAC of {@code message} under the 16-byte AES {@code key}. */
     public static byte[] mac(byte[] key, byte[] message) {
+        return mac(key, message, 1);
+    }
+
+    /**
+     * CMAC that pads {@code message} to at least {@code minBlocks} blocks. With {@code minBlocks}
+     * of 1 this is plain CMAC; AN10922 key diversification pads to 2 blocks.
+     */
+    static byte[] mac(byte[] key, byte[] message, int minBlocks) {
         requireKey(key);
         Cipher aes = ecbEncryptor(key);
         byte[] k1 = subkey(aes.update(new byte[BLOCK_SIZE]));
         byte[] k2 = subkey(k1);
 
-        int blocks = Math.max(1, (message.length + BLOCK_SIZE - 1) / BLOCK_SIZE);
-        boolean lastComplete = message.length > 0 && message.length % BLOCK_SIZE == 0;
-
-        byte[] last = new byte[BLOCK_SIZE];
-        int lastStart = (blocks - 1) * BLOCK_SIZE;
-        if (lastComplete) {
-            System.arraycopy(message, lastStart, last, 0, BLOCK_SIZE);
-            xorInto(last, k1);
-        } else {
-            int remaining = message.length - lastStart;
-            System.arraycopy(message, lastStart, last, 0, remaining);
-            last[remaining] = (byte) 0x80;
-            xorInto(last, k2);
+        int blocks = Math.max(minBlocks, (message.length + BLOCK_SIZE - 1) / BLOCK_SIZE);
+        byte[] padded = Arrays.copyOf(message, blocks * BLOCK_SIZE);
+        boolean complete = message.length == padded.length;
+        if (!complete) {
+            padded[message.length] = (byte) 0x80;
         }
 
         byte[] x = new byte[BLOCK_SIZE];
         byte[] y = new byte[BLOCK_SIZE];
-        for (int i = 0; i < blocks - 1; i++) {
+        for (int i = 0; i < blocks; i++) {
             for (int j = 0; j < BLOCK_SIZE; j++) {
-                y[j] = (byte) (x[j] ^ message[i * BLOCK_SIZE + j]);
+                y[j] = (byte) (x[j] ^ padded[i * BLOCK_SIZE + j]);
+            }
+            if (i == blocks - 1) {
+                xorInto(y, complete ? k1 : k2);
             }
             x = aes.update(y);
         }
-        xorInto(last, x);
-        return aes.update(last);
+        return x;
     }
 
     /**

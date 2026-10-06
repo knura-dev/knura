@@ -47,14 +47,24 @@ public record KnurdConfig(String host, int port, TagKeys keys, Path countersFile
                 perTag.put(uid, key(p, name));
             }
         }
+        byte[] master = optionalKey(p, "master.key");
         byte[] meta = optionalKey(p, "sdm.metaReadKey");
         byte[] shared = optionalKey(p, "sdm.fileReadKey");
-        if (shared == null && perTag.isEmpty()) {
-            throw new IllegalArgumentException("set sdm.fileReadKey or at least one sdm.fileReadKey.<UID>");
+        TagKeys keys;
+        if (master != null) {
+            if (meta != null || shared != null) {
+                throw new IllegalArgumentException(
+                        "master.key derives the SDM keys; remove sdm.metaReadKey and sdm.fileReadKey");
+            }
+            keys = TagKeys.derived(master, perTag);
+        } else if (shared == null && perTag.isEmpty()) {
+            throw new IllegalArgumentException("set master.key, sdm.fileReadKey or at least one sdm.fileReadKey.<UID>");
+        } else {
+            keys = new TagKeys(meta, shared, perTag);
         }
 
         Path counters = baseDir.resolve(p.getProperty("counters.file", "knurd-counters.properties").trim());
-        return new KnurdConfig(host, port, new TagKeys(meta, shared, perTag), counters);
+        return new KnurdConfig(host, port, keys, counters);
     }
 
     private static byte[] optionalKey(Properties p, String name) {

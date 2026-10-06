@@ -5,7 +5,7 @@ genuine tag, then trigger actions from it.
 
 | Module | What it is | Status |
 | --- | --- | --- |
-| `knura-core` | Crypto and NTAG 424 DNA logic, JDK only | SDM tap verifier |
+| `knura-core` | Crypto and NTAG 424 DNA logic, JDK only | SDM tap verifier, per-tag keys |
 | `knurctl` | Provisioning and management CLI | placeholder |
 | `knurd` | Verification daemon | HTTP tap endpoint with replay protection |
 
@@ -28,8 +28,17 @@ Requires JDK 21.
 Both return a `VerifiedTap` with the UID and read counter, or throw `SdmVerificationException`
 with reason `MALFORMED` or `BAD_MAC`. Rejecting replayed counters is up to the caller.
 
-Tests use NXP's published AN12196 example (all-zero keys) and RFC 4493 CMAC vectors. No real or
-development keys belong in this repository.
+`TagKeyDerivation` gives every tag its own keys, worked out from one master key and the tag's
+UID with NXP's AN10922 key diversification (`KeyDiversification.aes128`). If someone copies the
+keys out of one tag, the other tags stay safe, and a server needs only the master key, not a list
+of every tag's keys. Key slots: 0 app master key, 1 SDMMetaReadKey, 2 SDMFileReadKey (3 and 4
+spare). SDMMetaReadKey is the same for every tag under a master key, because the server needs it
+to decrypt a tap before it knows which tag sent it. It only hides the UID and counter: forging a
+tap still needs that tag's own SDMFileReadKey. The derivation is pinned by tests and must not
+change, or provisioned tags would stop verifying.
+
+Tests use NXP's published AN12196 example (all-zero keys), NXP's AN10922 example and RFC 4493
+CMAC vectors. No real or development keys belong in this repository.
 
 ## knurd
 
@@ -49,6 +58,18 @@ curl 'http://127.0.0.1:8424/tap?e=EF963FF7828658A599F3041510671E88&c=94EED9EE653
 # {"status":"ok","uid":"04DE5F1EACC040","counter":61}
 curl 'http://127.0.0.1:8424/tap?e=EF963FF7828658A599F3041510671E88&c=94EED9EE65337086'
 # {"status":"replay","uid":"04DE5F1EACC040","counter":61,"detail":"counter already used"}
+```
+
+To have knurd work out each tag's keys from a master key instead, set `master.key` in place of
+`sdm.metaReadKey` and `sdm.fileReadKey`. With NXP's AN10922 example master key:
+
+```sh
+printf 'master.key=00112233445566778899AABBCCDDEEFF\n' > knurd.properties
+rm -f knurd-counters.properties   # the example above already used up this tag's counters
+./gradlew :knurd:run
+# in another terminal:
+curl 'http://127.0.0.1:8424/tap?e=F5D049F6CEC31568AFAA3409EC06A9E8&c=53D5EC307125E7A6'
+# {"status":"ok","uid":"04DE5F1EACC040","counter":1}
 ```
 
 | Request | Meaning |
