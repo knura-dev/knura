@@ -8,7 +8,8 @@ genuine tag, then trigger actions from it.
 | `knura-core` | Crypto and NTAG 424 DNA logic, JDK only | SDM tap verifier, per-tag keys, tag commands |
 | `knurctl` | Provisioning and management CLI | sets up NTAG 424 DNA tags over a PC/SC reader |
 | `knurd` | Verification daemon | HTTP tap endpoint with replay protection |
-| `knurgn` | Actions engine (knurgN) | signed webhooks for verified taps |
+| `knurgn` | Actions engine (knurgN) | signed webhooks and the Matter bridge connector |
+| `knurgn-matter` | Matter bridge (Node.js, matter.js) | knots as contact sensors in Apple Home, Google Home, Alexa |
 
 ## Build
 
@@ -176,5 +177,9 @@ Rules:
   1, 2, 4... seconds; other answers are final. An action that hasn't gone through 30 seconds
   after the tap is dropped rather than run late. Each action is logged as delivered, refused or
   expired.
+- The **Matter bridge** connector (`matter.<id>.url`) sends the same signed event to
+  [knurgn-matter](knurgn-matter/README.md) on this computer, which shows each knot as a contact
+  sensor in Apple Home, Google Home, Alexa and SmartThings. A tap opens the sensor for a few
+  seconds; a routine in the app does the rest. Its address must be on this computer.
 - Not yet: sensitive actions (locks, garage, alarm), a saved outbox that survives a restart, and
   encrypting the secrets file. See the knurgN connectors design.

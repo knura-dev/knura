@@ -1,0 +1,19 @@
+{
+  "name": "knurgn-matter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Matter bridge for knurgN: each knot appears as a contact sensor in Apple Home, Google Home, Alexa and SmartThings",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "src/main.js",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "start": "node src/main.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@matter/main": "0.17.9"
+  }
+}

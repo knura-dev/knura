@@ -13,3 +13,8 @@ knurd-counters.properties
 # Local knurgN rules and webhook secrets.
 knurgn.properties
 knurgn-secrets.properties
+# knurgn-matter: local config, shared secret, Matter keys and dependencies.
+knurgn-matter.properties
+knurgn-matter-secret
+knurgn-matter-storage/
+node_modules/

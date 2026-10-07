@@ -31,10 +31,12 @@ import java.util.regex.Pattern;
  * knot.042D6B02936980.name=desk-candle
  * knot.042D6B02936980.actions=desk-webhook
  * webhook.desk-webhook.url=http://127.0.0.1:8425/knura
+ * matter.home.url=http://127.0.0.1:5541/tap
  * secrets.file=knurgn-secrets.properties
  *
  * # knurgn-secrets.properties (chmod 600)
  * desk-webhook=whsec_...
+ * home=whsec_...
  * </pre>
  *
  * Names and ids may use letters, digits, {@code .}, {@code _} and {@code -}. Unknown settings are
@@ -74,15 +76,22 @@ public final class KnurgnConfig {
                 knotNames.put(uid(parts[1]), name(key, value));
             } else if (parts.length == 3 && parts[0].equals("knot") && parts[2].equals("actions")) {
                 knotActions.put(uid(parts[1]), value);
-            } else if (parts.length == 3 && parts[0].equals("webhook") && parts[2].equals("url")) {
+            } else if (parts.length == 3 && (parts[0].equals("webhook") || parts[0].equals("matter"))
+                    && parts[2].equals("url")) {
+                String type = parts[0];
                 String id = name(key, parts[1]);
                 String secret = secrets.getProperty(id);
                 if (secret == null) {
-                    throw new IllegalArgumentException("no secret for webhook " + id + ": add " + id
+                    throw new IllegalArgumentException("no secret for " + type + " " + id + ": add " + id
                             + "=whsec_... to " + secretsName);
                 }
-                connectors.put(id, new WebhookConnector(
-                        id, uri(key, value), WebhookSignature.parseSecret(id, secret), clock));
+                Secret parsed = WebhookSignature.parseSecret(id, secret);
+                Connector connector = type.equals("matter")
+                        ? new MatterConnector(id, uri(key, value), parsed, clock)
+                        : new WebhookConnector(id, uri(key, value), parsed, clock);
+                if (connectors.put(id, connector) != null) {
+                    throw new IllegalArgumentException("two connectors are named " + id);
+                }
             } else if (key.endsWith(".secret")) {
                 throw new IllegalArgumentException(
                         key + ": secrets don't belong in this file; put them in " + secretsName);
@@ -93,7 +102,7 @@ public final class KnurgnConfig {
         for (String id : secrets.stringPropertyNames()) {
             if (!connectors.containsKey(id)) {
                 throw new IllegalArgumentException(secretsName + " has a secret for " + id
-                        + ", but there is no webhook." + id + ".url");
+                        + ", but there is no webhook." + id + ".url or matter." + id + ".url");
             }
         }
         for (String uid : knotNames.keySet()) {
