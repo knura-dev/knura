@@ -11,6 +11,8 @@ genuine tag, then trigger actions from it.
 | `knurgn` | Actions engine (knurgN) | signed webhooks and the Matter bridge connector |
 | `knurgn-matter` | Matter bridge (Node.js, matter.js) | knots as contact sensors in Apple Home, Google Home, Alexa |
 
+The knura.io website lives in [`site/`](site/README.md), with steps to host it on AWS.
+
 ## Build
 
 Requires JDK 21.
