@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <style>.c{fill:none;stroke:#E06B12;stroke-width:2.5}.k{fill:#14202B}@media (prefers-color-scheme:dark){.c{stroke:#F28C3A}.k{fill:#E5ECF0}}</style>
+  <rect class="c" x="2" y="2" width="28" height="28" rx="7"/>
+  <rect class="c" x="8" y="8" width="16" height="16" rx="3.5"/>
+  <rect class="k" x="13" y="13" width="6" height="6" rx="1"/>
+</svg>
