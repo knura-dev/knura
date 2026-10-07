@@ -1,5 +1,6 @@
 package io.knura.knurd;
 
+import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -9,6 +10,7 @@ import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 
@@ -18,9 +20,15 @@ import java.util.concurrent.Executors;
  * <ul>
  *   <li>{@code GET /tap?e=..&c=..} or {@code GET /tap?uid=..&ctr=..&c=..}: verify a tap. Returns
  *       JSON {@code {"status":"ok","uid":"..","counter":61}} with HTTP 200, or a failure status
- *       ({@code malformed} 400, {@code rejected} 403, {@code replay} 409).
+ *       ({@code malformed} 400, {@code rejected} 403, {@code replay} 409). A browser (one that
+ *       asks for {@code text/html}, as a phone does when it opens a tag's link) gets a
+ *       {@link TapPage} with the same HTTP status instead.
  *   <li>{@code GET /health}: {@code {"status":"up"}}.
  * </ul>
+ *
+ * <p>Everything here is meant to be reachable from the internet, through an HTTPS tunnel or
+ * reverse proxy, so phones can open tap links. Anything for administrators belongs on a separate
+ * listener that is never exposed.
  *
  * <p>Only a tap that comes back {@code ok} is passed on to the {@link TapListener} (knurgN), so
  * malformed, forged and replayed taps can never start an action.
@@ -35,12 +43,16 @@ public final class KnurdServer implements AutoCloseable {
     /** Hears about taps that verified and were seen for the first time. */
     @FunctionalInterface
     public interface TapListener {
-        /** Must return quickly; the phone is waiting for its answer. */
-        void onVerifiedTap(String uid, int counter);
+        /**
+         * Must return quickly; the phone is waiting for its answer.
+         *
+         * @return how many actions the tap started, shown on the phone
+         */
+        int onVerifiedTap(String uid, int counter);
     }
 
     public KnurdServer(String host, int port, TapVerifier verifier) throws IOException {
-        this(host, port, verifier, (uid, counter) -> {});
+        this(host, port, verifier, (uid, counter) -> 0);
     }
 
     public KnurdServer(String host, int port, TapVerifier verifier, TapListener listener) throws IOException {
@@ -51,7 +63,7 @@ public final class KnurdServer implements AutoCloseable {
         server.createContext("/tap", this::handleTap);
         server.createContext("/health", exchange -> {
             if (allowGet(exchange)) {
-                send(exchange, 200, "{\"status\":\"up\"}");
+                sendJson(exchange, 200, "{\"status\":\"up\"}");
             }
         });
     }
@@ -74,6 +86,7 @@ public final class KnurdServer implements AutoCloseable {
         if (!allowGet(exchange) || !exactPath(exchange, "/tap")) {
             return;
         }
+        boolean html = wantsHtml(exchange);
         TapResult result;
         Map<String, String> params = parseQuery(exchange.getRequestURI().getRawQuery());
         if (params == null) {
@@ -83,7 +96,11 @@ public final class KnurdServer implements AutoCloseable {
                 result = verifier.verify(params);
             } catch (RuntimeException e) {
                 LOG.log(Level.ERROR, "tap verification failed", e);
-                send(exchange, 500, "{\"status\":\"error\"}");
+                if (html) {
+                    sendHtml(exchange, 500, TapPage.error());
+                } else {
+                    sendJson(exchange, 500, "{\"status\":\"error\"}");
+                }
                 return;
             }
         }
@@ -93,15 +110,30 @@ public final class KnurdServer implements AutoCloseable {
                 result.status().jsonName(),
                 result.uid() == null ? "-" : result.uid(),
                 result.counter());
+        int actionsStarted = 0;
         if (result.status() == TapResult.Status.OK) {
             try {
-                listener.onVerifiedTap(result.uid(), result.counter());
+                actionsStarted = listener.onVerifiedTap(result.uid(), result.counter());
             } catch (RuntimeException e) {
                 // The tap itself is fine and its counter is already used; only the actions failed.
                 LOG.log(Level.ERROR, "could not start actions for tap " + result.uid() + ":" + result.counter(), e);
             }
         }
-        send(exchange, result.status().httpStatus(), toJson(result));
+        if (html) {
+            sendHtml(exchange, result.status().httpStatus(), TapPage.render(result, actionsStarted));
+        } else {
+            sendJson(exchange, result.status().httpStatus(), toJson(result));
+        }
+    }
+
+    /** Browsers list text/html in Accept; curl and HTTP libraries normally don't. */
+    static boolean wantsHtml(HttpExchange exchange) {
+        for (String accept : exchange.getRequestHeaders().getOrDefault("Accept", List.of())) {
+            if (accept.contains("text/html")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static String toJson(TapResult r) {
@@ -162,7 +194,7 @@ public final class KnurdServer implements AutoCloseable {
             return true;
         }
         exchange.getResponseHeaders().set("Allow", "GET");
-        send(exchange, 405, "{\"status\":\"method_not_allowed\"}");
+        sendJson(exchange, 405, "{\"status\":\"method_not_allowed\"}");
         return false;
     }
 
@@ -170,14 +202,30 @@ public final class KnurdServer implements AutoCloseable {
         if (path.equals(exchange.getRequestURI().getPath())) {
             return true;
         }
-        send(exchange, 404, "{\"status\":\"not_found\"}");
+        sendJson(exchange, 404, "{\"status\":\"not_found\"}");
         return false;
     }
 
-    private static void send(HttpExchange exchange, int status, String json) throws IOException {
-        byte[] body = json.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", "application/json");
-        exchange.getResponseHeaders().set("Cache-Control", "no-store");
+    private static void sendJson(HttpExchange exchange, int status, String json) throws IOException {
+        send(exchange, status, "application/json", json);
+    }
+
+    private static void sendHtml(HttpExchange exchange, int status, String html) throws IOException {
+        exchange.getResponseHeaders().set("Content-Security-Policy", TapPage.CONTENT_SECURITY_POLICY);
+        send(exchange, status, "text/html; charset=utf-8", html);
+    }
+
+    private static void send(HttpExchange exchange, int status, String contentType, String content)
+            throws IOException {
+        byte[] body = content.getBytes(StandardCharsets.UTF_8);
+        Headers headers = exchange.getResponseHeaders();
+        headers.set("Content-Type", contentType);
+        headers.set("Cache-Control", "no-store");
+        headers.set("X-Content-Type-Options", "nosniff");
+        // Tap links carry a MAC; keep them out of Referer headers and other sites' frames.
+        headers.set("Referrer-Policy", "no-referrer");
+        headers.set("X-Frame-Options", "DENY");
+        headers.set("X-Robots-Tag", "noindex");
         exchange.sendResponseHeaders(status, body.length);
         try (OutputStream out = exchange.getResponseBody()) {
             out.write(body);

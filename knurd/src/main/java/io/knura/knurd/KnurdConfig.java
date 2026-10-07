@@ -3,6 +3,8 @@ package io.knura.knurd;
 import io.knura.core.crypto.Hex;
 import java.io.IOException;
 import java.io.Reader;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -14,9 +16,11 @@ import java.util.Properties;
 /**
  * knurd settings, read from a properties file. See {@code knurd.example.properties} for every
  * key. Keys are 32 hex digits; tag UIDs in key names are matched case-insensitively.
- * {@code actionsFile} is null when no knurgN actions are set up.
+ * {@code actionsFile} is null when no knurgN actions are set up. {@code publicUrl} is the HTTPS
+ * address phones use to reach knurd, without a trailing slash, or null when it is not set.
  */
-public record KnurdConfig(String host, int port, TagKeys keys, Path countersFile, Path actionsFile) {
+public record KnurdConfig(
+        String host, int port, TagKeys keys, Path countersFile, Path actionsFile, String publicUrl) {
     public static final String DEFAULT_HOST = "127.0.0.1";
     public static final int DEFAULT_PORT = 8424;
 
@@ -66,7 +70,43 @@ public record KnurdConfig(String host, int port, TagKeys keys, Path countersFile
 
         Path counters = baseDir.resolve(p.getProperty("counters.file", "knurd-counters.properties").trim());
         String actions = p.getProperty("actions.file", "").trim();
-        return new KnurdConfig(host, port, keys, counters, actions.isEmpty() ? null : baseDir.resolve(actions));
+        return new KnurdConfig(
+                host,
+                port,
+                keys,
+                counters,
+                actions.isEmpty() ? null : baseDir.resolve(actions),
+                publicUrl(p.getProperty("public.url", "").trim()));
+    }
+
+    /**
+     * Checks {@code public.url}: phones refuse to trust a plain http tap page, and a tap link
+     * sent in clear can be read on the way, so it must be https unless it is this computer.
+     */
+    static String publicUrl(String value) {
+        if (value.isEmpty()) {
+            return null;
+        }
+        URI uri;
+        try {
+            uri = new URI(value);
+        } catch (URISyntaxException e) {
+            throw new IllegalArgumentException("public.url is not a valid URL: " + value, e);
+        }
+        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+        if (uri.getHost() == null || uri.getRawQuery() != null || uri.getRawFragment() != null
+                || !(scheme.equals("https") || scheme.equals("http"))) {
+            throw new IllegalArgumentException(
+                    "public.url must look like https://your-computer.your-tailnet.ts.net: " + value);
+        }
+        if (scheme.equals("http") && !isLoopback(uri.getHost())) {
+            throw new IllegalArgumentException("public.url must start with https:// (got " + value + ")");
+        }
+        return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
+    }
+
+    private static boolean isLoopback(String host) {
+        return host.equals("localhost") || host.equals("127.0.0.1") || host.equals("[::1]");
     }
 
     private static byte[] optionalKey(Properties p, String name) {

@@ -52,6 +52,12 @@ public final class Main {
         System.out.printf(
                 "knurd listening on http://%s:%d (counters in %s)%n",
                 config.host(), server.port(), config.countersFile());
+        if (config.publicUrl() != null) {
+            System.out.printf("Phones reach knurd at %s/tap%n", config.publicUrl());
+        } else {
+            System.out.println("public.url is not set, so phones can't reach knurd yet"
+                    + " (see knurd.example.properties).");
+        }
         if (knurgn != null) {
             System.out.printf("knurgN: %d knot(s) with actions, from %s%n", knurgn.knotCount(), config.actionsFile());
         }

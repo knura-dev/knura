@@ -42,7 +42,10 @@ class TapActionsTest {
     void onlyOkTapsReachTheListener() throws Exception {
         List<String> heard = new CopyOnWriteArrayList<>();
         TapVerifier verifier = new TapVerifier(new TagKeys(ZERO_KEY, ZERO_KEY, Map.of()), new MemoryCounterStore());
-        try (KnurdServer server = new KnurdServer("127.0.0.1", 0, verifier, (uid, ctr) -> heard.add(uid + ":" + ctr))) {
+        try (KnurdServer server = new KnurdServer("127.0.0.1", 0, verifier, (uid, ctr) -> {
+            heard.add(uid + ":" + ctr);
+            return 0;
+        })) {
             server.start();
             get(server, "/tap?" + Taps.query(Taps.AN12196)); // ok
             get(server, "/tap?" + Taps.query(Taps.AN12196)); // replay

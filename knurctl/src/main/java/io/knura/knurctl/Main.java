@@ -13,6 +13,7 @@ import io.knura.knurctl.PcscReader.ReaderException;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.Reader;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
@@ -44,8 +45,8 @@ public final class Main {
 
             options:
               --config FILE         settings file holding master.key (default knurd.properties)
-              --base-url URL        provision: where taps go (default http://127.0.0.1:8424/tap,
-                                    using listen.port from the settings file)
+              --base-url URL        provision: where taps go (default public.url + /tap from the
+                                    settings file, else http://127.0.0.1:<listen.port>/tap)
               --from SOURCE         the keys the tag has now: factory (provision default),
                                     knura (set up by Knura with this master key; reset default),
                                     or a file with key0= to key4= lines
@@ -144,6 +145,9 @@ public final class Main {
                 # reset with a backup of this file.
                 listen.host=127.0.0.1
                 listen.port=8424
+                # The HTTPS address phones use to reach knurd, e.g. a Tailscale Funnel name.
+                # knurctl provision writes <public.url>/tap onto tags.
+                #public.url=https://your-computer.your-tailnet.ts.net
                 master.key=%s
                 counters.file=knurd-counters.properties
                 """.formatted(Hex.encode(master));
@@ -216,6 +220,11 @@ public final class Main {
             out.println();
             out.println("To check it with knurd (start knurd first):");
             out.println("  curl '" + result.tapUrl() + "'");
+            if (isLocalOnly(layout.baseUrl())) {
+                out.println();
+                out.println("Phones can't open " + layout.baseUrl() + ". To tap with a phone, set public.url in "
+                        + configPath() + " and provision again with --from knura.");
+            }
         }
     }
 
@@ -345,8 +354,17 @@ public final class Main {
     }
 
     private String defaultBaseUrl() throws IOException {
+        String publicUrl = config().getProperty("public.url", "").trim();
+        if (!publicUrl.isEmpty()) {
+            return (publicUrl.endsWith("/") ? publicUrl.substring(0, publicUrl.length() - 1) : publicUrl) + "/tap";
+        }
         String port = config().getProperty("listen.port", "8424").trim();
         return "http://127.0.0.1:" + port + "/tap";
+    }
+
+    private static boolean isLocalOnly(String baseUrl) {
+        String host = URI.create(baseUrl).getHost();
+        return host == null || host.equals("localhost") || host.startsWith("127.") || host.equals("[::1]");
     }
 
     /** Bad command line or settings. */

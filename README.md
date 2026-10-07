@@ -63,8 +63,9 @@ knurctl tap         # read the tag like a phone does and check the URL
 ```
 
 `provision` writes a tap URL `<base>?e=<encrypted UID and counter>&c=<MAC>`, which knurd verifies
-with the same `master.key`. The base defaults to `http://127.0.0.1:8424/tap` (local knurd); set
-another with `--base-url`. It gives the tag Knura's keys (see `TagKeyDerivation`): anyone may
+with the same `master.key`. The base defaults to `<public.url>/tap` when `public.url` is set (see
+"Tapping with a phone" below), else `http://127.0.0.1:8424/tap` (local knurd); set another with
+`--base-url`. It gives the tag Knura's keys (see `TagKeyDerivation`): anyone may
 read the URL, but only key 0 can rewrite it or change settings. It finishes by reading the tag back
 and checking the URL. Other commands: `info` (UID, URL and whose keys the tag has) and `reset`
 (back to factory keys).
@@ -112,10 +113,28 @@ curl 'http://127.0.0.1:8424/tap?e=F5D049F6CEC31568AFAA3409EC06A9E8&c=53D5EC30712
 | `GET /health` | `{"status":"up"}` |
 
 `/tap` answers with JSON and one of: `ok` (200), `malformed` (400), `rejected` (403: bad MAC or
-unknown tag), `replay` (409). `knurd.properties` and the counters file are git-ignored; set your
-own keys there. For now the MAC must cover an empty input (SDMMACInputOffset equal to
-SDMMACOffset). knurd listens on 127.0.0.1 by default; phones need to reach it over HTTPS, so put
-a reverse proxy in front of it.
+unknown tag), `replay` (409). A browser, which is what a phone opens a tag's link in, gets a
+small page with the same status instead ("Tap verified", "Link already used"...). The page has no
+scripts and a strict Content-Security-Policy. `knurd.properties` and the counters file are
+git-ignored; set your own keys there. For now the MAC must cover an empty input
+(SDMMACInputOffset equal to SDMMACOffset).
+
+### Tapping with a phone
+
+knurd listens on 127.0.0.1, which phones can't reach. Put an HTTPS tunnel or reverse proxy in
+front of it and tell Knura its address with `public.url` in `knurd.properties`. On a home
+computer, [Tailscale Funnel](https://tailscale.com/kb/1223/funnel) is free, needs no domain or
+router changes, and gives a fixed `https://<computer>.<tailnet>.ts.net` address:
+
+```sh
+sudo tailscale funnel --bg 8424
+echo 'public.url=https://<computer>.<tailnet>.ts.net' >> knurd.properties
+knurctl provision --from knura    # rewrites the tag's link to <public.url>/tap
+```
+
+The address is written onto tags, so it has to stay the same: a tunnel that changes address on
+every start (such as a Cloudflare quick tunnel) would break every tag. knurd serves only `/tap`
+and `/health`, both meant to be public.
 
 ## knurgn
 
