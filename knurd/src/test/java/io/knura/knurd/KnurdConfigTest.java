@@ -31,6 +31,18 @@ class KnurdConfigTest {
     }
 
     @Test
+    void publicUrlMustBeHttpsUnlessLocal() {
+        assertNull(KnurdConfig.publicUrl(""));
+        assertEquals("https://desk.tail1234.ts.net", KnurdConfig.publicUrl("https://desk.tail1234.ts.net/"));
+        assertEquals("https://example.org/knura", KnurdConfig.publicUrl("https://example.org/knura"));
+        assertEquals("http://localhost:8424", KnurdConfig.publicUrl("http://localhost:8424"));
+        assertThrows(IllegalArgumentException.class, () -> KnurdConfig.publicUrl("http://desk.tail1234.ts.net"));
+        assertThrows(IllegalArgumentException.class, () -> KnurdConfig.publicUrl("desk.tail1234.ts.net"));
+        assertThrows(IllegalArgumentException.class, () -> KnurdConfig.publicUrl("https://example.org/?a=1"));
+        assertThrows(IllegalArgumentException.class, () -> KnurdConfig.publicUrl("ftp://example.org"));
+    }
+
+    @Test
     void actionsFileIsRelativeToConfig() {
         Properties p = new Properties();
         p.setProperty("master.key", "00112233445566778899AABBCCDDEEFF");
