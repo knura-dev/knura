@@ -53,7 +53,20 @@ class KnurgnConfigTest {
     }
 
     @Test
+    void buildsMatterConnector() {
+        Properties rules = rules();
+        rules.setProperty("knot.042D6B02936980.actions", "a,home");
+        rules.setProperty("matter.home.url", "http://127.0.0.1:5541/tap");
+        Properties secrets = secrets();
+        secrets.setProperty("home", SECRET);
+        Knot knot = KnurgnConfig.knots(rules, secrets, "s", Clock.systemUTC()).get(0);
+        assertEquals(List.of("webhook", "matter"), knot.actions().stream().map(Connector::type).toList());
+    }
+
+    @Test
     void rejectsMistakes() {
+        assertBad("matter.a.url", "http://127.0.0.1:5541/tap", "two connectors are named a");
+        assertBad("matter.home.url", "http://127.0.0.1:5541/tap", "no secret for matter home");
         assertBad("knot.042D6B02936980.actions", "nope", "no connector named");
         assertBad("knot.042D6B0293698.actions", "a", "14 hex digits");
         assertBad("knot.042D6B02936980.name", "desk candle", "letters, digits");
