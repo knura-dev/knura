@@ -1,6 +1,9 @@
 package io.knura.knurd;
 
 import io.knura.core.crypto.Hex;
+import io.knura.core.resolver.OwnerIds;
+import io.knura.core.resolver.OwnerKey;
+import io.knura.core.resolver.ResolverClient;
 import java.io.IOException;
 import java.io.Reader;
 import java.net.URI;
@@ -18,13 +21,27 @@ import java.util.Properties;
  * key. Keys are 32 hex digits; tag UIDs in key names are matched case-insensitively.
  * {@code actionsFile} is null when no knurgN actions are set up. {@code publicUrl} is the HTTPS
  * address phones use to reach knurd, without a trailing slash, or null when it is not set.
+ * {@code resolver} is null unless this knurd is registered with a tap resolver such as
+ * tap.knura.io ({@code knurctl resolver register}).
  */
 public record KnurdConfig(
-        String host, int port, TagKeys keys, Path countersFile, Path actionsFile, String publicUrl) {
+        String host,
+        int port,
+        TagKeys keys,
+        Path countersFile,
+        Path actionsFile,
+        String publicUrl,
+        Resolver resolver) {
     public static final String DEFAULT_HOST = "127.0.0.1";
     public static final int DEFAULT_PORT = 8424;
 
     private static final String FILE_KEY_PREFIX = "sdm.fileReadKey.";
+
+    /**
+     * The tap resolver this knurd is registered with: its URL, this knurd's owner ID there, and
+     * the owner's public key, which every record the resolver serves must be signed with.
+     */
+    public record Resolver(String url, String owner, String publicKey) {}
 
     public static KnurdConfig load(Path file) throws IOException {
         Properties p = new Properties();
@@ -70,13 +87,45 @@ public record KnurdConfig(
 
         Path counters = baseDir.resolve(p.getProperty("counters.file", "knurd-counters.properties").trim());
         String actions = p.getProperty("actions.file", "").trim();
+        String publicUrl = publicUrl(p.getProperty("public.url", "").trim());
         return new KnurdConfig(
                 host,
                 port,
                 keys,
                 counters,
                 actions.isEmpty() ? null : baseDir.resolve(actions),
-                publicUrl(p.getProperty("public.url", "").trim()));
+                publicUrl,
+                resolver(p, publicUrl));
+    }
+
+    /** The resolver.* settings knurctl resolver register writes, or null if there are none. */
+    static Resolver resolver(Properties p, String publicUrl) {
+        String owner = p.getProperty("resolver.owner", "").trim();
+        if (owner.isEmpty()) {
+            return null;
+        }
+        if (!OwnerIds.isValid(owner)) {
+            throw new IllegalArgumentException("resolver.owner must be 10 characters from a-z and 2-9: " + owner);
+        }
+        if (publicUrl == null) {
+            throw new IllegalArgumentException("resolver.owner needs public.url: the address the resolver sends taps to");
+        }
+        String url = p.getProperty("resolver.url", ResolverClient.DEFAULT_URL).trim();
+        try {
+            url = new ResolverClient(url).baseUrl();
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("resolver.url: " + e.getMessage(), e);
+        }
+        String publicKey = p.getProperty("resolver.publicKey", "").trim();
+        if (!publicKey.matches("[0-9a-fA-F]{64}")) {
+            throw new IllegalArgumentException("resolver.publicKey must be 64 hex digits");
+        }
+        String seed = p.getProperty("resolver.key", "").trim();
+        if (!seed.isEmpty()) {
+            // knurd never signs; this only catches a resolver.key pasted from another owner.
+            OwnerKey.load(seed, publicKey);
+        }
+        return new Resolver(url, owner, publicKey.toLowerCase(Locale.ROOT));
     }
 
     /**

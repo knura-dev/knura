@@ -10,6 +10,7 @@ genuine tag, then trigger actions from it.
 | `knurd` | Verification daemon | HTTP tap endpoint with replay protection |
 | `knurgn` | Actions engine (knurgN) | signed webhooks and the Matter bridge connector |
 | `knurgn-matter` | Matter bridge (Node.js, matter.js) | knots as contact sensors in Apple Home, Google Home, Alexa |
+| `knura-resolver` | tap.knura.io (Node.js, AWS Lambda) | forwards taps to the owner's knurd, so tags survive a move |
 
 The knura.io website lives in [`site/`](site/README.md), with steps to host it on AWS.
 
@@ -136,8 +137,28 @@ knurctl provision --from knura    # rewrites the tag's link to <public.url>/tap
 ```
 
 The address is written onto tags, so it has to stay the same: a tunnel that changes address on
-every start (such as a Cloudflare quick tunnel) would break every tag. knurd serves only `/tap`
-and `/health`, both meant to be public.
+every start (such as a Cloudflare quick tunnel) would break every tag. knurd serves only `/tap`,
+`/health` and `/.well-known/knura-owner`, all meant to be public.
+
+### Tags that survive a move: tap.knura.io
+
+Register with the tap resolver and tags carry `https://tap.knura.io/<owner>?e=...&c=...`
+instead of your own address. The resolver sends each tap on to the server you registered, so
+moving knurd means registering the new address, not rewriting every tag:
+
+```sh
+knurctl resolver register   # first time: creates your owner ID and key in knurd.properties
+# restart knurd, then:
+knurctl resolver register   # tap.knura.io now forwards to public.url
+knurctl provision --from knura
+knurctl resolver check      # any time: where do my taps go?
+```
+
+The resolver only forwards. It holds no tag keys, can't read the encrypted UID and can't make a
+tap knurd would accept; knurd still checks every tap. Only your `resolver.key` can move your
+taps, knurd checks every 6 hours that they still come to it, and you can always skip the
+resolver with `--base-url`. Details, the security model and AWS hosting steps:
+[knura-resolver/README.md](knura-resolver/README.md).
 
 ## knurgn
 
