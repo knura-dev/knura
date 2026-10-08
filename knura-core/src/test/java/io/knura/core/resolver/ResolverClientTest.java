@@ -108,4 +108,22 @@ class ResolverClientTest {
         assertEquals(ResolverCheck.Status.BAD_SIGNATURE, result.status());
         assertEquals("https://evil.example.com", result.server());
     }
+
+    @Test
+    void explainsConnectionFailuresInWords() {
+        java.net.ConnectException noName = new java.net.ConnectException();
+        noName.initCause(new java.nio.channels.UnresolvedAddressException());
+        assertTrue(ResolverClient.reason(noName).contains("DNS"));
+        assertTrue(ResolverClient.reason(new java.net.ConnectException()).equals("ConnectException"));
+        IOException wrapped = new IOException(null, new java.net.ConnectException("Connection refused"));
+        assertEquals("Connection refused", ResolverClient.reason(wrapped));
+        assertTrue(ResolverClient.reason(new javax.net.ssl.SSLHandshakeException("bad cert")).contains("certificate"));
+    }
+
+    @Test
+    void unreachableResolverSaysWhy() {
+        ResolverClient nowhere = new ResolverClient("https://does-not-exist.invalid");
+        IOException e = assertThrows(IOException.class, () -> nowhere.fetch(OWNER));
+        assertFalse(e.getMessage().endsWith("null"), e.getMessage());
+    }
 }

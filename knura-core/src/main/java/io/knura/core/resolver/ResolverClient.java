@@ -3,12 +3,16 @@ package io.knura.core.resolver;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.UnknownHostException;
+import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.channels.UnresolvedAddressException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Optional;
+import javax.net.ssl.SSLException;
 
 /**
  * Talks to a tap resolver such as {@code https://tap.knura.io}: reads an owner's record and
@@ -80,8 +84,32 @@ public final class ResolverClient {
             Thread.currentThread().interrupt();
             throw new IOException("interrupted while talking to " + baseUrl, e);
         } catch (IOException e) {
-            throw new IOException("could not reach " + baseUrl + ": " + e.getMessage(), e);
+            throw new IOException("could not reach " + baseUrl + ": " + reason(e), e);
         }
+    }
+
+    /**
+     * Why a connection failed, in words. The JDK's HTTP client often throws a ConnectException
+     * with no message at all, with the real cause (such as an unknown host name) underneath.
+     */
+    static String reason(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof UnresolvedAddressException || t instanceof UnknownHostException) {
+                return "this computer can't find that name (DNS); check the domain's DNS record";
+            }
+            if (t instanceof HttpConnectTimeoutException) {
+                return "timed out connecting";
+            }
+            if (t instanceof SSLException) {
+                return "secure connection failed (" + t.getMessage() + "); check the domain's certificate";
+            }
+        }
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t.getMessage() != null && !t.getMessage().isBlank()) {
+                return t.getMessage();
+            }
+        }
+        return e.getClass().getSimpleName();
     }
 
     private URI ownerUri(String owner) {
