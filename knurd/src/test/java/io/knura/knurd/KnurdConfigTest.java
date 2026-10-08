@@ -103,4 +103,54 @@ class KnurdConfigTest {
         badMaster.setProperty("master.key", "0011");
         assertThrows(IllegalArgumentException.class, () -> KnurdConfig.fromProperties(badMaster, dir));
     }
+
+    private static Properties withResolver() {
+        Properties p = new Properties();
+        p.setProperty("master.key", "00112233445566778899AABBCCDDEEFF");
+        p.setProperty("public.url", "https://fedora.tail113e80.ts.net");
+        p.setProperty("resolver.owner", "zk7hq4m2xa");
+        p.setProperty("resolver.publicKey", "D75A980182B10AB7D54BFED3C964073A0EE172F3DAA62325AF021A68F707511A");
+        p.setProperty("resolver.key", "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
+        return p;
+    }
+
+    @Test
+    void resolverSettings() {
+        Properties plain = withResolver();
+        plain.remove("resolver.owner");
+        assertNull(KnurdConfig.fromProperties(plain, dir).resolver());
+
+        KnurdConfig.Resolver resolver = KnurdConfig.fromProperties(withResolver(), dir).resolver();
+        assertEquals(new KnurdConfig.Resolver(
+                "https://tap.knura.io",
+                "zk7hq4m2xa",
+                "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"), resolver);
+
+        Properties local = withResolver();
+        local.setProperty("resolver.url", "http://127.0.0.1:8425/");
+        assertEquals("http://127.0.0.1:8425", KnurdConfig.fromProperties(local, dir).resolver().url());
+    }
+
+    @Test
+    void rejectsBadResolverSettings() {
+        Properties noPublicUrl = withResolver();
+        noPublicUrl.remove("public.url");
+        assertThrows(IllegalArgumentException.class, () -> KnurdConfig.fromProperties(noPublicUrl, dir));
+
+        Properties badOwner = withResolver();
+        badOwner.setProperty("resolver.owner", "../admin");
+        assertThrows(IllegalArgumentException.class, () -> KnurdConfig.fromProperties(badOwner, dir));
+
+        Properties plainHttp = withResolver();
+        plainHttp.setProperty("resolver.url", "http://tap.knura.io");
+        assertThrows(IllegalArgumentException.class, () -> KnurdConfig.fromProperties(plainHttp, dir));
+
+        Properties mismatched = withResolver();
+        mismatched.setProperty("resolver.publicKey", "00".repeat(32));
+        assertThrows(IllegalArgumentException.class, () -> KnurdConfig.fromProperties(mismatched, dir));
+
+        Properties noKey = withResolver();
+        noKey.remove("resolver.publicKey");
+        assertThrows(IllegalArgumentException.class, () -> KnurdConfig.fromProperties(noKey, dir));
+    }
 }

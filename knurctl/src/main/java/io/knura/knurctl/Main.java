@@ -7,6 +7,11 @@ import io.knura.core.ntag424.Ntag424Exception;
 import io.knura.core.ntag424.TapUrlLayout;
 import io.knura.core.provision.TagKeySet;
 import io.knura.core.provision.TagProvisioner;
+import io.knura.core.resolver.OwnerIds;
+import io.knura.core.resolver.OwnerKey;
+import io.knura.core.resolver.OwnerRecord;
+import io.knura.core.resolver.ResolverCheck;
+import io.knura.core.resolver.ResolverClient;
 import io.knura.core.sdm.SdmVerificationException;
 import io.knura.core.sdm.VerifiedTap;
 import io.knura.knurctl.PcscReader.ReaderException;
@@ -25,6 +30,7 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import javax.smartcardio.CardException;
@@ -42,11 +48,18 @@ public final class Main {
               provision             set a tag up: Knura keys and a tap URL that knurd verifies
               tap                   read the tag like a phone does and print its tap URL
               reset                 put a Knura tag back to factory state (all keys zero)
+              resolver register     have tap.knura.io forward your tags' taps to this knurd
+                                    (run once to create your owner ID, restart knurd, run again;
+                                    run again whenever public.url changes)
+              resolver check        show where tap.knura.io sends your taps
 
             options:
               --config FILE         settings file holding master.key (default knurd.properties)
-              --base-url URL        provision: where taps go (default public.url + /tap from the
-                                    settings file, else http://127.0.0.1:<listen.port>/tap)
+              --base-url URL        provision: where taps go. Default: the resolver link
+                                    (resolver.url/resolver.owner) after 'resolver register',
+                                    else public.url + /tap, else http://127.0.0.1:<listen.port>/tap
+              --server URL          resolver register: where taps go (default public.url)
+              --resolver URL        resolver register: the resolver (default https://tap.knura.io)
               --from SOURCE         the keys the tag has now: factory (provision default),
                                     knura (set up by Knura with this master key; reset default),
                                     or a file with key0= to key4= lines
@@ -57,7 +70,7 @@ public final class Main {
 
     private static final Set<String> FLAGS = Set.of("--verbose", "--help");
     private static final Set<String> OPTIONS =
-            Set.of("--config", "--base-url", "--from", "--reader", "--wait");
+            Set.of("--config", "--base-url", "--from", "--reader", "--wait", "--server", "--resolver");
 
     private final PrintStream out;
     private final Map<String, String> options;
@@ -74,6 +87,7 @@ public final class Main {
     static int run(String[] args, PrintStream out, PrintStream err) {
         Map<String, String> options = new HashMap<>();
         String command = null;
+        String subcommand = null;
         for (int i = 0; i < args.length; i++) {
             String a = args[i];
             if (FLAGS.contains(a)) {
@@ -82,6 +96,8 @@ public final class Main {
                 options.put(a, args[++i]);
             } else if (!a.startsWith("-") && command == null) {
                 command = a;
+            } else if (!a.startsWith("-") && "resolver".equals(command) && subcommand == null) {
+                subcommand = a;
             } else {
                 err.println("knurctl: unexpected argument: " + a);
                 err.print(USAGE);
@@ -101,6 +117,16 @@ public final class Main {
                 case "provision" -> main.provision();
                 case "tap" -> main.tap();
                 case "reset" -> main.reset();
+                case "resolver" -> {
+                    if ("register".equals(subcommand)) {
+                        main.resolverRegister();
+                    } else if ("check".equals(subcommand)) {
+                        main.resolverCheck();
+                    } else {
+                        err.println("knurctl: use 'resolver register' or 'resolver check'");
+                        return 2;
+                    }
+                }
                 default -> {
                     err.println("knurctl: unknown command: " + command);
                     err.print(USAGE);
@@ -146,7 +172,8 @@ public final class Main {
                 listen.host=127.0.0.1
                 listen.port=8424
                 # The HTTPS address phones use to reach knurd, e.g. a Tailscale Funnel name.
-                # knurctl provision writes <public.url>/tap onto tags.
+                # knurctl provision writes <public.url>/tap onto tags, or a tap.knura.io link that
+                # forwards there once you run: knurctl resolver register
                 #public.url=https://your-computer.your-tailnet.ts.net
                 master.key=%s
                 counters.file=knurd-counters.properties
@@ -195,11 +222,15 @@ public final class Main {
 
     private void provision() throws IOException, ReaderException, UsageException {
         byte[] master = masterKey();
+        Properties config = config();
         TapUrlLayout layout;
         try {
-            layout = TapUrlLayout.forBaseUrl(options.getOrDefault("--base-url", defaultBaseUrl()));
+            layout = TapUrlLayout.forBaseUrl(options.getOrDefault("--base-url", defaultBaseUrl(config)));
         } catch (IllegalArgumentException e) {
             throw new UsageException(e.getMessage());
+        }
+        if (!options.containsKey("--base-url") && hasResolver(config)) {
+            warnUnlessForwarding(config);
         }
         String from = options.getOrDefault("--from", "factory");
         try (PcscReader reader = connect()) {
@@ -353,13 +384,160 @@ public final class Main {
         throw new UsageException("master.key in " + configPath() + " must be 32 hex digits");
     }
 
-    private String defaultBaseUrl() throws IOException {
-        String publicUrl = config().getProperty("public.url", "").trim();
-        if (!publicUrl.isEmpty()) {
-            return (publicUrl.endsWith("/") ? publicUrl.substring(0, publicUrl.length() - 1) : publicUrl) + "/tap";
+    /** Where provision points tags when --base-url isn't given. */
+    static String defaultBaseUrl(Properties config) {
+        if (hasResolver(config)) {
+            return resolverClient(config).tapBase(config.getProperty("resolver.owner").trim());
         }
-        String port = config().getProperty("listen.port", "8424").trim();
+        String publicUrl = publicUrl(config);
+        if (publicUrl != null) {
+            return publicUrl + "/tap";
+        }
+        String port = config.getProperty("listen.port", "8424").trim();
         return "http://127.0.0.1:" + port + "/tap";
+    }
+
+    private static String publicUrl(Properties config) {
+        String publicUrl = config.getProperty("public.url", "").trim();
+        if (publicUrl.isEmpty()) {
+            return null;
+        }
+        return publicUrl.endsWith("/") ? publicUrl.substring(0, publicUrl.length() - 1) : publicUrl;
+    }
+
+    private static boolean hasResolver(Properties config) {
+        return !config.getProperty("resolver.owner", "").isBlank();
+    }
+
+    private static ResolverClient resolverClient(Properties config) {
+        return new ResolverClient(config.getProperty("resolver.url", ResolverClient.DEFAULT_URL).trim());
+    }
+
+    /**
+     * Registers this knurd with the resolver. The first run only creates an owner ID and key and
+     * adds them to the settings file, because the resolver asks knurd to confirm the owner ID
+     * before it forwards anything, and knurd reads it only when it starts.
+     */
+    private void resolverRegister() throws IOException, UsageException {
+        Path path = configPath();
+        if (!Files.exists(path)) {
+            throw new UsageException(path.toAbsolutePath() + " not found; create it with: knurctl init");
+        }
+        Properties config = config();
+        if (!hasResolver(config)) {
+            ResolverClient client = newResolverClient(options.getOrDefault("--resolver", ResolverClient.DEFAULT_URL));
+            String owner = OwnerIds.generate(new SecureRandom());
+            OwnerKey key = OwnerKey.generate();
+            String lines = """
+
+                    # Tap resolver (knurctl resolver register): tags provisioned after registering
+                    # carry %s/<resolver.owner>, and the resolver forwards each tap to public.url.
+                    # resolver.key proves you own resolver.owner: keep it secret, back it up, and
+                    # never share it. Whoever has it can send your tags' taps elsewhere.
+                    resolver.url=%s
+                    resolver.owner=%s
+                    resolver.publicKey=%s
+                    resolver.key=%s
+                    """.formatted(client.baseUrl(), client.baseUrl(), owner, key.publicKeyHex(), key.seedHex());
+            String existing = Files.readString(path, StandardCharsets.UTF_8);
+            String separator = existing.isEmpty() || existing.endsWith("\n") ? "" : "\n";
+            Files.writeString(path, separator + lines, StandardCharsets.UTF_8, StandardOpenOption.APPEND);
+            out.println("Your owner ID is " + owner + ". Tags will carry " + client.tapBase(owner) + "?e=...&c=...");
+            out.println("Added it and its key to " + path.toAbsolutePath() + " (back this file up).");
+            out.println();
+            out.println("Next: restart knurd so it can confirm the owner ID to the resolver, then run");
+            out.println("  knurctl resolver register");
+            out.println("again to finish.");
+            return;
+        }
+
+        if (options.containsKey("--resolver")) {
+            throw new UsageException("this knurd is already set up for " + config.getProperty("resolver.url")
+                    + "; --resolver only applies the first time");
+        }
+        String owner = owner(config);
+        OwnerKey key;
+        try {
+            key = OwnerKey.load(config.getProperty("resolver.key", ""), config.getProperty("resolver.publicKey", ""));
+        } catch (IllegalArgumentException e) {
+            throw new UsageException(e.getMessage() + " (in " + path + ")");
+        }
+        ResolverClient client = configuredResolver(config);
+        String server = options.getOrDefault("--server", publicUrl(config));
+        if (server == null) {
+            throw new UsageException("set public.url in " + path + " (or pass --server): it's where taps go");
+        }
+        String problem = OwnerRecord.checkServer(server, client.isLocal());
+        if (problem != null) {
+            throw new UsageException(problem + ": " + server);
+        }
+
+        Optional<OwnerRecord> current = client.fetch(owner);
+        if (current.isPresent() && !key.hasPublicKey(current.get().publicKey())) {
+            throw new IOException(client.baseUrl() + " has owner " + owner + " under another key. If you didn't"
+                    + " register it with another resolver.key, see knura-resolver/README.md.");
+        }
+        long seq = Math.max(System.currentTimeMillis(), current.map(r -> r.seq() + 1).orElse(1L));
+        client.put(OwnerRecord.sign(owner, server, seq, key));
+        out.println(client.baseUrl() + " now sends taps for " + owner + " to " + server + "/tap.");
+        out.println("Tags you provision from now on get " + client.tapBase(owner) + "?e=...&c=...");
+        out.println("Tags provisioned before still point wherever they did; provision them again with --from knura.");
+    }
+
+    private void resolverCheck() throws IOException, UsageException {
+        Properties config = config();
+        if (!hasResolver(config)) {
+            throw new UsageException("no resolver.owner in " + configPath().toAbsolutePath()
+                    + "; set one up with: knurctl resolver register");
+        }
+        ResolverCheck.Result result = checkForwarding(config);
+        if (!result.ok()) {
+            throw new IOException(result.message());
+        }
+        out.println(result.message() + "/tap, signed with your owner key. All good.");
+    }
+
+    private ResolverCheck.Result checkForwarding(Properties config) throws IOException, UsageException {
+        String owner = owner(config);
+        String publicUrl = publicUrl(config);
+        if (publicUrl == null) {
+            throw new UsageException("set public.url in " + configPath() + ": it's where the resolver should send taps");
+        }
+        return ResolverCheck.check(configuredResolver(config).fetch(owner), owner,
+                config.getProperty("resolver.publicKey", "").trim(), publicUrl);
+    }
+
+    /** Warns, without stopping provision, when the resolver doesn't send this owner's taps here yet. */
+    private void warnUnlessForwarding(Properties config) throws UsageException {
+        try {
+            ResolverCheck.Result result = checkForwarding(config);
+            if (!result.ok()) {
+                out.println("Warning: " + result.message() + ". The tag will work once 'knurctl resolver register'"
+                        + " succeeds; it won't need rewriting.");
+            }
+        } catch (IOException e) {
+            out.println("Warning: could not check the resolver (" + e.getMessage() + ").");
+        }
+    }
+
+    private String owner(Properties config) throws UsageException {
+        String owner = config.getProperty("resolver.owner", "").trim();
+        if (!OwnerIds.isValid(owner)) {
+            throw new UsageException("resolver.owner in " + configPath() + " is not a valid owner ID");
+        }
+        return owner;
+    }
+
+    private static ResolverClient configuredResolver(Properties config) throws UsageException {
+        return newResolverClient(config.getProperty("resolver.url", ResolverClient.DEFAULT_URL).trim());
+    }
+
+    private static ResolverClient newResolverClient(String url) throws UsageException {
+        try {
+            return new ResolverClient(url);
+        } catch (IllegalArgumentException e) {
+            throw new UsageException(e.getMessage());
+        }
     }
 
     private static boolean isLocalOnly(String baseUrl) {

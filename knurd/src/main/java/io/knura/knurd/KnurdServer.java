@@ -24,6 +24,9 @@ import java.util.concurrent.Executors;
  *       asks for {@code text/html}, as a phone does when it opens a tag's link) gets a
  *       {@link TapPage} with the same HTTP status instead.
  *   <li>{@code GET /health}: {@code {"status":"up"}}.
+ *   <li>{@code GET /.well-known/knura-owner}: {@code {"owner":".."}}, this knurd's owner ID at a
+ *       tap resolver, so the resolver can confirm this server agreed to receive that owner's taps
+ *       before it forwards any. 404 when knurd isn't registered with one.
  * </ul>
  *
  * <p>Everything here is meant to be reachable from the internet, through an HTTPS tunnel or
@@ -35,6 +38,7 @@ import java.util.concurrent.Executors;
  */
 public final class KnurdServer implements AutoCloseable {
     private static final System.Logger LOG = System.getLogger("knurd");
+    static final String OWNER_PATH = "/.well-known/knura-owner";
 
     private final HttpServer server;
     private final TapVerifier verifier;
@@ -56,6 +60,12 @@ public final class KnurdServer implements AutoCloseable {
     }
 
     public KnurdServer(String host, int port, TapVerifier verifier, TapListener listener) throws IOException {
+        this(host, port, verifier, listener, null);
+    }
+
+    /** @param resolverOwner this knurd's owner ID at a tap resolver, or null for none */
+    public KnurdServer(String host, int port, TapVerifier verifier, TapListener listener, String resolverOwner)
+            throws IOException {
         this.verifier = verifier;
         this.listener = listener;
         this.server = HttpServer.create(new InetSocketAddress(host, port), 0);
@@ -64,6 +74,16 @@ public final class KnurdServer implements AutoCloseable {
         server.createContext("/health", exchange -> {
             if (allowGet(exchange)) {
                 sendJson(exchange, 200, "{\"status\":\"up\"}");
+            }
+        });
+        server.createContext(OWNER_PATH, exchange -> {
+            if (!allowGet(exchange) || !exactPath(exchange, OWNER_PATH)) {
+                return;
+            }
+            if (resolverOwner == null) {
+                sendJson(exchange, 404, "{\"status\":\"not_found\"}");
+            } else {
+                sendJson(exchange, 200, "{\"owner\":\"" + escape(resolverOwner) + "\"}");
             }
         });
     }

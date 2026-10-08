@@ -1,0 +1,20 @@
+{
+  "name": "knura-resolver",
+  "version": "0.1.0",
+  "private": true,
+  "description": "tap.knura.io: forwards a tag's tap to the knurd its owner registered, without holding any tag keys",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "node src/dev-server.js",
+    "test": "node --test test/*.test.js",
+    "package": "rm -f knura-resolver.zip && zip -q -r knura-resolver.zip package.json src -x src/dev-server.js"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-dynamodb": "3.1130.0"
+  }
+}
