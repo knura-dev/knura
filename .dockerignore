@@ -1,0 +1,4 @@
+# Builds from the repository root (knurd/Dockerfile) get only the built knurd: never local
+# settings, keys or counters.
+*
+!knurd/build/install/knurd/

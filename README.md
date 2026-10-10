@@ -14,6 +14,9 @@ genuine tag, then trigger actions from it.
 
 The knura.io website lives in [`site/`](site/README.md), with steps to host it on AWS.
 
+To run knurd and the Matter bridge on Kubernetes, use the Helm chart and container images in
+[`deploy/`](deploy/README.md). `deploy/kind/test.sh` tries it all on a throwaway local cluster.
+
 ## Build
 
 Requires JDK 21.
@@ -99,7 +102,8 @@ curl 'http://127.0.0.1:8424/tap?e=EF963FF7828658A599F3041510671E88&c=94EED9EE653
 ```
 
 To have knurd work out each tag's keys from a master key instead, set `master.key` in place of
-`sdm.metaReadKey` and `sdm.fileReadKey`. With NXP's AN10922 example master key:
+`sdm.metaReadKey` and `sdm.fileReadKey` (or `master.key.file`, a file holding only the key, which
+must be `chmod 600`; that is how a Kubernetes or Docker secret passes it in). With NXP's AN10922 example master key:
 
 ```sh
 printf 'master.key=00112233445566778899AABBCCDDEEFF\n' > knurd.properties

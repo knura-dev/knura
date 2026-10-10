@@ -1,0 +1,19 @@
+knurd is starting. Check it with:
+
+  kubectl --namespace {{ .Release.Namespace }} rollout status deployment/{{ include "knura.fullname" . }}
+  kubectl --namespace {{ .Release.Namespace }} logs deployment/{{ include "knura.fullname" . }} -c knurd
+
+Try it from this computer:
+
+  kubectl --namespace {{ .Release.Namespace }} port-forward service/{{ include "knura.fullname" . }} 8424:{{ .Values.service.port }}
+  curl http://127.0.0.1:8424/health
+{{- if not .Values.publicUrl }}
+
+publicUrl is not set, so phones can't reach knurd yet. See deploy/README.md.
+{{- end }}
+{{- if .Values.matter.enabled }}
+
+The Matter bridge prints its pairing code on first start:
+
+  kubectl --namespace {{ .Release.Namespace }} logs deployment/{{ include "knura.fullname" . }} -c matter
+{{- end }}

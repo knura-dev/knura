@@ -1,0 +1,92 @@
+# Settings for the Knura Helm chart. Override them in your own file (helm install -f my-values.yaml)
+# rather than editing this one. Keys never go in here: see existingSecret.
+
+image:
+  knurd:
+    repository: knura/knurd
+    tag: dev
+    pullPolicy: IfNotPresent
+  matter:
+    repository: knura/knurgn-matter
+    tag: dev
+    pullPolicy: IfNotPresent
+
+# The Kubernetes Secret that holds Knura's keys. Make it yourself with kubectl (see deploy/README.md).
+# The chart only reads it, so keys never sit in a values file or in Helm's release history.
+#   master.key                 required: the master key from knurd.properties, 32 hex digits
+#   knurgn-secrets.properties  the whsec_ secret of each webhook and of the Matter bridge (<id>=whsec_...)
+#   knurgn-matter-secret       the Matter bridge's whsec_ secret on its own, when matter.enabled
+existingSecret: knura-keys
+
+# The HTTPS address phones use to reach knurd, without /tap (knurd's public.url). knurctl writes
+# <publicUrl>/tap onto tags. Empty: knurd still verifies taps but says phones can't reach it.
+publicUrl: ""
+
+# tap.knura.io registration, copied from the resolver.* lines knurctl wrote in knurd.properties.
+# Leave owner empty if you don't use the resolver. resolver.key stays on your computer: knurd never
+# needs it, only knurctl does.
+resolver:
+  url: https://tap.knura.io
+  owner: ""
+  publicKey: ""
+
+# knurgN rules: what each tag does when tapped. Leave empty for no actions.
+knots: []
+#  - uid: "042D6B02936980"   # quote it, or YAML may read an all-digit UID as a number
+#    name: desk-candle
+#    actions: [desk-webhook]
+
+# Webhook connectors, by id: each verified tap of a knot listing the id sends a signed POST here.
+# https:// only, except private network addresses. Secrets: <id>=whsec_... in knurgn-secrets.properties.
+webhooks: {}
+#  desk-webhook: https://example.org/knura
+
+# The knurgN Matter bridge, run next to knurd in the same pod (knurgN only sends taps to a bridge
+# on 127.0.0.1). Knots that list `id` in their actions show up as contact sensors.
+matter:
+  enabled: false
+  # Connector id. Its secret goes in knurgn-secrets.properties (<id>=whsec_...) and, the same
+  # value alone, in knurgn-matter-secret.
+  id: home
+  # Names shown in the smart-home app, by knot name (up to 32 characters).
+  labels: {}
+  pulseSeconds: 3
+  matterPort: 5540
+  # Matter finds devices with mDNS on your home network, which doesn't cross into the cluster's
+  # own network. hostNetwork puts the pod on the node's network so hubs can find the bridge.
+  # This also puts knurd's tap port (8424) on the node's network.
+  hostNetwork: true
+
+# Where tap counters (replay protection) and the Matter bridge's pairing keys are kept. Keep this
+# volume: a knurd that loses its counters would accept every tap link it has already seen again.
+# The chart never deletes it, even on helm uninstall.
+persistence:
+  size: 64Mi
+  storageClass: ""
+  # Use a PersistentVolumeClaim you made yourself instead of the chart's.
+  existingClaim: ""
+
+service:
+  type: ClusterIP
+  port: 8424
+
+# HTTPS for phones, through your cluster's ingress controller. Every path knurd serves on this port
+# is meant to be public. tlsSecretName: a TLS certificate Secret (cert-manager can make it).
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  tlsSecretName: ""
+  annotations: {}
+
+resources:
+  knurd:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 256Mi}
+  matter:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 256Mi}
+
+# Pin the pod to a node, for example the one on your home network when matter.enabled.
+nodeSelector: {}
+tolerations: []

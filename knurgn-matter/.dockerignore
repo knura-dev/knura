@@ -1,0 +1,5 @@
+# Send Docker only the code: never local settings, the secret or Matter storage.
+*
+!package.json
+!package-lock.json
+!src/

@@ -1,0 +1,25 @@
+# helm test <release>: checks that knurd answers on its Service.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "knura.fullname" . }}-test
+  labels:
+    {{- include "knura.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: health
+      image: "{{ .Values.image.knurd.repository }}:{{ .Values.image.knurd.tag }}"
+      imagePullPolicy: {{ .Values.image.knurd.pullPolicy }}
+      command: [wget, -q, -O, -, "http://{{ include "knura.fullname" . }}:{{ .Values.service.port }}/health"]
+      securityContext:
+        {{- include "knura.containerSecurity" . | nindent 8 }}

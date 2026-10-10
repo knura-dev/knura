@@ -1,0 +1,141 @@
+{{- $fullname := include "knura.fullname" . -}}
+{{- $hostNetwork := and .Values.matter.enabled .Values.matter.hostNetwork -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "knura.labels" . | nindent 4 }}
+spec:
+  # Always exactly one knurd: replay protection keeps each tag's last counter in one file, and two
+  # copies would each accept the same tap once. Recreate stops the old pod before the new one starts.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "knura.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "knura.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Restart the pod when the settings change.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      {{- if $hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Kubernetes makes Secret files readable by the pod's group, but knurd and the bridge
+        # only accept key files that no one but their owner can read (chmod 600). This copies
+        # them into memory with those permissions; nothing is written to disk.
+        - name: keys
+          image: "{{ .Values.image.knurd.repository }}:{{ .Values.image.knurd.tag }}"
+          imagePullPolicy: {{ .Values.image.knurd.pullPolicy }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              umask 077
+              for f in master.key knurgn-secrets.properties knurgn-matter-secret; do
+                if [ -e "/secrets/$f" ]; then cat "/secrets/$f" > "/run/knura/$f"; fi
+              done
+              if [ ! -s /run/knura/master.key ]; then
+                echo "Secret {{ .Values.existingSecret }} has no master.key; see deploy/README.md" >&2
+                exit 1
+              fi
+              {{- if .Values.matter.enabled }}
+              if [ ! -s /run/knura/knurgn-matter-secret ]; then
+                echo "Secret {{ .Values.existingSecret }} has no knurgn-matter-secret; see deploy/README.md" >&2
+                exit 1
+              fi
+              {{- end }}
+          securityContext:
+            {{- include "knura.containerSecurity" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources.knurd | nindent 12 }}
+          volumeMounts:
+            - {name: secret, mountPath: /secrets, readOnly: true}
+            - {name: keys, mountPath: /run/knura}
+      containers:
+        - name: knurd
+          image: "{{ .Values.image.knurd.repository }}:{{ .Values.image.knurd.tag }}"
+          imagePullPolicy: {{ .Values.image.knurd.pullPolicy }}
+          args: ["/etc/knura/knurd.properties"]
+          ports:
+            - name: http
+              containerPort: 8424
+              protocol: TCP
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          securityContext:
+            {{- include "knura.containerSecurity" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources.knurd | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /etc/knura, readOnly: true}
+            - {name: keys, mountPath: /run/knura, readOnly: true}
+            - {name: data, mountPath: /var/lib/knura}
+            - {name: tmp, mountPath: /tmp}
+        {{- if .Values.matter.enabled }}
+        - name: matter
+          image: "{{ .Values.image.matter.repository }}:{{ .Values.image.matter.tag }}"
+          imagePullPolicy: {{ .Values.image.matter.pullPolicy }}
+          args: ["--config", "/etc/knura/knurgn-matter.properties"]
+          ports:
+            - name: matter
+              containerPort: {{ .Values.matter.matterPort }}
+              protocol: UDP
+          securityContext:
+            {{- include "knura.containerSecurity" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources.matter | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /etc/knura, readOnly: true}
+            - {name: keys, mountPath: /run/knura, readOnly: true}
+            - {name: data, mountPath: /var/lib/knura}
+            - {name: tmp, mountPath: /tmp}
+        {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $fullname }}
+        - name: secret
+          secret:
+            secretName: {{ .Values.existingSecret }}
+            defaultMode: 0440
+        - name: keys
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (printf "%s-data" $fullname) }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

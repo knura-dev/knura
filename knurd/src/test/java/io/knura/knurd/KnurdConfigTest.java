@@ -2,6 +2,7 @@ package io.knura.knurd;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.knura.core.crypto.Hex;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Properties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -102,6 +104,42 @@ class KnurdConfigTest {
         Properties badMaster = new Properties();
         badMaster.setProperty("master.key", "0011");
         assertThrows(IllegalArgumentException.class, () -> KnurdConfig.fromProperties(badMaster, dir));
+    }
+
+    @Test
+    void masterKeyFromFile() throws Exception {
+        Path keyFile = dir.resolve("master.key");
+        Files.writeString(keyFile, "00112233445566778899AABBCCDDEEFF\n");
+        Files.setPosixFilePermissions(keyFile, PosixFilePermissions.fromString("rw-------"));
+        Properties p = new Properties();
+        p.setProperty("master.key.file", "master.key");
+        TagKeys keys = KnurdConfig.fromProperties(p, dir).keys();
+        assertArrayEquals(Hex.decode("D23924B4018F2BC86493E513E09B9692"), keys.metaReadKey().orElseThrow());
+
+        p.setProperty("master.key", "00112233445566778899AABBCCDDEEFF");
+        assertThrows(IllegalArgumentException.class, () -> KnurdConfig.fromProperties(p, dir));
+    }
+
+    @Test
+    void rejectsBadMasterKeyFiles() throws Exception {
+        Properties p = new Properties();
+        p.setProperty("master.key.file", "master.key");
+        IllegalArgumentException missing =
+                assertThrows(IllegalArgumentException.class, () -> KnurdConfig.fromProperties(p, dir));
+        assertTrue(missing.getMessage().contains("not found"), missing.getMessage());
+
+        Path keyFile = dir.resolve("master.key");
+        Files.writeString(keyFile, "00112233445566778899AABBCCDDEEFF");
+        Files.setPosixFilePermissions(keyFile, PosixFilePermissions.fromString("rw-r-----"));
+        IllegalArgumentException shared =
+                assertThrows(IllegalArgumentException.class, () -> KnurdConfig.fromProperties(p, dir));
+        assertTrue(shared.getMessage().contains("chmod 600"), shared.getMessage());
+
+        Files.setPosixFilePermissions(keyFile, PosixFilePermissions.fromString("rw-------"));
+        Files.writeString(keyFile, "secret-but-not-hex");
+        IllegalArgumentException bad =
+                assertThrows(IllegalArgumentException.class, () -> KnurdConfig.fromProperties(p, dir));
+        assertFalse(bad.getMessage().contains("secret-but-not-hex"), "the key must not be echoed");
     }
 
     private static Properties withResolver() {

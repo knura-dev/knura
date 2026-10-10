@@ -1,0 +1,49 @@
+{{- include "knura.validate" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "knura.fullname" . }}
+  labels:
+    {{- include "knura.labels" . | nindent 4 }}
+data:
+  # No keys here: master.key and the whsec_ secrets come from the Secret, copied to /run/knura.
+  knurd.properties: |
+    listen.host=0.0.0.0
+    listen.port=8424
+    {{- with .Values.publicUrl }}
+    public.url={{ include "knura.prop" . }}
+    {{- end }}
+    {{- if .Values.resolver.owner }}
+    resolver.url={{ include "knura.prop" .Values.resolver.url }}
+    resolver.owner={{ include "knura.prop" .Values.resolver.owner }}
+    resolver.publicKey={{ include "knura.prop" .Values.resolver.publicKey }}
+    {{- end }}
+    master.key.file=/run/knura/master.key
+    counters.file=/var/lib/knura/knurd-counters.properties
+    {{- if .Values.knots }}
+    actions.file=/etc/knura/knurgn.properties
+    {{- end }}
+  knurgn.properties: |
+    secrets.file=/run/knura/knurgn-secrets.properties
+    {{- range .Values.knots }}
+    knot.{{ include "knura.prop" .uid | upper }}.name={{ include "knura.prop" .name }}
+    knot.{{ include "knura.prop" .uid | upper }}.actions={{ include "knura.prop" (join "," .actions) }}
+    {{- end }}
+    {{- range $id, $url := .Values.webhooks }}
+    webhook.{{ include "knura.prop" $id }}.url={{ include "knura.prop" $url }}
+    {{- end }}
+    {{- if .Values.matter.enabled }}
+    matter.{{ include "knura.prop" .Values.matter.id }}.url=http://127.0.0.1:5541/tap
+    {{- end }}
+  {{- if .Values.matter.enabled }}
+  knurgn-matter.properties: |
+    knots={{ include "knura.matterKnots" . }}
+    {{- range $name, $label := .Values.matter.labels }}
+    knot.{{ include "knura.prop" $name }}.label={{ include "knura.prop" $label }}
+    {{- end }}
+    pulse.seconds={{ .Values.matter.pulseSeconds }}
+    listen.port=5541
+    matter.port={{ .Values.matter.matterPort }}
+    storage.dir=/var/lib/knura/matter
+    secret.file=/run/knura/knurgn-matter-secret
+  {{- end }}

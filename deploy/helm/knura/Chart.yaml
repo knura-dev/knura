@@ -1,0 +1,9 @@
+apiVersion: v2
+name: knura
+description: Knura's tap verifier (knurd) with the knurgN actions engine and, optionally, the knurgN Matter bridge
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://knura.io
+sources:
+  - https://github.com/knura-dev/knura
