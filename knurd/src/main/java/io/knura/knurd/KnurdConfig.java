@@ -10,11 +10,16 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFilePermission;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 
 /**
  * knurd settings, read from a properties file. See {@code knurd.example.properties} for every
@@ -36,6 +41,9 @@ public record KnurdConfig(
     public static final int DEFAULT_PORT = 8424;
 
     private static final String FILE_KEY_PREFIX = "sdm.fileReadKey.";
+    private static final Set<PosixFilePermission> NOT_OWNER = EnumSet.of(
+            PosixFilePermission.GROUP_READ, PosixFilePermission.GROUP_WRITE, PosixFilePermission.GROUP_EXECUTE,
+            PosixFilePermission.OTHERS_READ, PosixFilePermission.OTHERS_WRITE, PosixFilePermission.OTHERS_EXECUTE);
 
     /**
      * The tap resolver this knurd is registered with: its URL, this knurd's owner ID there, and
@@ -69,7 +77,7 @@ public record KnurdConfig(
                 perTag.put(uid, key(p, name));
             }
         }
-        byte[] master = optionalKey(p, "master.key");
+        byte[] master = masterKey(p, baseDir);
         byte[] meta = optionalKey(p, "sdm.metaReadKey");
         byte[] shared = optionalKey(p, "sdm.fileReadKey");
         TagKeys keys;
@@ -158,14 +166,53 @@ public record KnurdConfig(
         return host.equals("localhost") || host.equals("127.0.0.1") || host.equals("[::1]");
     }
 
+    /**
+     * {@code master.key}, or the key alone in the file {@code master.key.file} names, which is how
+     * a Kubernetes or Docker secret hands it over. Like knurgN's secrets file, the file must not
+     * be readable by other users. Null when neither is set.
+     */
+    static byte[] masterKey(Properties p, Path baseDir) {
+        byte[] inline = optionalKey(p, "master.key");
+        String name = p.getProperty("master.key.file", "").trim();
+        if (name.isEmpty()) {
+            return inline;
+        }
+        if (inline != null) {
+            throw new IllegalArgumentException("set master.key or master.key.file, not both");
+        }
+        Path file = baseDir.resolve(name);
+        String text;
+        try {
+            PosixFileAttributeView view = Files.getFileAttributeView(file, PosixFileAttributeView.class);
+            if (view != null) {
+                Set<PosixFilePermission> perms = EnumSet.copyOf(view.readAttributes().permissions());
+                perms.retainAll(NOT_OWNER);
+                if (!perms.isEmpty()) {
+                    throw new IllegalArgumentException(
+                            file + " can be read or changed by other users; run: chmod 600 " + file);
+                }
+            }
+            text = Files.readString(file, StandardCharsets.UTF_8);
+        } catch (NoSuchFileException e) {
+            throw new IllegalArgumentException("master.key.file not found: " + file, e);
+        } catch (IOException e) {
+            throw new IllegalArgumentException("can't read master.key.file " + file + ": " + e.getMessage(), e);
+        }
+        return parseKey("master.key.file", text);
+    }
+
     private static byte[] optionalKey(Properties p, String name) {
         String value = p.getProperty(name);
         return value == null || value.isBlank() ? null : key(p, name);
     }
 
     private static byte[] key(Properties p, String name) {
+        return parseKey(name, p.getProperty(name));
+    }
+
+    private static byte[] parseKey(String name, String value) {
         try {
-            byte[] key = Hex.decode(p.getProperty(name).trim());
+            byte[] key = Hex.decode(value.trim());
             if (key.length != 16) {
                 throw new IllegalArgumentException();
             }

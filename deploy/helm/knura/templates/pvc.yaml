@@ -1,0 +1,20 @@
+{{- if not .Values.persistence.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "knura.fullname" . }}-data
+  labels:
+    {{- include "knura.labels" . | nindent 4 }}
+  annotations:
+    # Tap counters live here. helm uninstall leaves this volume, so reinstalling can't reset
+    # replay protection by accident. Delete it yourself with kubectl if you really mean to.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+{{- end }}
