@@ -52,9 +52,15 @@ fi
 
 if ! kind get clusters | grep -qx "$CLUSTER"; then
     step "Starting the kind cluster $CLUSTER"
+    # kind makes its new cluster kubectl's current one. Put back the one you were using
+    # (minikube, k3s...): this script names its cluster on every command instead.
+    previous=$(kubectl config current-context 2>/dev/null || true)
     kind create cluster --name "$CLUSTER" --wait 120s ${NODE_IMAGE:+--image "$NODE_IMAGE"}
+    if [[ -n $previous ]]; then
+        kubectl config use-context "$previous" >/dev/null
+    fi
 fi
-kubectl config use-context "kind-$CLUSTER" >/dev/null
+CONTEXT="kind-$CLUSTER"
 
 step "Copying the images into the cluster"
 WORK=$(mktemp -d)
@@ -71,7 +77,7 @@ for image in "$KNURD_IMAGE" "$MATTER_IMAGE"; do
 done
 
 step "Making the keys Secret (example key and a fresh webhook secret)"
-kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl --context "$CONTEXT" create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl --context "$CONTEXT" apply -f - >/dev/null
 (
     umask 077
     secret="whsec_$(openssl rand -base64 32)"
@@ -79,11 +85,11 @@ kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -
     printf 'home=%s\n' "$secret" > "$WORK/knurgn-secrets.properties"
     printf '%s\n' "$secret" > "$WORK/knurgn-matter-secret"
 )
-kubectl --namespace "$NAMESPACE" create secret generic knura-keys \
+kubectl --context "$CONTEXT" --namespace "$NAMESPACE" create secret generic knura-keys \
     --from-file="$WORK/master.key" \
     --from-file="$WORK/knurgn-secrets.properties" \
     --from-file="$WORK/knurgn-matter-secret" \
-    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    --dry-run=client -o yaml | kubectl --context "$CONTEXT" apply -f - >/dev/null
 rm -f "$WORK"/master.key "$WORK"/knurgn-*
 
 step "Installing the chart"
@@ -97,14 +103,14 @@ matter:
   labels:
     desk-candle: Desk candle
 VALUES
-helm upgrade --install "$RELEASE" "$ROOT/deploy/helm/knura" --namespace "$NAMESPACE" \
+helm --kube-context "$CONTEXT" upgrade --install "$RELEASE" "$ROOT/deploy/helm/knura" --namespace "$NAMESPACE" \
     -f "$WORK/values.yaml" --wait --timeout 3m
 
-pod() { kubectl --namespace "$NAMESPACE" get pod -l app.kubernetes.io/instance="$RELEASE" \
+pod() { kubectl --context "$CONTEXT" --namespace "$NAMESPACE" get pod -l app.kubernetes.io/instance="$RELEASE" \
     -o jsonpath='{.items[0].metadata.name}'; }
 forward() {
     [[ -n $PF_PID ]] && kill "$PF_PID" 2>/dev/null || true
-    kubectl --namespace "$NAMESPACE" port-forward "service/$RELEASE" 18424:8424 >/dev/null 2>&1 &
+    kubectl --context "$CONTEXT" --namespace "$NAMESPACE" port-forward "service/$RELEASE" 18424:8424 >/dev/null 2>&1 &
     PF_PID=$!
     for _ in $(seq 30); do
         curl -fsS http://127.0.0.1:18424/health >/dev/null 2>&1 && return 0
@@ -115,12 +121,12 @@ forward() {
 tap() { curl -sS "http://127.0.0.1:18424/tap?$TAP"; }
 expect() { [[ $2 == *"\"status\":\"$1\""* ]] || fail "expected $1, got: $2"; echo "  $1: $2"; }
 
-if [[ $(kubectl --namespace "$NAMESPACE" exec "$(pod)" -c knurd -- \
+if [[ $(kubectl --context "$CONTEXT" --namespace "$NAMESPACE" exec "$(pod)" -c knurd -- \
         sh -c 'ls /var/lib/knura/knurd-counters.properties 2>/dev/null || true') ]]; then
     step "Counters from an earlier run found; starting with a fresh volume"
-    helm uninstall "$RELEASE" --namespace "$NAMESPACE" --wait
-    kubectl --namespace "$NAMESPACE" delete pvc "$RELEASE-data" --wait
-    helm upgrade --install "$RELEASE" "$ROOT/deploy/helm/knura" --namespace "$NAMESPACE" \
+    helm --kube-context "$CONTEXT" uninstall "$RELEASE" --namespace "$NAMESPACE" --wait
+    kubectl --context "$CONTEXT" --namespace "$NAMESPACE" delete pvc "$RELEASE-data" --wait
+    helm --kube-context "$CONTEXT" upgrade --install "$RELEASE" "$ROOT/deploy/helm/knura" --namespace "$NAMESPACE" \
         -f "$WORK/values.yaml" --wait --timeout 3m
 fi
 
@@ -131,7 +137,7 @@ expect replay "$(tap)"
 
 step "Checking the Matter bridge got the tap"
 for _ in $(seq 15); do
-    logs=$(kubectl --namespace "$NAMESPACE" logs "$(pod)" -c matter)
+    logs=$(kubectl --context "$CONTEXT" --namespace "$NAMESPACE" logs "$(pod)" -c matter)
     [[ $logs == *"tap $UID_HEX:1:"* ]] && break
     sleep 1
 done
@@ -139,20 +145,20 @@ grep "tap $UID_HEX:1:" <<<"$logs" || fail "the bridge did not log the tap: $logs
 grep -q "refused" <<<"$logs" && fail "the bridge refused a tap: $logs"
 
 step "Restarting the pod: replay protection must survive"
-kubectl --namespace "$NAMESPACE" delete pod "$(pod)" --wait
-kubectl --namespace "$NAMESPACE" rollout status "deployment/$RELEASE" --timeout 3m
+kubectl --context "$CONTEXT" --namespace "$NAMESPACE" delete pod "$(pod)" --wait
+kubectl --context "$CONTEXT" --namespace "$NAMESPACE" rollout status "deployment/$RELEASE" --timeout 3m
 forward
 expect replay "$(tap)"
 
 step "Checking the key files are private inside the pod"
-perms=$(kubectl --namespace "$NAMESPACE" exec "$(pod)" -c knurd -- stat -c '%a %n' \
+perms=$(kubectl --context "$CONTEXT" --namespace "$NAMESPACE" exec "$(pod)" -c knurd -- stat -c '%a %n' \
     /run/knura/master.key /run/knura/knurgn-secrets.properties /run/knura/knurgn-matter-secret)
 echo "$perms" | sed 's/^/  /'
 [[ $(awk '$1 != "600"' <<<"$perms") == "" ]] || fail "key files must be 600"
 
 step "helm test"
-helm test "$RELEASE" --namespace "$NAMESPACE"
+helm --kube-context "$CONTEXT" test "$RELEASE" --namespace "$NAMESPACE"
 
 printf '\nAll checks passed. The cluster is still running; look around with\n'
-printf '  kubectl --namespace %s get all\n' "$NAMESPACE"
+printf '  kubectl --context %s --namespace %s get all\n' "$CONTEXT" "$NAMESPACE"
 printf 'and delete it with: deploy/kind/test.sh --clean\n'
