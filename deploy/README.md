@@ -22,6 +22,9 @@ deploy/kind/test.sh
 deploy/kind/test.sh --clean    # delete the test cluster
 ```
 
+The script leaves kubectl on the cluster you were using (minikube, k3s...). To look at the test
+cluster, add `--context kind-knura-test` to kubectl commands.
+
 ## Images
 
 ```sh

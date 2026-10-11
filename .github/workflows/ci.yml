@@ -55,10 +55,15 @@ jobs:
           helm version
       - run: helm lint deploy/helm/knura
       - name: Install the chart on kind and tap
-        run: deploy/kind/test.sh
+        run: |
+          # Stand-in for someone's own cluster (minikube...): the test must leave it current.
+          kubectl config set-context my-own-cluster --cluster=my-own-cluster
+          kubectl config use-context my-own-cluster
+          deploy/kind/test.sh
+          test "$(kubectl config current-context)" = my-own-cluster
       - name: Show the pod on failure
         if: failure()
         run: |
-          kubectl --namespace knura-test get all,pvc,events || true
-          kubectl --namespace knura-test describe pods || true
-          kubectl --namespace knura-test logs deployment/knura --all-containers --prefix || true
+          kubectl --context kind-knura-test --namespace knura-test get all,pvc,events || true
+          kubectl --context kind-knura-test --namespace knura-test describe pods || true
+          kubectl --context kind-knura-test --namespace knura-test logs deployment/knura --all-containers --prefix || true
