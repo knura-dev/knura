@@ -27,6 +27,7 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,6 +54,17 @@ public final class Main {
                                     run again whenever public.url changes)
               resolver check        show where tap.knura.io sends your taps
 
+            knurd's admin API (its own port, on this computer or your local network only):
+              admin token add NAME  make a login token for knurctl, LoomStudio...; writes it to a
+                                    command config file (default knurctl-admin.properties).
+                                    The first time, also turns the admin API on: restart knurd
+              admin token list      list token names          admin token remove NAME
+              admin tls create      make the TLS certificate the admin API needs for LAN use
+              admin whoami          check the command config logs in
+              admin status          knurd's uptime, keys mode, public URL, knots and tags
+              admin tags            every tag knurd has accepted, with its last counter
+              admin taps            the latest taps and how each went (--limit N, default 20)
+
             options:
               --config FILE         settings file holding master.key (default knurd.properties)
               --base-url URL        provision: where taps go. Default: the resolver link
@@ -66,11 +78,17 @@ public final class Main {
               --reader N|NAME       reader number from 'knurctl readers', or part of its name
               --wait SECONDS        how long to wait for a tag (default 30)
               --verbose             print every command sent to the tag
+              --command-config FILE admin: knurd's admin URL and token (default
+                                    knurctl-admin.properties). Must be chmod 600
+              --admin-url URL       admin token add: the address to put in the command config
+              --out FILE            admin token add: where to write the command config
+              --limit N             admin taps: how many to show
             """;
 
     private static final Set<String> FLAGS = Set.of("--verbose", "--help");
     private static final Set<String> OPTIONS =
-            Set.of("--config", "--base-url", "--from", "--reader", "--wait", "--server", "--resolver");
+            Set.of("--config", "--base-url", "--from", "--reader", "--wait", "--server", "--resolver",
+                    "--command-config", "--admin-url", "--out", "--limit");
 
     private final PrintStream out;
     private final Map<String, String> options;
@@ -86,24 +104,23 @@ public final class Main {
 
     static int run(String[] args, PrintStream out, PrintStream err) {
         Map<String, String> options = new HashMap<>();
-        String command = null;
-        String subcommand = null;
+        List<String> words = new ArrayList<>();
         for (int i = 0; i < args.length; i++) {
             String a = args[i];
             if (FLAGS.contains(a)) {
                 options.put(a, "true");
             } else if (OPTIONS.contains(a) && i + 1 < args.length) {
                 options.put(a, args[++i]);
-            } else if (!a.startsWith("-") && command == null) {
-                command = a;
-            } else if (!a.startsWith("-") && "resolver".equals(command) && subcommand == null) {
-                subcommand = a;
+            } else if (!a.startsWith("-") && (words.isEmpty() || takesWords(words.get(0), words.size()))) {
+                words.add(a);
             } else {
                 err.println("knurctl: unexpected argument: " + a);
                 err.print(USAGE);
                 return 2;
             }
         }
+        String command = words.isEmpty() ? null : words.get(0);
+        String subcommand = words.size() > 1 ? words.get(1) : null;
         if (command == null || options.containsKey("--help")) {
             out.print(USAGE);
             return command == null && !options.containsKey("--help") ? 2 : 0;
@@ -117,6 +134,7 @@ public final class Main {
                 case "provision" -> main.provision();
                 case "tap" -> main.tap();
                 case "reset" -> main.reset();
+                case "admin" -> new AdminCommands(out, options, main.configPath()).run(words);
                 case "resolver" -> {
                     if ("register".equals(subcommand)) {
                         main.resolverRegister();
@@ -141,6 +159,15 @@ public final class Main {
             err.println("knurctl: " + e.getMessage());
             return 1;
         }
+    }
+
+    /** Whether {@code command} takes another word, having {@code count} words so far. */
+    private static boolean takesWords(String command, int count) {
+        return switch (command) {
+            case "resolver" -> count < 2;
+            case "admin" -> count < 4;
+            default -> false;
+        };
     }
 
     private void readers() throws ReaderException {

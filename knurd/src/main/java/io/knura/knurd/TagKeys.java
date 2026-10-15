@@ -55,6 +55,11 @@ public final class TagKeys {
         return new TagKeys(meta, null, masterKey, fileReadKeys);
     }
 
+    /** "master" when keys are derived from a master key, else "fixed". Never the keys themselves. */
+    public String mode() {
+        return masterKey == null ? "fixed" : "master";
+    }
+
     public Optional<byte[]> metaReadKey() {
         return Optional.ofNullable(metaReadKey).map(byte[]::clone);
     }

@@ -164,6 +164,32 @@ taps, knurd checks every 6 hours that they still come to it, and you can always 
 resolver with `--base-url`. Details, the security model and AWS hosting steps:
 [knura-resolver/README.md](knura-resolver/README.md).
 
+### Admin API: managing knurd from knurctl
+
+knurd can open a second port, 8425, for management (and later LoomStudio). It is separate from
+the tap port so the tap port can be public and this one never is: knurd only listens on this
+computer or a local network address, refuses requests from public addresses and requests that
+came through a proxy or tunnel, and needs a login token. Every request is written to an audit
+log; tokens and keys never are. It is read-only for now and never returns key material.
+
+```sh
+# On knurd's computer: make a token. The first time this turns the admin API on (restart knurd).
+knurctl admin token add laptop          # writes knurctl-admin.properties (chmod 600)
+knurctl admin status --command-config knurctl-admin.properties
+knurctl admin taps                      # the latest taps and how each went
+knurctl admin tags                      # every tag seen, with its last counter
+
+# From other computers on your network: TLS first, then listen on the LAN address.
+knurctl admin tls create                # self-signed certificate; knurctl pins its fingerprint
+# set admin.listen.host=<LAN address> in knurd.properties, restart knurd, then:
+knurctl admin token add desk --admin-url https://<LAN address>:8425 --out desk.properties
+knurctl admin token remove desk         # stops working at once, no restart
+```
+
+The command config (`--command-config`, like Kafka's) holds the URL, the token and the
+certificate fingerprint. knurctl refuses it unless it is chmod 600, and refuses plain `http://`
+unless it is this computer. knurd keeps only each token's SHA-256.
+
 ## knurgn
 
 knurgN is Knura's actions engine: it decides what a tap does. knurd hands it each tap that came

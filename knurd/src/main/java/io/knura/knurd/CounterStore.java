@@ -15,4 +15,7 @@ public interface CounterStore {
 
     /** The last accepted counter for the tag, or -1 if the tag has never been seen. */
     int last(String uidHex);
+
+    /** Every tag seen so far and its last accepted counter, sorted by UID. */
+    java.util.SortedMap<String, Integer> snapshot();
 }

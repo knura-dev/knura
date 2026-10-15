@@ -43,6 +43,7 @@ public final class KnurdServer implements AutoCloseable {
     private final HttpServer server;
     private final TapVerifier verifier;
     private final TapListener listener;
+    private volatile RecentTaps recentTaps;
 
     /** Hears about taps that verified and were seen for the first time. */
     @FunctionalInterface
@@ -83,9 +84,14 @@ public final class KnurdServer implements AutoCloseable {
             if (resolverOwner == null) {
                 sendJson(exchange, 404, "{\"status\":\"not_found\"}");
             } else {
-                sendJson(exchange, 200, "{\"owner\":\"" + escape(resolverOwner) + "\"}");
+                sendJson(exchange, 200, "{\"owner\":\"" + Json.escape(resolverOwner) + "\"}");
             }
         });
+    }
+
+    /** Also keeps each tap's result in {@code taps}, for the admin API. Call before {@link #start}. */
+    void recordTapsTo(RecentTaps taps) {
+        this.recentTaps = taps;
     }
 
     public void start() {
@@ -139,6 +145,10 @@ public final class KnurdServer implements AutoCloseable {
                 LOG.log(Level.ERROR, "could not start actions for tap " + result.uid() + ":" + result.counter(), e);
             }
         }
+        RecentTaps taps = recentTaps;
+        if (taps != null) {
+            taps.add(result, actionsStarted);
+        }
         if (html) {
             sendHtml(exchange, result.status().httpStatus(), TapPage.render(result, actionsStarted));
         } else {
@@ -162,7 +172,7 @@ public final class KnurdServer implements AutoCloseable {
             json.append(",\"uid\":\"").append(r.uid()).append("\",\"counter\":").append(r.counter());
         }
         if (r.detail() != null) {
-            json.append(",\"detail\":\"").append(escape(r.detail())).append('"');
+            json.append(",\"detail\":\"").append(Json.escape(r.detail())).append('"');
         }
         return json.append('}').toString();
     }
@@ -189,24 +199,6 @@ public final class KnurdServer implements AutoCloseable {
             }
         }
         return params;
-    }
-
-    private static String escape(String s) {
-        StringBuilder out = new StringBuilder();
-        for (char ch : s.toCharArray()) {
-            switch (ch) {
-                case '"' -> out.append("\\\"");
-                case '\\' -> out.append("\\\\");
-                default -> {
-                    if (ch < 0x20) {
-                        out.append(String.format("\\u%04x", (int) ch));
-                    } else {
-                        out.append(ch);
-                    }
-                }
-            }
-        }
-        return out.toString();
     }
 
     private static boolean allowGet(HttpExchange exchange) throws IOException {
