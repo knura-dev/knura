@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * {@code knurctl admin ...}: setting up knurd's admin API on knurd's computer (tokens, TLS) and
- * using it from anywhere on the local network with {@code --command-config}.
+ * using it from anywhere on the local network with {@code --creds}.
  */
 final class AdminCommands {
     static final String DEFAULT_TOKENS_FILE = "knurd-admin-tokens.properties";
@@ -65,7 +65,7 @@ final class AdminCommands {
             throw new UsageException("use: knurctl admin whoami|status|tags|taps|token|tls ...");
         }
         switch (sub) {
-            case "whoami" -> out.println("Logged in to " + config().url() + " as token \"" + client().get("/v1/whoami").get("token") + "\".");
+            case "whoami" -> whoami();
             case "status" -> status();
             case "tags" -> tags();
             case "taps" -> taps();
@@ -73,14 +73,66 @@ final class AdminCommands {
         }
     }
 
-    // ---- Using the API (anywhere, with --command-config) ----
+    // ---- Using the API (anywhere, with --creds) ----
 
-    private CommandConfig config() throws IOException, UsageException {
-        return CommandConfig.load(Path.of(options.getOrDefault("--command-config", CommandConfig.DEFAULT_FILE)));
+    /**
+     * How to reach knurd: the --creds file if given; else, when knurd.properties here says
+     * admin.security=plaintext, knurd's loopback address with no login; else the default creds file.
+     */
+    private Creds config() throws IOException, UsageException {
+        String given = options.get("--creds");
+        if (given != null) {
+            return Creds.load(Path.of(given));
+        }
+        Creds plaintext = plaintextCreds();
+        if (plaintext != null) {
+            return plaintext;
+        }
+        Path file = Path.of(Creds.DEFAULT_FILE);
+        if (!Files.exists(file)) {
+            throw new UsageException("no --creds file, and no " + Creds.DEFAULT_FILE + " here. Make one on knurd's"
+                    + " computer with: knurctl admin token add <name>. Or, to use knurctl without logging in on knurd's"
+                    + " own computer, set admin.security=plaintext in knurd.properties and restart knurd");
+        }
+        return Creds.load(file);
+    }
+
+    /** Creds for a plaintext-mode knurd on this computer, or null if knurd.properties here isn't one. */
+    private Creds plaintextCreds() throws IOException, UsageException {
+        if (!Files.exists(configPath)) {
+            return null;
+        }
+        Properties config = knurdConfig();
+        if (!"plaintext".equalsIgnoreCase(config.getProperty("admin.security", "").trim())) {
+            return null;
+        }
+        String host = config.getProperty("admin.listen.host", "127.0.0.1").trim();
+        String port = config.getProperty("admin.listen.port", "8425").trim();
+        String h = host.contains(":") && !host.startsWith("[") ? "[" + host + "]" : host;
+        URI url;
+        try {
+            url = Creds.checkUrl("http://" + h + ":" + port);
+        } catch (IllegalArgumentException e) {
+            throw new UsageException(e.getMessage() + " (admin.listen.host/port in " + configPath + ")");
+        }
+        if (!LocalAddresses.isLoopbackName(url.getHost())) {
+            throw new UsageException("admin.security=plaintext needs admin.listen.host=127.0.0.1 in " + configPath);
+        }
+        return new Creds(url, null, null);
     }
 
     private AdminClient client() throws IOException, UsageException {
         return new AdminClient(config());
+    }
+
+    private void whoami() throws IOException, UsageException {
+        Creds creds = config();
+        Map<String, Object> me = new AdminClient(creds).get("/v1/whoami");
+        if ("plaintext".equals(me.get("security"))) {
+            out.println("Connected to " + creds.url() + " in plaintext mode: no login (this computer only).");
+        } else {
+            out.println("Logged in to " + creds.url() + " as token \"" + me.get("token") + "\".");
+        }
     }
 
     private void status() throws IOException, UsageException {
@@ -132,13 +184,17 @@ final class AdminCommands {
 
     /**
      * Makes a token, adds its hash to knurd's tokens file (turning the admin API on in the
-     * settings file if needed) and writes the token into a new command config.
+     * settings file if needed) and writes the token into a new creds file.
      */
     private void tokenAdd(String name) throws IOException, UsageException {
         if (!AdminTokens.isValidName(name)) {
             throw new UsageException("token names are 1-32 of a-z, 0-9, - and _, like laptop or loomstudio");
         }
         Properties config = knurdConfig();
+        if ("plaintext".equalsIgnoreCase(config.getProperty("admin.security", "").trim())) {
+            throw new UsageException("admin.security is plaintext in " + configPath + ", so knurd doesn't check tokens."
+                    + " Change it to admin.security=token first if you want logins");
+        }
         boolean enabling = config.getProperty("admin.tokens.file", "").isBlank();
         Path tokensFile = resolve(enabling ? DEFAULT_TOKENS_FILE : config.getProperty("admin.tokens.file").trim());
         Map<String, String> tokens = readTokens(tokensFile);
@@ -153,13 +209,13 @@ final class AdminCommands {
                             resolve(config.getProperty("admin.tls.password.file", "").trim()))
                     .fingerprint();
         }
-        Path outFile = Path.of(options.getOrDefault("--out", CommandConfig.DEFAULT_FILE));
+        Path outFile = Path.of(options.getOrDefault("--out", Creds.DEFAULT_FILE));
         if (Files.exists(outFile)) {
             throw new UsageException(outFile.toAbsolutePath() + " already exists; pass --out to write somewhere else");
         }
 
         String token = AdminTokens.generate(new SecureRandom());
-        PrivateFiles.create(outFile, CommandConfig.format(url, token, fingerprint, name));
+        PrivateFiles.create(outFile, Creds.format(url, token, fingerprint, name));
         tokens.put(name, AdminTokens.hash(token));
         PrivateFiles.replace(tokensFile, AdminTokens.format(tokens));
         if (enabling) {
@@ -177,7 +233,7 @@ final class AdminCommands {
         } else {
             out.println("knurd accepts it straight away. Try:");
         }
-        out.println("  knurctl admin status --command-config " + outFile);
+        out.println("  knurctl admin status --creds " + outFile);
         out.println("Treat that file like a password. To copy it to another computer use scp, then chmod 600 it there.");
     }
 
@@ -219,7 +275,7 @@ final class AdminCommands {
         Properties config = knurdConfig();
         if (!config.getProperty("admin.tls.keystore", "").isBlank()) {
             throw new UsageException("admin.tls.keystore is already set in " + configPath
-                    + "; knurctl won't replace a certificate that command configs are pinned to");
+                    + "; knurctl won't replace a certificate that creds files are pinned to");
         }
         Path keystore = resolve(DEFAULT_KEYSTORE);
         Path passwordFile = resolve(DEFAULT_KEYSTORE + ".password");
@@ -268,7 +324,7 @@ final class AdminCommands {
         String fingerprint = AdminKeystore.load(keystore, passwordFile).fingerprint();
         appendSettings("""
                 # TLS for the admin API (knurctl admin tls create): a self-signed certificate. knurctl
-                # trusts it through knurd.fingerprint in its command config, so no CA is needed.
+                # trusts it through knurd.fingerprint in its creds file, so no CA is needed.
                 admin.tls.keystore=%s
                 admin.tls.password.file=%s
                 """.formatted(DEFAULT_KEYSTORE, DEFAULT_KEYSTORE + ".password"));
@@ -280,7 +336,7 @@ final class AdminCommands {
         out.println("  knurctl admin token add laptop --admin-url https://<this computer's LAN address>:8425");
     }
 
-    /** Where the new command config should point: --admin-url, else worked out from admin.listen.*. */
+    /** Where the new creds file should point: --admin-url, else worked out from admin.listen.*. */
     private URI adminUrl(Properties config) throws UsageException {
         String given = options.get("--admin-url");
         boolean tls = !config.getProperty("admin.tls.keystore", "").isBlank();
@@ -298,7 +354,7 @@ final class AdminCommands {
         }
         URI url;
         try {
-            url = CommandConfig.checkUrl(value);
+            url = Creds.checkUrl(value);
         } catch (IllegalArgumentException e) {
             throw new UsageException(e.getMessage());
         }

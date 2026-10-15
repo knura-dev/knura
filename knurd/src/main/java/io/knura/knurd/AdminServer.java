@@ -39,6 +39,11 @@ import javax.net.ssl.SSLParameters;
  *       for a while; a good token still works.
  * </ol>
  *
+ * <p>In plaintext mode ({@code admin.security=plaintext}, no {@link TokenStore}) step 4 is
+ * skipped: anyone on this computer may use the API, as with Kafka's PLAINTEXT listener. knurd
+ * then listens on loopback only, and also requires the Host header to name this computer, so a
+ * web page can't reach the API by pointing its own domain name at 127.0.0.1 (DNS rebinding).
+ *
  * <p>Every request, refused or not, is written to the {@link AuditLog} before it is answered; if
  * that fails the answer is a 500. The API is read-only for now and never returns key material:
  *
@@ -69,7 +74,10 @@ final class AdminServer implements AutoCloseable {
     private final Info info;
     private final Clock clock;
 
-    /** @param tls the TLS setup, or null for plain HTTP (loopback only; KnurdConfig enforces it) */
+    /**
+     * @param tls the TLS setup, or null for plain HTTP (loopback only; KnurdConfig enforces it)
+     * @param tokens the tokens to accept, or null for plaintext mode: no login (loopback only)
+     */
     AdminServer(String host, int port, SSLContext tls, TokenStore tokens, AuditLog audit, CounterStore counters,
             RecentTaps taps, Info info, Clock clock) throws IOException {
         InetSocketAddress address = new InetSocketAddress(host, port);
@@ -127,6 +135,19 @@ final class AdminServer implements AutoCloseable {
         } else if (proxied(exchange.getRequestHeaders()) != null) {
             answer = new Answer(403, error("forbidden", "the admin API must not be reached through a proxy or tunnel"),
                     "came through a proxy (" + proxied(exchange.getRequestHeaders()) + ")");
+        } else if (tokens == null && !loopbackHost(exchange.getRequestHeaders().getFirst("Host"))) {
+            answer = new Answer(403, error("forbidden", "in plaintext mode the admin API only answers requests for"
+                    + " 127.0.0.1 or localhost"), "Host is not this computer");
+        } else if (tokens == null) {
+            try {
+                answer = route(method, path, exchange.getRequestURI().getRawQuery(), null, exchange);
+            } catch (RuntimeException e) {
+                LOG.log(Level.ERROR, "admin request " + method + " " + path + " failed", e);
+                answer = new Answer(500, error("error", null), "internal error");
+            }
+            if (answer.detail() == null) {
+                answer = new Answer(answer.status(), answer.json(), "plaintext: no login");
+            }
         } else {
             Optional<String> name = tokens.nameOf(bearer(exchange.getRequestHeaders()));
             Duration wait = throttle.waitFor(remoteText);
@@ -171,7 +192,8 @@ final class AdminServer implements AutoCloseable {
             return new Answer(405, error("method_not_allowed", null), null);
         }
         return switch (path) {
-            case "/v1/whoami" -> ok("{\"token\":" + Json.quote(tokenName) + "}");
+            case "/v1/whoami" -> ok("{\"token\":" + Json.quote(tokenName) + ",\"security\":"
+                    + (tokens == null ? "\"plaintext\"" : "\"token\"") + "}");
             case "/v1/status" -> ok(status());
             case "/v1/tags" -> ok(tags());
             default -> {
@@ -232,6 +254,21 @@ final class AdminServer implements AutoCloseable {
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    /** Whether a Host header (with or without a port) names this computer. */
+    static boolean loopbackHost(String host) {
+        if (host == null) {
+            return false;
+        }
+        String h = host.trim();
+        if (h.startsWith("[")) {
+            int end = h.indexOf(']');
+            h = end < 0 ? h : h.substring(0, end + 1);
+        } else if (h.indexOf(':') >= 0 && h.indexOf(':') == h.lastIndexOf(':')) {
+            h = h.substring(0, h.indexOf(':'));
+        }
+        return LocalAddresses.isLoopbackName(h);
     }
 
     /** The first proxy header present, or null. */

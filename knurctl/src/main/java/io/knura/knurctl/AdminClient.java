@@ -23,7 +23,7 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509ExtendedTrustManager;
 
 /**
- * Talks to knurd's admin API with a {@link CommandConfig}. It connects directly (never through a
+ * Talks to knurd's admin API with a {@link Creds}. It connects directly (never through a
  * proxy, since the admin API is only on this computer or the local network), never follows
  * redirects (so the token goes nowhere else), and with {@code knurd.fingerprint} set trusts only
  * the certificate with that fingerprint.
@@ -31,10 +31,10 @@ import javax.net.ssl.X509ExtendedTrustManager;
 final class AdminClient {
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
 
-    private final CommandConfig config;
+    private final Creds config;
     private final HttpClient http;
 
-    AdminClient(CommandConfig config) {
+    AdminClient(Creds config) {
         this.config = config;
         HttpClient.Builder builder = HttpClient.newBuilder()
                 .proxy(HttpClient.Builder.NO_PROXY)
@@ -49,12 +49,14 @@ final class AdminClient {
     /** GETs {@code path} and returns the parsed JSON answer. */
     @SuppressWarnings("unchecked")
     Map<String, Object> get(String path) throws IOException {
-        HttpRequest request = HttpRequest.newBuilder(URI.create(config.url() + path))
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(config.url() + path))
                 .timeout(TIMEOUT)
-                .header("Authorization", "Bearer " + config.token())
                 .header("Accept", "application/json")
-                .GET()
-                .build();
+                .GET();
+        if (config.token() != null) {
+            builder.header("Authorization", "Bearer " + config.token());
+        }
+        HttpRequest request = builder.build();
         HttpResponse<String> response;
         try {
             response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -64,9 +66,9 @@ final class AdminClient {
         } catch (SSLHandshakeException e) {
             throw new IOException(config.fingerprint() == null
                     ? "TLS with " + config.url() + " failed (" + e.getMessage() + "). For knurd's own certificate,"
-                            + " the command config needs knurd.fingerprint"
+                            + " the creds file needs knurd.fingerprint"
                     : "knurd at " + config.url() + " showed a certificate that doesn't match knurd.fingerprint. If knurd's"
-                            + " admin certificate was remade, make a new command config; otherwise something else is"
+                            + " admin certificate was remade, make a new creds file; otherwise something else is"
                             + " pretending to be knurd", e);
         } catch (HttpConnectTimeoutException | ConnectException e) {
             throw new IOException("can't reach knurd's admin API at " + config.url()
@@ -92,8 +94,11 @@ final class AdminClient {
         }
         String detail = body.get("detail") instanceof String s ? s : String.valueOf(body.get("status"));
         throw new IOException(switch (status) {
-            case 401 -> "knurd doesn't accept this token. It may have been removed (knurctl admin token list"
-                    + " on knurd's computer), or this command config is for another knurd";
+            case 401 -> config.token() == null
+                    ? "knurd wants a login token, but knurd.properties here says admin.security=plaintext. Restart"
+                            + " knurd after changing admin.security, or pass --creds"
+                    : "knurd doesn't accept this token. It may have been removed (knurctl admin token list"
+                    + " on knurd's computer), or this creds file is for another knurd";
             case 429 -> "too many bad tokens from this computer; knurd is refusing it for a few minutes";
             default -> "knurd answered " + status + ": " + detail;
         });

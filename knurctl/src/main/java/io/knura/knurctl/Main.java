@@ -55,12 +55,15 @@ public final class Main {
               resolver check        show where tap.knura.io sends your taps
 
             knurd's admin API (its own port, on this computer or your local network only):
+              Two security modes (admin.security in knurd.properties):
+                token      (default) every command logs in with a token from a --creds file
+                plaintext  no login and no --creds; knurd then only answers this computer
               admin token add NAME  make a login token for knurctl, LoomStudio...; writes it to a
-                                    command config file (default knurctl-admin.properties).
+                                    creds file (default knurctl-creds.properties).
                                     The first time, also turns the admin API on: restart knurd
               admin token list      list token names          admin token remove NAME
               admin tls create      make the TLS certificate the admin API needs for LAN use
-              admin whoami          check the command config logs in
+              admin whoami          check that knurctl can log in, and in which mode
               admin status          knurd's uptime, keys mode, public URL, knots and tags
               admin tags            every tag knurd has accepted, with its last counter
               admin taps            the latest taps and how each went (--limit N, default 20)
@@ -78,17 +81,18 @@ public final class Main {
               --reader N|NAME       reader number from 'knurctl readers', or part of its name
               --wait SECONDS        how long to wait for a tag (default 30)
               --verbose             print every command sent to the tag
-              --command-config FILE admin: knurd's admin URL and token (default
-                                    knurctl-admin.properties). Must be chmod 600
-              --admin-url URL       admin token add: the address to put in the command config
-              --out FILE            admin token add: where to write the command config
+              --creds FILE          admin: knurd's admin URL and token (default
+                                    knurctl-creds.properties). Must be chmod 600. Not needed
+                                    when knurd.properties here says admin.security=plaintext
+              --admin-url URL       admin token add: the address to put in the creds file
+              --out FILE            admin token add: where to write the creds file
               --limit N             admin taps: how many to show
             """;
 
     private static final Set<String> FLAGS = Set.of("--verbose", "--help");
     private static final Set<String> OPTIONS =
             Set.of("--config", "--base-url", "--from", "--reader", "--wait", "--server", "--resolver",
-                    "--command-config", "--admin-url", "--out", "--limit");
+                    "--creds", "--admin-url", "--out", "--limit");
 
     private final PrintStream out;
     private final Map<String, String> options;

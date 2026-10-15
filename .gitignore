@@ -10,12 +10,13 @@ out/
 # Local knurd config (holds keys) and tap counters.
 knurd.properties
 knurd-counters.properties
-# knurd admin API: token hashes, TLS key, audit log, and knurctl command configs (hold tokens).
+# knurd admin API: token hashes, TLS key, audit log, and knurctl creds files (hold tokens).
 knurd-admin-tokens.properties
 knurd-admin.p12
 knurd-admin.p12.password
 knurd-admin-audit.log
 knurctl-admin*.properties
+knurctl-creds*.properties
 # Local knurgN rules and webhook secrets.
 knurgn.properties
 knurgn-secrets.properties

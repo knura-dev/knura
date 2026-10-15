@@ -17,8 +17,8 @@ import java.util.Properties;
 import java.util.Set;
 
 /**
- * The file {@code --command-config} names (like Kafka's): where knurd's admin API is and the
- * token to log in with. knurctl refuses the file unless only its owner can read it (chmod 600),
+ * How knurctl reaches knurd's admin API, usually from the file {@code --creds} names (like
+ * Kafka's {@code --command-config}): where the API is and the token to log in with. knurctl refuses the file unless only its owner can read it (chmod 600),
  * and refuses a plain http URL unless it is this computer, so the token never crosses a network
  * in clear.
  *
@@ -27,14 +27,16 @@ import java.util.Set;
  * knurd.token=knurd_...
  * knurd.fingerprint=...   (SHA-256 of knurd's admin certificate; optional for a bought certificate)
  * </pre>
+ *
+ * <p>{@code token} is null only for a plaintext-mode knurd on this computer, which needs no file.
  */
-record CommandConfig(URI url, String token, String fingerprint) {
-    static final String DEFAULT_FILE = "knurctl-admin.properties";
+record Creds(URI url, String token, String fingerprint) {
+    static final String DEFAULT_FILE = "knurctl-creds.properties";
     private static final Set<String> KEYS = Set.of("knurd.url", "knurd.token", "knurd.fingerprint");
 
-    static CommandConfig load(Path file) throws IOException, UsageException {
+    static Creds load(Path file) throws IOException, UsageException {
         if (!Files.exists(file)) {
-            throw new UsageException("no command config " + file.toAbsolutePath()
+            throw new UsageException("no creds file " + file.toAbsolutePath()
                     + "; make one on knurd's computer with: knurctl admin token add <name>");
         }
         String problem = PrivateFiles.problem(file);
@@ -73,7 +75,7 @@ record CommandConfig(URI url, String token, String fingerprint) {
                 throw new UsageException("knurd.fingerprint in " + file + ": " + e.getMessage());
             }
         }
-        return new CommandConfig(url, token, fingerprint);
+        return new Creds(url, token, fingerprint);
     }
 
     /**
@@ -103,13 +105,13 @@ record CommandConfig(URI url, String token, String fingerprint) {
         return uri;
     }
 
-    /** The text of a command config file. */
+    /** The text of a creds file. */
     static String format(URI url, String token, String fingerprint, String tokenName) {
         return """
                 # knurctl admin settings: knurd's admin API and the token "%s" to log in with.
                 # This file is a password. Keep it chmod 600, never commit or share it. If it leaks,
                 # run on knurd's computer: knurctl admin token remove %s
-                # Use it with: knurctl admin status --command-config <this file>
+                # Use it with: knurctl admin status --creds <this file>
                 knurd.url=%s
                 knurd.token=%s
                 """.formatted(tokenName, tokenName, url, token)

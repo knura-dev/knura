@@ -64,8 +64,12 @@ class AdminServerTest {
     }
 
     private AdminServer startAdmin(SSLContext tls) throws IOException {
+        return startAdmin(tls, new TokenStore(tokensFile));
+    }
+
+    private AdminServer startAdmin(SSLContext tls, TokenStore tokens) throws IOException {
         audit = new AuditLog(auditFile, clock);
-        AdminServer server = new AdminServer("127.0.0.1", 0, tls, new TokenStore(tokensFile), audit, counters, recent,
+        AdminServer server = new AdminServer("127.0.0.1", 0, tls, tokens, audit, counters, recent,
                 new AdminServer.Info("master", "https://desk.tail1234.ts.net", null, 3, clock.instant()), clock);
         server.start();
         return server;
@@ -88,7 +92,7 @@ class AdminServerTest {
 
         HttpResponse<String> ok = get("/v1/whoami", token);
         assertEquals(200, ok.statusCode());
-        assertEquals("{\"token\":\"laptop\"}", ok.body());
+        assertEquals("{\"token\":\"laptop\",\"security\":\"token\"}", ok.body());
         assertEquals("no-store", ok.headers().firstValue("Cache-Control").orElseThrow());
     }
 
@@ -185,7 +189,7 @@ class AdminServerTest {
     void picksUpTokenChangesWithoutRestart() throws Exception {
         String second = AdminTokens.generate(random);
         PrivateFiles.replace(tokensFile, AdminTokens.format(Map.of("loomstudio", AdminTokens.hash(second))));
-        assertEquals("{\"token\":\"loomstudio\"}", get("/v1/whoami", second).body());
+        assertEquals("{\"token\":\"loomstudio\",\"security\":\"token\"}", get("/v1/whoami", second).body());
         assertEquals(401, get("/v1/whoami", token).statusCode(), "removed tokens stop working at once");
     }
 
@@ -236,7 +240,7 @@ class AdminServerTest {
                 HttpRequest.newBuilder(URI.create("https://127.0.0.1:" + admin.port() + "/v1/whoami"))
                         .header("Authorization", "Bearer " + token).build(),
                 HttpResponse.BodyHandlers.ofString());
-        assertEquals("{\"token\":\"laptop\"}", r.body());
+        assertEquals("{\"token\":\"laptop\",\"security\":\"token\"}", r.body());
         assertThrows(IOException.class, () -> get("/v1/whoami", token), "plain HTTP gets nothing from a TLS port");
     }
 
@@ -248,6 +252,41 @@ class AdminServerTest {
         Files.setPosixFilePermissions(keystore, PosixFilePermissions.fromString("rw-r--r--"));
         IOException e = assertThrows(IOException.class, () -> AdminKeystore.load(keystore, password));
         assertTrue(e.getMessage().contains("chmod 600"), e.getMessage());
+    }
+
+    private void restartInPlaintextMode() throws IOException {
+        admin.close();
+        audit.close();
+        admin = startAdmin(null, null);
+    }
+
+    @Test
+    void plaintextModeNeedsNoLogin() throws Exception {
+        restartInPlaintextMode();
+        HttpResponse<String> me = get("/v1/whoami", null);
+        assertEquals(200, me.statusCode());
+        assertEquals("{\"token\":null,\"security\":\"plaintext\"}", me.body());
+        assertEquals(200, get("/v1/status", null).statusCode());
+        assertEquals(200, get("/v1/status", "anything").statusCode(), "a token is simply ignored");
+        assertEquals(404, get("/v1/nothing", null).statusCode());
+        String log = Files.readString(auditFile);
+        assertTrue(log.contains("\"detail\":\"plaintext: no login\""), log);
+    }
+
+    @Test
+    void plaintextModeStillRefusesProxiesAndOtherHostNames() throws Exception {
+        restartInPlaintextMode();
+        HttpResponse<String> proxied = http.send(request("/v1/status", null).header("X-Forwarded-For", "203.0.113.9").build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(403, proxied.statusCode());
+        // A web page that points its own name at 127.0.0.1 (DNS rebinding) sends that name as Host.
+        assertTrue(AdminServer.loopbackHost("127.0.0.1:8425"));
+        assertTrue(AdminServer.loopbackHost("localhost:8425"));
+        assertTrue(AdminServer.loopbackHost("[::1]:8425"));
+        assertTrue(AdminServer.loopbackHost("localhost"));
+        assertFalse(AdminServer.loopbackHost("evil.example:8425"));
+        assertFalse(AdminServer.loopbackHost("127.0.0.1.evil.example"));
+        assertFalse(AdminServer.loopbackHost(null));
     }
 
     static void makeKeystore(Path keystore, Path password) throws Exception {

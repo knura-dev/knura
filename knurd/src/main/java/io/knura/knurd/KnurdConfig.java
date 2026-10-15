@@ -28,7 +28,7 @@ import java.util.Properties;
  * address phones use to reach knurd, without a trailing slash, or null when it is not set.
  * {@code resolver} is null unless this knurd is registered with a tap resolver such as
  * tap.knura.io ({@code knurctl resolver register}). {@code admin} is null unless the admin API
- * is turned on with {@code admin.tokens.file}.
+ * is turned on with {@code admin.tokens.file} or {@code admin.security=plaintext}.
  */
 public record KnurdConfig(
         String host,
@@ -53,9 +53,11 @@ public record KnurdConfig(
     /**
      * The admin API's own listener, separate from the tap port so the tap port can be put on the
      * internet and this one never is. {@code keystore} and {@code passwordFile} are null when it
-     * serves plain HTTP, which is only allowed on this computer (loopback).
+     * serves plain HTTP, which is only allowed on this computer (loopback). With {@code
+     * plaintext}, there is no login ({@code tokensFile} is null) and it must be loopback.
      */
-    public record Admin(String host, int port, Path tokensFile, Path keystore, Path passwordFile, Path auditFile) {
+    public record Admin(
+            String host, int port, boolean plaintext, Path tokensFile, Path keystore, Path passwordFile, Path auditFile) {
         public boolean tls() {
             return keystore != null;
         }
@@ -118,19 +120,30 @@ public record KnurdConfig(
     }
 
     /**
-     * The admin.* settings, or null when admin.tokens.file isn't set. The admin listener must be
+     * The admin.* settings, or null when neither admin.tokens.file nor admin.security is set. The admin listener must be
      * this computer or a local network address (or every interface, for containers), never a
      * public one, and anything but loopback must use TLS so tokens never cross a network in clear.
      */
     static Admin admin(Properties p, Path baseDir, int tapPort) {
         String tokens = p.getProperty("admin.tokens.file", "").trim();
-        if (tokens.isEmpty()) {
+        String security = p.getProperty("admin.security", "").trim().toLowerCase(Locale.ROOT);
+        if (tokens.isEmpty() && security.isEmpty()) {
             for (String name : p.stringPropertyNames()) {
                 if (name.startsWith("admin.") && !p.getProperty(name).isBlank()) {
-                    throw new IllegalArgumentException(name + " needs admin.tokens.file, which turns the admin API on");
+                    throw new IllegalArgumentException(name + " needs admin.tokens.file or admin.security=plaintext,"
+                            + " which turn the admin API on");
                 }
             }
             return null;
+        }
+        boolean plaintext = switch (security) {
+            case "", "token" -> false;
+            case "plaintext" -> true;
+            default -> throw new IllegalArgumentException("admin.security must be token or plaintext, not " + security);
+        };
+        if (!plaintext && tokens.isEmpty()) {
+            throw new IllegalArgumentException("admin.security=token needs admin.tokens.file"
+                    + " (knurctl admin token add makes it)");
         }
         String host = p.getProperty("admin.listen.host", DEFAULT_HOST).trim();
         int port;
@@ -144,6 +157,15 @@ public record KnurdConfig(
                     + " may be on the internet and the admin port never should be");
         }
         boolean loopback = adminHost(host);
+        String audit = p.getProperty("admin.audit.file", "knurd-admin-audit.log").trim();
+        if (plaintext) {
+            if (!loopback) {
+                throw new IllegalArgumentException("admin.security=plaintext has no login, so it only listens on this"
+                        + " computer: set admin.listen.host=127.0.0.1, or use admin.security=token for " + host);
+            }
+            // No login means nothing to protect in transit on loopback; TLS and tokens don't apply.
+            return new Admin(host, port, true, null, null, null, baseDir.resolve(audit));
+        }
         String keystore = p.getProperty("admin.tls.keystore", "").trim();
         String password = p.getProperty("admin.tls.password.file", "").trim();
         if (keystore.isEmpty() != password.isEmpty()) {
@@ -154,10 +176,10 @@ public record KnurdConfig(
                     + " the admin API needs TLS: set admin.tls.keystore and admin.tls.password.file"
                     + " (knurctl admin tls create makes them)");
         }
-        String audit = p.getProperty("admin.audit.file", "knurd-admin-audit.log").trim();
         return new Admin(
                 host,
                 port,
+                false,
                 baseDir.resolve(tokens),
                 keystore.isEmpty() ? null : baseDir.resolve(keystore),
                 password.isEmpty() ? null : baseDir.resolve(password),

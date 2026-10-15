@@ -254,4 +254,34 @@ class KnurdConfigTest {
         assertTrue(adminError("admin.listen.host", "8.8.8.8", tls[0], tls[1], tls[2], tls[3]).contains("public"));
         assertTrue(adminError("admin.listen.host", "fedora.local", tls[0], tls[1], tls[2], tls[3]).contains("IP address"));
     }
+
+    @Test
+    void plaintextAdminIsThisComputerOnly() {
+        Properties p = new Properties();
+        p.setProperty("master.key", "00112233445566778899AABBCCDDEEFF");
+        p.setProperty("admin.security", "plaintext");
+        KnurdConfig.Admin admin = KnurdConfig.fromProperties(p, dir).admin();
+        assertTrue(admin.plaintext());
+        assertNull(admin.tokensFile());
+        assertFalse(admin.tls());
+        assertEquals("127.0.0.1", admin.host());
+
+        p.setProperty("admin.listen.host", "192.168.1.20");
+        String lan = assertThrows(IllegalArgumentException.class, () -> KnurdConfig.fromProperties(p, dir)).getMessage();
+        assertTrue(lan.contains("only listens on this computer"), lan);
+        p.setProperty("admin.listen.host", "0.0.0.0");
+        assertThrows(IllegalArgumentException.class, () -> KnurdConfig.fromProperties(p, dir));
+    }
+
+    @Test
+    void adminSecurityValues() {
+        assertFalse(KnurdConfig.fromProperties(withAdmin("admin.security", "token"), dir).admin().plaintext());
+        assertTrue(adminError("admin.security", "sasl_plaintext").contains("token or plaintext"));
+        Properties noTokens = new Properties();
+        noTokens.setProperty("master.key", "00112233445566778899AABBCCDDEEFF");
+        noTokens.setProperty("admin.security", "token");
+        String message = assertThrows(IllegalArgumentException.class, () -> KnurdConfig.fromProperties(noTokens, dir))
+                .getMessage();
+        assertTrue(message.contains("admin.tokens.file"), message);
+    }
 }

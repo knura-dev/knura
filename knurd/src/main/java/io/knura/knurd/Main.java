@@ -129,7 +129,7 @@ public final class Main {
             }
             fingerprint = keystore.fingerprint();
         }
-        TokenStore tokens = new TokenStore(a.tokensFile());
+        TokenStore tokens = a.plaintext() ? null : new TokenStore(a.tokensFile());
         AuditLog audit = new AuditLog(a.auditFile(), Clock.systemUTC());
         KnurdConfig.Resolver resolver = config.resolver();
         AdminServer.Info info = new AdminServer.Info(config.keys().mode(), config.publicUrl(),
@@ -141,8 +141,13 @@ public final class Main {
         if (fingerprint != null) {
             System.out.println("Admin API certificate fingerprint (SHA-256): " + fingerprint);
         }
-        System.out.printf("Admin tokens: %d in %s; every request is logged to %s%n",
-                tokens.count(), a.tokensFile(), a.auditFile());
+        if (tokens == null) {
+            System.out.printf("Admin API is in plaintext mode: no login, this computer only. Every request is"
+                    + " logged to %s%n", a.auditFile());
+        } else {
+            System.out.printf("Admin tokens: %d in %s; every request is logged to %s%n",
+                    tokens.count(), a.tokensFile(), a.auditFile());
+        }
         return admin;
     }
 }

@@ -66,7 +66,7 @@ class AdminCommandsTest {
     }
 
     @Test
-    void tokenAddTurnsTheApiOnAndWritesAPrivateCommandConfig() throws Exception {
+    void tokenAddTurnsTheApiOnAndWritesAPrivateCreds() throws Exception {
         assertEquals(0, run("init", "--config", config().toString()));
         Path cc = dir.resolve("laptop.properties");
         assertEquals(0, run("admin", "token", "add", "laptop", "--config", config().toString(), "--out", cc.toString()), err());
@@ -77,7 +77,7 @@ class AdminCommandsTest {
         assertEquals("rw-------", perms(cc));
         assertEquals("rw-------", perms(tokensFile));
 
-        CommandConfig loaded = CommandConfig.load(cc);
+        Creds loaded = Creds.load(cc);
         assertEquals("http://127.0.0.1:8425", loaded.url().toString());
         assertNull(loaded.fingerprint());
         assertEquals(AdminTokens.hash(loaded.token()), load(tokensFile).getProperty("laptop"));
@@ -88,7 +88,7 @@ class AdminCommandsTest {
         assertTrue(err().contains("already a token named laptop"), err());
         assertEquals(2, run("admin", "token", "add", "phone", "--config", config().toString(), "--out", cc.toString()));
         assertTrue(err().contains("already exists"), err());
-        assertEquals(CommandConfig.load(cc).token(), loaded.token(), "never overwrites a command config");
+        assertEquals(Creds.load(cc).token(), loaded.token(), "never overwrites a creds file");
 
         assertEquals(0, run("admin", "token", "add", "phone", "--config", config().toString(),
                 "--out", dir.resolve("phone.properties").toString()));
@@ -141,14 +141,14 @@ class AdminCommandsTest {
         Path cc = dir.resolve("lan.properties");
         assertEquals(0, run("admin", "token", "add", "laptop", "--config", config().toString(),
                 "--admin-url", "https://192.168.1.20:8425", "--out", cc.toString()), err());
-        CommandConfig loaded = CommandConfig.load(cc);
+        Creds loaded = Creds.load(cc);
         assertEquals("https://192.168.1.20:8425", loaded.url().toString());
         assertEquals(fingerprint, loaded.fingerprint());
     }
 
-    // ---- --command-config ----
+    // ---- --creds ----
 
-    private Path commandConfig(String text) throws IOException {
+    private Path creds(String text) throws IOException {
         Path file = dir.resolve("cc-" + Math.abs(text.hashCode()) + ".properties");
         Files.writeString(file, text);
         Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"));
@@ -158,37 +158,37 @@ class AdminCommandsTest {
     private static final String TOKEN = "knurd_" + "A".repeat(43);
 
     @Test
-    void commandConfigMustBePrivate() throws Exception {
-        Path file = commandConfig("knurd.url=http://127.0.0.1:8425\nknurd.token=" + TOKEN + "\n");
-        assertEquals(TOKEN, CommandConfig.load(file).token());
+    void credsMustBePrivate() throws Exception {
+        Path file = creds("knurd.url=http://127.0.0.1:8425\nknurd.token=" + TOKEN + "\n");
+        assertEquals(TOKEN, Creds.load(file).token());
         Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-r-----"));
-        Main.UsageException e = assertThrows(Main.UsageException.class, () -> CommandConfig.load(file));
+        Main.UsageException e = assertThrows(Main.UsageException.class, () -> Creds.load(file));
         assertTrue(e.getMessage().contains("chmod 600"), e.getMessage());
-        assertEquals(2, run("admin", "status", "--command-config", file.toString()));
+        assertEquals(2, run("admin", "status", "--creds", file.toString()));
         assertTrue(err().contains("chmod 600"), err());
     }
 
     @Test
-    void commandConfigNeedsHttpsOffThisComputer() throws Exception {
+    void credsNeedsHttpsOffThisComputer() throws Exception {
         for (String url : new String[] {"http://192.168.1.20:8425", "http://localhost.evil.example:8425",
                 "https://192.168.1.20:8425/admin", "https://user:pw@192.168.1.20:8425", "ftp://127.0.0.1", ""}) {
-            Path file = commandConfig("knurd.url=" + url + "\nknurd.token=" + TOKEN + "\n");
-            assertThrows(Main.UsageException.class, () -> CommandConfig.load(file), url);
+            Path file = creds("knurd.url=" + url + "\nknurd.token=" + TOKEN + "\n");
+            assertThrows(Main.UsageException.class, () -> Creds.load(file), url);
         }
-        CommandConfig.load(commandConfig("knurd.url=http://localhost:8425/\nknurd.token=" + TOKEN + "\n"));
-        CommandConfig.load(commandConfig("knurd.url=https://192.168.1.20:8425\nknurd.token=" + TOKEN + "\n"));
+        Creds.load(creds("knurd.url=http://localhost:8425/\nknurd.token=" + TOKEN + "\n"));
+        Creds.load(creds("knurd.url=https://192.168.1.20:8425\nknurd.token=" + TOKEN + "\n"));
     }
 
     @Test
-    void commandConfigRejectsTyposAndBadValues() throws Exception {
+    void credsRejectsTyposAndBadValues() throws Exception {
         String ok = "knurd.url=https://192.168.1.20:8425\nknurd.token=" + TOKEN + "\n";
-        assertThrows(Main.UsageException.class, () -> CommandConfig.load(commandConfig(ok + "token=x\n")));
-        assertThrows(Main.UsageException.class, () -> CommandConfig.load(commandConfig(
+        assertThrows(Main.UsageException.class, () -> Creds.load(creds(ok + "token=x\n")));
+        assertThrows(Main.UsageException.class, () -> Creds.load(creds(
                 "knurd.url=https://192.168.1.20:8425\nknurd.token=hunter2\n")));
-        assertThrows(Main.UsageException.class, () -> CommandConfig.load(commandConfig(ok + "knurd.fingerprint=abc\n")));
-        assertThrows(Main.UsageException.class, () -> CommandConfig.load(commandConfig(
+        assertThrows(Main.UsageException.class, () -> Creds.load(creds(ok + "knurd.fingerprint=abc\n")));
+        assertThrows(Main.UsageException.class, () -> Creds.load(creds(
                 "knurd.url=http://127.0.0.1:8425\nknurd.token=" + TOKEN + "\nknurd.fingerprint=" + "a".repeat(64) + "\n")));
-        assertThrows(Main.UsageException.class, () -> CommandConfig.load(dir.resolve("missing.properties")));
+        assertThrows(Main.UsageException.class, () -> Creds.load(dir.resolve("missing.properties")));
     }
 
     // ---- talking to knurd ----
@@ -232,26 +232,57 @@ class AdminCommandsTest {
         AtomicReference<String> auth = new AtomicReference<>();
         HttpServer server = fakeKnurd(HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0), auth);
         try {
-            Path cc = commandConfig("knurd.url=http://127.0.0.1:" + server.getAddress().getPort() + "\nknurd.token=" + TOKEN + "\n");
-            assertEquals(0, run("admin", "whoami", "--command-config", cc.toString()), err());
+            Path cc = creds("knurd.url=http://127.0.0.1:" + server.getAddress().getPort() + "\nknurd.token=" + TOKEN + "\n");
+            assertEquals(0, run("admin", "whoami", "--creds", cc.toString()), err());
             assertTrue(out().contains("as token \"laptop\""), out());
             assertEquals("Bearer " + TOKEN, auth.get());
 
-            assertEquals(0, run("admin", "status", "--command-config", cc.toString()), err());
+            assertEquals(0, run("admin", "status", "--creds", cc.toString()), err());
             assertTrue(out().contains("knurd is up (for 1d 2h 3m)"), out());
             assertTrue(out().contains("owner zk7hq4m2xa"), out());
-            assertEquals(0, run("admin", "tags", "--command-config", cc.toString()), err());
+            assertEquals(0, run("admin", "tags", "--creds", cc.toString()), err());
             assertTrue(out().contains("04DE5F1EACC040   61"), out());
-            assertEquals(0, run("admin", "taps", "--limit", "5", "--command-config", cc.toString()), err());
+            assertEquals(0, run("admin", "taps", "--limit", "5", "--creds", cc.toString()), err());
             assertEquals(3, out().lines().count(), out());
             assertTrue(out().contains("malformed"), out());
 
-            AdminClient client = new AdminClient(CommandConfig.load(cc));
+            AdminClient client = new AdminClient(Creds.load(cc));
             IOException redirect = assertThrows(IOException.class, () -> client.get("/v1/redirect"));
             assertTrue(redirect.getMessage().contains("302"), "redirects are never followed: " + redirect.getMessage());
         } finally {
             server.stop(0);
         }
+    }
+
+    @Test
+    void plaintextModeNeedsNoCreds() throws Exception {
+        AtomicReference<String> auth = new AtomicReference<>("unset");
+        HttpServer server = fakeKnurd(HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0), auth);
+        try {
+            Files.writeString(config(), "master.key=00112233445566778899AABBCCDDEEFF\nadmin.security=plaintext\n"
+                    + "admin.listen.port=" + server.getAddress().getPort() + "\n");
+            assertEquals(0, run("admin", "status", "--config", config().toString()), err());
+            assertTrue(out().contains("knurd is up"), out());
+            assertNull(auth.get(), "no token is sent in plaintext mode");
+            assertEquals(0, run("admin", "taps", "--limit", "5", "--config", config().toString()), err());
+
+            assertEquals(2, run("admin", "token", "add", "laptop", "--config", config().toString(),
+                    "--out", dir.resolve("cc").toString()));
+            assertTrue(err().contains("plaintext"), err());
+
+            Files.writeString(config(), "master.key=00112233445566778899AABBCCDDEEFF\nadmin.security=plaintext\n"
+                    + "admin.listen.host=192.168.1.20\n");
+            assertEquals(2, run("admin", "status", "--config", config().toString()));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void tokenModeWithoutCredsExplainsBothOptions() throws Exception {
+        Files.writeString(config(), "master.key=00112233445566778899AABBCCDDEEFF\nadmin.tokens.file=t.properties\n");
+        assertEquals(2, run("admin", "status", "--config", config().toString()));
+        assertTrue(err().contains("--creds") && err().contains("admin.security=plaintext"), err());
     }
 
     @Test
@@ -269,18 +300,18 @@ class AdminCommandsTest {
         fakeKnurd(https, auth);
         try {
             String url = "https://127.0.0.1:" + https.getAddress().getPort();
-            Path good = commandConfig("knurd.url=" + url + "\nknurd.token=" + TOKEN + "\nknurd.fingerprint=" + ks.fingerprint() + "\n");
-            assertEquals(Map.of("token", "laptop"), new AdminClient(CommandConfig.load(good)).get("/v1/whoami"));
+            Path good = creds("knurd.url=" + url + "\nknurd.token=" + TOKEN + "\nknurd.fingerprint=" + ks.fingerprint() + "\n");
+            assertEquals(Map.of("token", "laptop"), new AdminClient(Creds.load(good)).get("/v1/whoami"));
 
             String other = ks.fingerprint().startsWith("0") ? "1" + ks.fingerprint().substring(1) : "0" + ks.fingerprint().substring(1);
-            Path wrong = commandConfig("knurd.url=" + url + "\nknurd.token=" + TOKEN + "\nknurd.fingerprint=" + other + "\n");
+            Path wrong = creds("knurd.url=" + url + "\nknurd.token=" + TOKEN + "\nknurd.fingerprint=" + other + "\n");
             auth.set(null);
-            assertEquals(1, run("admin", "whoami", "--command-config", wrong.toString()));
+            assertEquals(1, run("admin", "whoami", "--creds", wrong.toString()));
             assertTrue(err().contains("doesn't match knurd.fingerprint"), err());
             assertNull(auth.get(), "the token is never sent to an unpinned server");
 
-            Path unpinned = commandConfig("knurd.url=" + url + "\nknurd.token=" + TOKEN + "\n");
-            assertEquals(1, run("admin", "whoami", "--command-config", unpinned.toString()));
+            Path unpinned = creds("knurd.url=" + url + "\nknurd.token=" + TOKEN + "\n");
+            assertEquals(1, run("admin", "whoami", "--creds", unpinned.toString()));
             assertTrue(err().contains("knurd.fingerprint"), err());
             assertNull(auth.get());
         } finally {
