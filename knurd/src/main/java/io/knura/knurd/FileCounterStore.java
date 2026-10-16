@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Map;
 import java.util.Properties;
+import java.util.SortedMap;
 import java.util.TreeMap;
 
 /**
@@ -62,6 +63,11 @@ public final class FileCounterStore implements CounterStore {
     @Override
     public synchronized int last(String uidHex) {
         return counters.getOrDefault(uidHex, -1);
+    }
+
+    @Override
+    public synchronized SortedMap<String, Integer> snapshot() {
+        return new TreeMap<>(counters);
     }
 
     private void save() throws IOException {

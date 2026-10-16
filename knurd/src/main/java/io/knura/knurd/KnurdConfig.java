@@ -1,25 +1,25 @@
 package io.knura.knurd;
 
+import io.knura.core.admin.LocalAddresses;
+import io.knura.core.admin.PrivateFiles;
 import io.knura.core.crypto.Hex;
 import io.knura.core.resolver.OwnerIds;
 import io.knura.core.resolver.OwnerKey;
 import io.knura.core.resolver.ResolverClient;
 import java.io.IOException;
 import java.io.Reader;
+import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFileAttributeView;
-import java.nio.file.attribute.PosixFilePermission;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
-import java.util.Set;
 
 /**
  * knurd settings, read from a properties file. See {@code knurd.example.properties} for every
@@ -27,7 +27,8 @@ import java.util.Set;
  * {@code actionsFile} is null when no knurgN actions are set up. {@code publicUrl} is the HTTPS
  * address phones use to reach knurd, without a trailing slash, or null when it is not set.
  * {@code resolver} is null unless this knurd is registered with a tap resolver such as
- * tap.knura.io ({@code knurctl resolver register}).
+ * tap.knura.io ({@code knurctl resolver register}). {@code admin} is null unless the admin API
+ * is turned on with {@code admin.tokens.file} or {@code admin.security=plaintext}.
  */
 public record KnurdConfig(
         String host,
@@ -36,20 +37,31 @@ public record KnurdConfig(
         Path countersFile,
         Path actionsFile,
         String publicUrl,
-        Resolver resolver) {
+        Resolver resolver,
+        Admin admin) {
     public static final String DEFAULT_HOST = "127.0.0.1";
     public static final int DEFAULT_PORT = 8424;
+    public static final int DEFAULT_ADMIN_PORT = 8425;
 
     private static final String FILE_KEY_PREFIX = "sdm.fileReadKey.";
-    private static final Set<PosixFilePermission> NOT_OWNER = EnumSet.of(
-            PosixFilePermission.GROUP_READ, PosixFilePermission.GROUP_WRITE, PosixFilePermission.GROUP_EXECUTE,
-            PosixFilePermission.OTHERS_READ, PosixFilePermission.OTHERS_WRITE, PosixFilePermission.OTHERS_EXECUTE);
-
     /**
      * The tap resolver this knurd is registered with: its URL, this knurd's owner ID there, and
      * the owner's public key, which every record the resolver serves must be signed with.
      */
     public record Resolver(String url, String owner, String publicKey) {}
+
+    /**
+     * The admin API's own listener, separate from the tap port so the tap port can be put on the
+     * internet and this one never is. {@code keystore} and {@code passwordFile} are null when it
+     * serves plain HTTP, which is only allowed on this computer (loopback). With {@code
+     * plaintext}, there is no login ({@code tokensFile} is null) and it must be loopback.
+     */
+    public record Admin(
+            String host, int port, boolean plaintext, Path tokensFile, Path keystore, Path passwordFile, Path auditFile) {
+        public boolean tls() {
+            return keystore != null;
+        }
+    }
 
     public static KnurdConfig load(Path file) throws IOException {
         Properties p = new Properties();
@@ -103,7 +115,100 @@ public record KnurdConfig(
                 counters,
                 actions.isEmpty() ? null : baseDir.resolve(actions),
                 publicUrl,
-                resolver(p, publicUrl));
+                resolver(p, publicUrl),
+                admin(p, baseDir, port));
+    }
+
+    /**
+     * The admin.* settings, or null when neither admin.tokens.file nor admin.security is set. The admin listener must be
+     * this computer or a local network address (or every interface, for containers), never a
+     * public one, and anything but loopback must use TLS so tokens never cross a network in clear.
+     */
+    static Admin admin(Properties p, Path baseDir, int tapPort) {
+        String tokens = p.getProperty("admin.tokens.file", "").trim();
+        String security = p.getProperty("admin.security", "").trim().toLowerCase(Locale.ROOT);
+        if (tokens.isEmpty() && security.isEmpty()) {
+            for (String name : p.stringPropertyNames()) {
+                if (name.startsWith("admin.") && !p.getProperty(name).isBlank()) {
+                    throw new IllegalArgumentException(name + " needs admin.tokens.file or admin.security=plaintext,"
+                            + " which turn the admin API on");
+                }
+            }
+            return null;
+        }
+        boolean plaintext = switch (security) {
+            case "", "token" -> false;
+            case "plaintext" -> true;
+            default -> throw new IllegalArgumentException("admin.security must be token or plaintext, not " + security);
+        };
+        if (!plaintext && tokens.isEmpty()) {
+            throw new IllegalArgumentException("admin.security=token needs admin.tokens.file"
+                    + " (knurctl admin token add makes it)");
+        }
+        String host = p.getProperty("admin.listen.host", DEFAULT_HOST).trim();
+        int port;
+        try {
+            port = Integer.parseInt(p.getProperty("admin.listen.port", String.valueOf(DEFAULT_ADMIN_PORT)).trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("admin.listen.port must be a number", e);
+        }
+        if (port == tapPort) {
+            throw new IllegalArgumentException("admin.listen.port must differ from listen.port: the tap port"
+                    + " may be on the internet and the admin port never should be");
+        }
+        boolean loopback = adminHost(host);
+        String audit = p.getProperty("admin.audit.file", "knurd-admin-audit.log").trim();
+        if (plaintext) {
+            if (!loopback) {
+                throw new IllegalArgumentException("admin.security=plaintext has no login, so it only listens on this"
+                        + " computer: set admin.listen.host=127.0.0.1, or use admin.security=token for " + host);
+            }
+            // No login means nothing to protect in transit on loopback; TLS and tokens don't apply.
+            return new Admin(host, port, true, null, null, null, baseDir.resolve(audit));
+        }
+        String keystore = p.getProperty("admin.tls.keystore", "").trim();
+        String password = p.getProperty("admin.tls.password.file", "").trim();
+        if (keystore.isEmpty() != password.isEmpty()) {
+            throw new IllegalArgumentException("set both admin.tls.keystore and admin.tls.password.file, or neither");
+        }
+        if (!loopback && keystore.isEmpty()) {
+            throw new IllegalArgumentException("admin.listen.host " + host + " is reachable from other computers, so"
+                    + " the admin API needs TLS: set admin.tls.keystore and admin.tls.password.file"
+                    + " (knurctl admin tls create makes them)");
+        }
+        return new Admin(
+                host,
+                port,
+                false,
+                baseDir.resolve(tokens),
+                keystore.isEmpty() ? null : baseDir.resolve(keystore),
+                password.isEmpty() ? null : baseDir.resolve(password),
+                baseDir.resolve(audit));
+    }
+
+    /**
+     * Checks admin.listen.host and says whether it is loopback. It must be an IP address (or
+     * localhost), so a DNS answer can't move the admin API onto a public address.
+     */
+    private static boolean adminHost(String host) {
+        if (LocalAddresses.isLoopbackName(host)) {
+            return true;
+        }
+        if (!host.matches("[0-9.]+|[0-9A-Fa-f:]*:[0-9A-Fa-f:.]*")) {
+            throw new IllegalArgumentException("admin.listen.host must be an IP address such as 127.0.0.1 or"
+                    + " 192.168.1.20, not a name: " + host);
+        }
+        InetAddress address;
+        try {
+            address = InetAddress.getByName(host);
+        } catch (UnknownHostException e) {
+            throw new IllegalArgumentException("admin.listen.host is not a valid IP address: " + host, e);
+        }
+        if (!address.isAnyLocalAddress() && !LocalAddresses.isLocalNetwork(address)) {
+            throw new IllegalArgumentException("admin.listen.host " + host + " is a public internet address; the"
+                    + " admin API listens only on this computer or your local network");
+        }
+        return address.isLoopbackAddress();
     }
 
     /** The resolver.* settings knurctl resolver register writes, or null if there are none. */
@@ -183,14 +288,9 @@ public record KnurdConfig(
         Path file = baseDir.resolve(name);
         String text;
         try {
-            PosixFileAttributeView view = Files.getFileAttributeView(file, PosixFileAttributeView.class);
-            if (view != null) {
-                Set<PosixFilePermission> perms = EnumSet.copyOf(view.readAttributes().permissions());
-                perms.retainAll(NOT_OWNER);
-                if (!perms.isEmpty()) {
-                    throw new IllegalArgumentException(
-                            file + " can be read or changed by other users; run: chmod 600 " + file);
-                }
+            String problem = PrivateFiles.problem(file);
+            if (problem != null) {
+                throw new IllegalArgumentException(problem);
             }
             text = Files.readString(file, StandardCharsets.UTF_8);
         } catch (NoSuchFileException e) {

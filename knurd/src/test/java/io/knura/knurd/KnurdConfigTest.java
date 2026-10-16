@@ -191,4 +191,97 @@ class KnurdConfigTest {
         noKey.remove("resolver.publicKey");
         assertThrows(IllegalArgumentException.class, () -> KnurdConfig.fromProperties(noKey, dir));
     }
+
+    private Properties withAdmin(String... pairs) {
+        Properties p = new Properties();
+        p.setProperty("master.key", "00112233445566778899AABBCCDDEEFF");
+        p.setProperty("admin.tokens.file", "tokens.properties");
+        for (int i = 0; i < pairs.length; i += 2) {
+            p.setProperty(pairs[i], pairs[i + 1]);
+        }
+        return p;
+    }
+
+    private String adminError(String... pairs) {
+        return assertThrows(IllegalArgumentException.class, () -> KnurdConfig.fromProperties(withAdmin(pairs), dir))
+                .getMessage();
+    }
+
+    @Test
+    void adminApiIsOffByDefaultAndLocalWhenOn() {
+        Properties off = new Properties();
+        off.setProperty("master.key", "00112233445566778899AABBCCDDEEFF");
+        assertNull(KnurdConfig.fromProperties(off, dir).admin());
+
+        KnurdConfig.Admin admin = KnurdConfig.fromProperties(withAdmin(), dir).admin();
+        assertEquals("127.0.0.1", admin.host());
+        assertEquals(8425, admin.port());
+        assertEquals(dir.resolve("tokens.properties"), admin.tokensFile());
+        assertEquals(dir.resolve("knurd-admin-audit.log"), admin.auditFile());
+        assertFalse(admin.tls());
+    }
+
+    @Test
+    void adminSettingsNeedTheTokensFile() {
+        Properties p = new Properties();
+        p.setProperty("master.key", "00112233445566778899AABBCCDDEEFF");
+        p.setProperty("admin.listen.host", "192.168.1.20");
+        String message = assertThrows(IllegalArgumentException.class, () -> KnurdConfig.fromProperties(p, dir)).getMessage();
+        assertTrue(message.contains("admin.tokens.file"), message);
+    }
+
+    @Test
+    void adminApiNeverSharesTheTapPort() {
+        assertTrue(adminError("admin.listen.port", "8424").contains("must differ"));
+    }
+
+    @Test
+    void adminApiOffThisComputerNeedsTls() {
+        assertTrue(adminError("admin.listen.host", "192.168.1.20").contains("needs TLS"));
+        assertTrue(adminError("admin.listen.host", "0.0.0.0").contains("needs TLS"));
+        assertTrue(adminError("admin.tls.keystore", "k.p12").contains("both"));
+        KnurdConfig.Admin lan = KnurdConfig.fromProperties(withAdmin("admin.listen.host", "192.168.1.20",
+                "admin.tls.keystore", "k.p12", "admin.tls.password.file", "k.pw"), dir).admin();
+        assertTrue(lan.tls());
+        assertEquals(dir.resolve("k.p12"), lan.keystore());
+        KnurdConfig.fromProperties(withAdmin("admin.listen.host", "100.101.102.103",
+                "admin.tls.keystore", "k.p12", "admin.tls.password.file", "k.pw"), dir);
+    }
+
+    @Test
+    void adminApiRefusesPublicAddressesAndNames() {
+        String[] tls = {"admin.tls.keystore", "k.p12", "admin.tls.password.file", "k.pw"};
+        assertTrue(adminError("admin.listen.host", "8.8.8.8", tls[0], tls[1], tls[2], tls[3]).contains("public"));
+        assertTrue(adminError("admin.listen.host", "fedora.local", tls[0], tls[1], tls[2], tls[3]).contains("IP address"));
+    }
+
+    @Test
+    void plaintextAdminIsThisComputerOnly() {
+        Properties p = new Properties();
+        p.setProperty("master.key", "00112233445566778899AABBCCDDEEFF");
+        p.setProperty("admin.security", "plaintext");
+        KnurdConfig.Admin admin = KnurdConfig.fromProperties(p, dir).admin();
+        assertTrue(admin.plaintext());
+        assertNull(admin.tokensFile());
+        assertFalse(admin.tls());
+        assertEquals("127.0.0.1", admin.host());
+
+        p.setProperty("admin.listen.host", "192.168.1.20");
+        String lan = assertThrows(IllegalArgumentException.class, () -> KnurdConfig.fromProperties(p, dir)).getMessage();
+        assertTrue(lan.contains("only listens on this computer"), lan);
+        p.setProperty("admin.listen.host", "0.0.0.0");
+        assertThrows(IllegalArgumentException.class, () -> KnurdConfig.fromProperties(p, dir));
+    }
+
+    @Test
+    void adminSecurityValues() {
+        assertFalse(KnurdConfig.fromProperties(withAdmin("admin.security", "token"), dir).admin().plaintext());
+        assertTrue(adminError("admin.security", "sasl_plaintext").contains("token or plaintext"));
+        Properties noTokens = new Properties();
+        noTokens.setProperty("master.key", "00112233445566778899AABBCCDDEEFF");
+        noTokens.setProperty("admin.security", "token");
+        String message = assertThrows(IllegalArgumentException.class, () -> KnurdConfig.fromProperties(noTokens, dir))
+                .getMessage();
+        assertTrue(message.contains("admin.tokens.file"), message);
+    }
 }
