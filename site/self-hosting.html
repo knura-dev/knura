@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Self-hosting · Knura</title>
+<meta name="description" content="Run Knura yourself: set up tags with knurctl, run knurd at home or on Kubernetes, reach it from phones and manage it with the admin API.">
+<link rel="canonical" href="https://knura.io/self-hosting.html">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta property="og:title" content="Self-hosting · Knura">
+<meta property="og:description" content="Run Knura yourself: set up tags with knurctl, run knurd at home or on Kubernetes, reach it from phones and manage it with the admin API.">
+<meta property="og:url" content="https://knura.io/self-hosting.html">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#0A0D12">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="logo" href="./" aria-label="Knura home">
+      <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="2" y="2" width="28" height="28" rx="7" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+        <rect x="8" y="8" width="16" height="16" rx="3.5" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+        <rect x="13" y="13" width="6" height="6" rx="1" fill="var(--fg)"/>
+      </svg>
+      Knura
+    </a>
+    <nav class="nav-links" aria-label="Pages">
+      <a href="how-it-works.html">How it works</a>
+      <a href="security.html">Security</a>
+      <a href="connectors.html">Connectors</a>
+      <a href="self-hosting.html" aria-current="page">Self-hosting</a>
+      <a href="roadmap.html">Roadmap</a>
+    </nav>
+    <a class="btn btn-ghost btn-sm nav-cta" href="self-hosting.html">Get started</a>
+  </div>
+</header>
+
+<main id="top">
+  <section class="page-hero">
+    <div class="container">
+      <span class="kicker">Self-hosting</span>
+      <h1>Run Knura on your own computer, server or cluster</h1>
+      <p>Everything runs on hardware you control. Pick how you want to run knurd, then give phones a way to reach it.</p>
+    </div>
+  </section>
+  <div class="container doc">
+    <nav class="toc" aria-label="On this page">
+      <span>On this page</span>
+      <a href="#need">What you need</a>
+      <a href="#tags">1. Set up your tags</a>
+      <a href="#home">2a. Run knurd at home</a>
+      <a href="#kubernetes">2b. Run it on Kubernetes</a>
+      <a href="#resolver">3. Optional: keep tags working when you move</a>
+      <a href="#admin">4. Manage knurd from knurctl</a>
+    </nav>
+    <article class="prose">
+    <h2 id="need">What you need</h2>
+<ul>
+      <li><strong>NTAG 424 DNA tags</strong> (stickers, cards or key fobs with this chip).</li>
+      <li><strong>A USB NFC reader</strong> that speaks PC/SC, such as the ACR122U, to set up tags.</li>
+      <li><strong>Java 21</strong> for knurctl and knurd, and Node.js 20.19 or newer for the Matter bridge.</li>
+      <li><strong>An HTTPS address</strong> phones can reach, for example through Tailscale Funnel.</li>
+    </ul>
+    <h2 id="tags">1. Set up your tags</h2>
+<p>Put a tag on the reader and run:</p>
+    <div class="terminal" role="img" aria-label="Terminal: knurctl init, provision and tap">
+        <div class="term-bar"><i></i><i></i><i></i><span>~/knura</span></div>
+<pre><span class="t-c"># make a master key (back it up)</span>
+<span class="t-p">$</span> knurctl init
+
+<span class="t-c"># give the tag its keys and tap link</span>
+<span class="t-p">$</span> knurctl provision
+
+<span class="t-c"># read it the way a phone does</span>
+<span class="t-p">$</span> knurctl tap</pre>
+      </div>
+    <p><code>knurctl info</code> shows a tag's ID, link and whose keys it has, and <code>knurctl reset</code> puts it back to factory keys. On Linux, knurctl needs the PC/SC daemon (<code>pcsc-lite</code> on Fedora).</p>
+    <h2 id="home">2a. Run knurd at home</h2>
+<p>knurd listens on this computer only. Put an HTTPS tunnel in front of it so phones can reach it. <a href="https://tailscale.com/kb/1223/funnel">Tailscale Funnel</a> is free, needs no domain or router changes, and gives a fixed address:</p>
+    <div class="terminal" role="img" aria-label="Terminal: starting Tailscale Funnel and pointing tags at it">
+        <div class="term-bar"><i></i><i></i><i></i><span>~/knura</span></div>
+<pre><span class="t-p">$</span> sudo tailscale funnel --bg 8424
+<span class="t-p">$</span> echo 'public.url=https://&lt;computer&gt;.&lt;tailnet&gt;.ts.net' &gt;&gt; knurd.properties
+<span class="t-p">$</span> knurctl provision --from knura   <span class="t-c"># rewrite the tag's link</span></pre>
+      </div>
+    <div class="callout"><strong>The address must stay the same.</strong> It is written onto tags, so a tunnel that changes address every time it starts would break every tag. Use the resolver below if you expect to move.</div>
+    <h2 id="kubernetes">2b. Run it on Kubernetes</h2>
+<p>A Helm chart runs knurd and knurgN in one pod, with the Matter bridge as an optional sidecar. knurctl stays on your computer because it needs the USB reader.</p>
+    <div class="terminal" role="img" aria-label="Terminal: creating the keys Secret and installing the Helm chart">
+        <div class="term-bar"><i></i><i></i><i></i><span>~/knura</span></div>
+<pre><span class="t-c"># keys go in a Secret you make yourself, never in values</span>
+<span class="t-p">$</span> kubectl --namespace knura create secret generic knura-keys --from-file=k8s-keys/master.key
+<span class="t-p">$</span> helm install knura deploy/helm/knura --namespace knura
+
+<span class="t-c"># or try everything on a throwaway local cluster</span>
+<span class="t-p">$</span> deploy/kind/test.sh</pre>
+      </div>
+    <p>The test script builds the images, starts a <a href="https://kind.sigs.k8s.io">kind</a> cluster and checks that a tap verifies, that a replay is refused even after a restart, and that the Matter bridge got the tap. CI runs it on every pull request. Images aren't published to a registry yet, so you build them locally.</p>
+    <h2 id="resolver">3. Optional: keep tags working when you move</h2>
+<p>Register with <code>tap.knura.io</code> and tags carry its address instead of yours. Moving knurd then means registering the new address, not rewriting tags.</p>
+    <div class="terminal" role="img" aria-label="Terminal: registering with the tap.knura.io resolver">
+        <div class="term-bar"><i></i><i></i><i></i><span>~/knura</span></div>
+<pre><span class="t-p">$</span> knurctl resolver register   <span class="t-c"># creates your owner ID and key</span>
+<span class="t-p">$</span> knurctl resolver register   <span class="t-c"># after restarting knurd: forwards to public.url</span>
+<span class="t-p">$</span> knurctl provision --from knura
+<span class="t-p">$</span> knurctl resolver check      <span class="t-c"># where do my taps go?</span></pre>
+      </div>
+    <p>You can always skip the resolver by giving <code>knurctl provision</code> your own <code>--base-url</code>.</p>
+    <h2 id="admin">4. Manage knurd from knurctl</h2>
+<p>knurd's admin API runs on a separate, never-public port. Today it shows status, recent taps and every tag seen.</p>
+    <div class="terminal" role="img" aria-label="Terminal: knurctl admin commands">
+        <div class="term-bar"><i></i><i></i><i></i><span>~/knura</span></div>
+<pre><span class="t-c"># on knurd's own computer</span>
+<span class="t-p">$</span> knurctl admin status
+<span class="t-p">$</span> knurctl admin taps
+<span class="t-p">$</span> knurctl admin tags
+
+<span class="t-c"># from another computer: a token and pinned TLS</span>
+<span class="t-p">$</span> knurctl admin tls create
+<span class="t-p">$</span> knurctl admin token add laptop
+<span class="t-p">$</span> knurctl admin status --creds knurctl-creds.properties</pre>
+      </div>
+    <p>See <a href="security.html#ports">Security</a> for how the admin port is locked down.</p>
+    </article>
+  </div>
+</main>
+
+<footer>
+  <div class="container">
+    <div class="foot">
+      <div class="about">
+        <a class="logo" href="./">
+          <svg width="24" height="24" viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="2" y="2" width="28" height="28" rx="7" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+        <rect x="8" y="8" width="16" height="16" rx="3.5" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+        <rect x="13" y="13" width="6" height="6" rx="1" fill="var(--fg)"/>
+      </svg>
+          Knura
+        </a>
+        <p>Open-source NFC trust and actions for NTAG 424 DNA tags. Public source release coming soon.</p>
+      </div>
+      <div>
+        <h4>Product</h4>
+        <ul>
+          <li><a href="how-it-works.html">How it works</a></li>
+          <li><a href="security.html">Security</a></li>
+          <li><a href="connectors.html">Connectors</a></li>
+          <li><a href="self-hosting.html">Self-hosting</a></li>
+          <li><a href="roadmap.html">Roadmap</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Standards</h4>
+        <ul>
+          <li><a href="https://www.nxp.com/products/NTAG424DNA">NTAG 424 DNA</a></li>
+          <li><a href="https://www.standardwebhooks.com">Standard Webhooks</a></li>
+          <li><a href="https://csa-iot.org/all-solutions/matter/">Matter</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="legal">
+      <span>© 2026 Knura</span>
+      <span>NTAG and NTAG 424 DNA are trademarks of NXP B.V.</span>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

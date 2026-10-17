@@ -1,16 +1,29 @@
 # knura.io website
 
-The knura.io home page. Plain HTML and CSS with no build step: the files in this folder are the
+The knura.io website. Plain HTML and CSS with no build step: the files in this folder are the
 whole site.
 
 | File | What it is |
 | --- | --- |
-| `index.html` | The home page |
+| `index.html` | Home page (knura.io/) |
+| `how-it-works.html` | The journey of a tap, from tag to action |
+| `security.html` | What each part protects against, and current limits |
+| `connectors.html` | Signed webhook, Matter bridge and planned connectors |
+| `self-hosting.html` | Running Knura at home, on Kubernetes, with the resolver and admin API |
+| `roadmap.html` | Shipped, next and later |
+| `styles.css` | Styles shared by every page |
 | `404.html` | Shown for any address that doesn't exist |
 | `favicon.svg` | Browser tab icon |
 | `robots.txt` | Lets search engines index the site |
 
 To look at it locally, open `index.html` in a browser.
+
+Pages live at the top level with `.html` addresses (`knura.io/security.html`), which S3 and
+CloudFront serve as they are. Addresses without `.html` (`knura.io/security`) would need a
+CloudFront Function to add it, so the pages don't use them.
+
+Each page carries its own copy of the menu and footer. When adding a page, add it to the menu in
+every page and to the table above.
 
 ## Hosting on AWS
 
@@ -39,9 +52,9 @@ hosted zone.
 1. Open **S3** and **Create bucket**. Name it something like `knura-io-site` (any free name
    works; it doesn't have to match the domain). Any region is fine.
 2. Leave **Block all public access** turned on. Leave everything else as is and create it.
-3. Open the bucket and **Upload** the four files from this folder: `index.html`, `404.html`,
-   `favicon.svg` and `robots.txt`. Upload the files themselves, not the `site` folder, so
-   `index.html` sits at the top of the bucket. Don't upload this README.
+3. Open the bucket and **Upload** every file in this folder except this README: the six pages,
+   `styles.css`, `404.html`, `favicon.svg` and `robots.txt`. Upload the files themselves, not the
+   `site` folder, so `index.html` sits at the top of the bucket.
 
 Don't turn on the bucket's "Static website hosting" setting. CloudFront reads the bucket
 directly, which is what lets it stay private.
@@ -87,7 +100,8 @@ After a few minutes, https://knura.io and https://www.knura.io both show the sit
 
 ## Updating the site
 
-Upload the changed files to the bucket again (replacing the old ones). CloudFront keeps copies
+Upload the changed files to the bucket again (replacing the old ones). When `styles.css` changes,
+upload it too, or the pages keep the old look. CloudFront keeps copies
 for up to a day, so to show the change right away open the distribution, **Invalidations**,
 **Create invalidation**, and enter `/*`. The first 1,000 invalidation paths each month are free.
 
