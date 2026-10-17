@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Roadmap · Knura</title>
+<meta name="description" content="What Knura can do today and what's coming next.">
+<link rel="canonical" href="https://knura.io/roadmap.html">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta property="og:title" content="Roadmap · Knura">
+<meta property="og:description" content="What Knura can do today and what's coming next.">
+<meta property="og:url" content="https://knura.io/roadmap.html">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#0A0D12">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="logo" href="./" aria-label="Knura home">
+      <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="2" y="2" width="28" height="28" rx="7" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+        <rect x="8" y="8" width="16" height="16" rx="3.5" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+        <rect x="13" y="13" width="6" height="6" rx="1" fill="var(--fg)"/>
+      </svg>
+      Knura
+    </a>
+    <nav class="nav-links" aria-label="Pages">
+      <a href="how-it-works.html">How it works</a>
+      <a href="security.html">Security</a>
+      <a href="connectors.html">Connectors</a>
+      <a href="self-hosting.html">Self-hosting</a>
+      <a href="roadmap.html" aria-current="page">Roadmap</a>
+    </nav>
+    <a class="btn btn-ghost btn-sm nav-cta" href="self-hosting.html">Get started</a>
+  </div>
+</header>
+
+<main id="top">
+  <section class="page-hero">
+    <div class="container">
+      <span class="kicker">Roadmap</span>
+      <h1>What's built, and what's next</h1>
+      <p>Knura is in early development. Everything under Shipped works today; the rest is planned and may change.</p>
+    </div>
+  </section>
+  <div class="container">
+    <div class="phases">
+      <div class="phase now">
+        <div class="phase-head"><h2>Shipped</h2><span class="tag live">10 done</span></div>
+        <div class="item"><b>Tap verification</b><span>SDM signature and counter checks, tested against NXP's examples.</span></div>
+        <div class="item"><b>Per-tag keys</b><span>AN10922 key diversification from one master key.</span></div>
+        <div class="item"><b>knurctl</b><span>Tag setup, checking and reset over a USB reader.</span></div>
+        <div class="item"><b>knurd</b><span>Tap endpoint with replay protection that survives restarts.</span></div>
+        <div class="item"><b>Phone taps</b><span>Tap pages for phones and HTTPS through Tailscale Funnel.</span></div>
+        <div class="item"><b>Signed webhooks</b><span>Standard Webhooks events with retries and a 30 second cutoff.</span></div>
+        <div class="item"><b>Matter bridge</b><span>Tags as contact sensors in Apple Home, Google Home, Alexa, SmartThings.</span></div>
+        <div class="item"><b>tap.knura.io resolver</b><span>Tags that keep working when your server moves.</span></div>
+        <div class="item"><b>Kubernetes</b><span>Helm chart, container images and a full test on every pull request.</span></div>
+        <div class="item"><b>Admin API</b><span>A separate locked-down port, tokens, pinned TLS and an audit log.</span></div>
+      </div>
+      <div class="phase next">
+        <div class="phase-head"><h2>Next</h2><span class="tag soon">Planned</span></div>
+        <div class="item"><b>MQTT connector</b><span>Publish taps to your broker.</span></div>
+        <div class="item"><b>Home Assistant</b><span>Local webhooks into HA automations.</span></div>
+        <div class="item"><b>Node-RED, ntfy, scripts, local log</b><span>More local, open-standard connectors.</span></div>
+        <div class="item"><b>Saved outbox</b><span>Actions that survive a restart.</span></div>
+        <div class="item"><b>Encrypted secrets file</b><span>On top of today's file permissions.</span></div>
+        <div class="item"><b>Public source release</b><span>The code goes public on GitHub.</span></div>
+      </div>
+      <div class="phase later">
+        <div class="phase-head"><h2>Later</h2><span class="tag soon">Planned</span></div>
+        <div class="item"><b>Sensitive actions</b><span>Locks, garage doors and alarms, confirmed with an approved phone's fingerprint or face.</span></div>
+        <div class="item"><b>Admin API changes</b><span>Managing tags and actions from the admin API, not just viewing them.</span></div>
+        <div class="item"><b>Published images</b><span>Container images in a public registry.</span></div>
+      </div>
+    </div>
+    <p class="roadmap-note">Security comes first in what gets built and in what order, so sensitive actions wait until approved phones are in place.</p>
+  </div>
+</main>
+
+<footer>
+  <div class="container">
+    <div class="foot">
+      <div class="about">
+        <a class="logo" href="./">
+          <svg width="24" height="24" viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="2" y="2" width="28" height="28" rx="7" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+        <rect x="8" y="8" width="16" height="16" rx="3.5" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+        <rect x="13" y="13" width="6" height="6" rx="1" fill="var(--fg)"/>
+      </svg>
+          Knura
+        </a>
+        <p>Open-source NFC trust and actions for NTAG 424 DNA tags. Public source release coming soon.</p>
+      </div>
+      <div>
+        <h4>Product</h4>
+        <ul>
+          <li><a href="how-it-works.html">How it works</a></li>
+          <li><a href="security.html">Security</a></li>
+          <li><a href="connectors.html">Connectors</a></li>
+          <li><a href="self-hosting.html">Self-hosting</a></li>
+          <li><a href="roadmap.html">Roadmap</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Standards</h4>
+        <ul>
+          <li><a href="https://www.nxp.com/products/NTAG424DNA">NTAG 424 DNA</a></li>
+          <li><a href="https://www.standardwebhooks.com">Standard Webhooks</a></li>
+          <li><a href="https://csa-iot.org/all-solutions/matter/">Matter</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="legal">
+      <span>© 2026 Knura</span>
+      <span>NTAG and NTAG 424 DNA are trademarks of NXP B.V.</span>
+    </div>
+  </div>
+</footer>
+</body>
+</html>
