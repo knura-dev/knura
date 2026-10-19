@@ -15,11 +15,11 @@ class OwnerRecordTest {
     // what Java signs is what the resolver accepts.
     static final String SEED = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
     static final String PUBLIC_KEY = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
-    static final String OWNER = "zk7hq4m2xa";
-    static final String SERVER = "https://fedora.tail113e80.ts.net";
+    static final String OWNER = "rq5tw8np3a";
+    static final String SERVER = "https://knurd.example.ts.net";
     static final long SEQ = 1759881600000L;
-    static final String SIGNATURE = "f8f47dcdea335b450ae3758888bfe1785772f17d7c5f3cd2511a9a3b75020f04"
-            + "09395aabd9a9fd56a8b51e2edf7a4ab05a0ddb7eb582c3221722f7ab5894fd0b";
+    static final String SIGNATURE = "ca378da0d9a347f7b12388edfdaddad62b3fe9f324915220783b669b49e7bfe8"
+            + "2f26c3febdb7a24a9066846c248af8417321fd0836b6b738b95cecd0db45f405";
 
     @Test
     void signsTheSharedTestVector() {
@@ -30,7 +30,7 @@ class OwnerRecordTest {
 
     @Test
     void signatureCoversOwnerServerAndSeq() {
-        assertFalse(new OwnerRecord("zk7hq4m2xb", SERVER, SEQ, PUBLIC_KEY, SIGNATURE).verify());
+        assertFalse(new OwnerRecord("rq5tw8np3b", SERVER, SEQ, PUBLIC_KEY, SIGNATURE).verify());
         assertFalse(new OwnerRecord(OWNER, "https://evil.example.com", SEQ, PUBLIC_KEY, SIGNATURE).verify());
         assertFalse(new OwnerRecord(OWNER, SERVER, SEQ + 1, PUBLIC_KEY, SIGNATURE).verify());
         assertFalse(new OwnerRecord(OWNER, SERVER, SEQ, PUBLIC_KEY, "zz").verify());
@@ -58,10 +58,10 @@ class OwnerRecordTest {
     void jsonRoundTrip() {
         OwnerRecord record = new OwnerRecord(OWNER, SERVER, SEQ, PUBLIC_KEY, SIGNATURE);
         assertEquals(
-                "{\"server\":\"https://fedora.tail113e80.ts.net\",\"seq\":1759881600000,\"publicKey\":\""
+                "{\"server\":\"https://knurd.example.ts.net\",\"seq\":1759881600000,\"publicKey\":\""
                         + PUBLIC_KEY + "\",\"signature\":\"" + SIGNATURE + "\"}",
                 record.updateJson());
-        String served = "{\"owner\":\"zk7hq4m2xa\",\"server\":\"https:\\/\\/fedora.tail113e80.ts.net\",\"seq\":"
+        String served = "{\"owner\":\"rq5tw8np3a\",\"server\":\"https:\\/\\/knurd.example.ts.net\",\"seq\":"
                 + SEQ + ",\"publicKey\":\"" + PUBLIC_KEY + "\",\"signature\":\"" + SIGNATURE
                 + "\",\"updatedAt\":\"2026-10-08T00:00:00.000Z\"}";
         assertEquals(record, OwnerRecord.fromJson(served));
@@ -76,7 +76,7 @@ class OwnerRecordTest {
             assertNull(OwnerRecord.checkServer(good, false), good);
         }
         for (String bad : new String[] {
-            "http://fedora.tail113e80.ts.net",
+            "http://knurd.example.ts.net",
             SERVER + "/",
             "https://1.2.3.4",
             "https://[::1]",
@@ -105,7 +105,7 @@ class OwnerRecordTest {
             assertTrue(OwnerIds.isValid(OwnerIds.generate(random)));
         }
         assertTrue(OwnerIds.isValid(OWNER));
-        for (String bad : new String[] {null, "zk7hq4m2x", "zk7hq4m2xaa", "Zk7hq4m2xa", "zk7hq4m2xl", "zk7hq4m2x0"}) {
+        for (String bad : new String[] {null, "rq5tw8np3", "rq5tw8np3aa", "Zk7hq4m2xa", "rq5tw8np3l", "rq5tw8np30"}) {
             assertFalse(OwnerIds.isValid(bad), bad);
         }
         assertEquals(32, OwnerIds.ALPHABET.chars().distinct().count());

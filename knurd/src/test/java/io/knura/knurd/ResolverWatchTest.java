@@ -12,8 +12,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class ResolverWatchTest {
-    private static final String OWNER = "zk7hq4m2xa";
-    private static final String SERVER = "https://fedora.tail113e80.ts.net";
+    private static final String OWNER = "rq5tw8np3a";
+    private static final String SERVER = "https://knurd.example.ts.net";
     private final OwnerKey key = OwnerKey.generate();
     private final KnurdConfig.Resolver resolver =
             new KnurdConfig.Resolver("https://tap.knura.io", OWNER, key.publicKeyHex());

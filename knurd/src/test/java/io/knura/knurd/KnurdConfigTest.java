@@ -145,8 +145,8 @@ class KnurdConfigTest {
     private static Properties withResolver() {
         Properties p = new Properties();
         p.setProperty("master.key", "00112233445566778899AABBCCDDEEFF");
-        p.setProperty("public.url", "https://fedora.tail113e80.ts.net");
-        p.setProperty("resolver.owner", "zk7hq4m2xa");
+        p.setProperty("public.url", "https://knurd.example.ts.net");
+        p.setProperty("resolver.owner", "rq5tw8np3a");
         p.setProperty("resolver.publicKey", "D75A980182B10AB7D54BFED3C964073A0EE172F3DAA62325AF021A68F707511A");
         p.setProperty("resolver.key", "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
         return p;
@@ -161,7 +161,7 @@ class KnurdConfigTest {
         KnurdConfig.Resolver resolver = KnurdConfig.fromProperties(withResolver(), dir).resolver();
         assertEquals(new KnurdConfig.Resolver(
                 "https://tap.knura.io",
-                "zk7hq4m2xa",
+                "rq5tw8np3a",
                 "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"), resolver);
 
         Properties local = withResolver();

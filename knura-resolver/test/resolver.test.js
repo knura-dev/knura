@@ -130,7 +130,7 @@ test("a bad signature is refused before the server is contacted", async () => {
     const forged = { ...update, server: "https://evil.example.com" };
     assert.equal((await handle(put(OWNER, forged))).statusCode, 403);
     // Signed for a different owner ID.
-    assert.equal((await handle(put("zk7hq4m2xb", update))).statusCode, 403);
+    assert.equal((await handle(put("rq5tw8np3b", update))).statusCode, 403);
     assert.deepEqual(confirmed, []);
 });
 

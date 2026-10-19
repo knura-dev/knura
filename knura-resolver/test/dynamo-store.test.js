@@ -4,8 +4,8 @@ import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { DynamoStore } from "../src/dynamo-store.js";
 
 const RECORD = {
-    owner: "zk7hq4m2xa",
-    server: "https://fedora.tail113e80.ts.net",
+    owner: "rq5tw8np3a",
+    server: "https://knurd.example.ts.net",
     seq: 1759881600000,
     publicKey: "d7".repeat(32),
     signature: "f8".repeat(64),
