@@ -1,6 +1,7 @@
 name: Release
 
-# Push a tag like v0.1.0-alpha to build knurctl and knurd and publish them as a GitHub Release.
+# Push a tag like v0.1.0-alpha, or publish a release with a new tag on GitHub, to build knurctl
+# and knurd and attach their zips to that GitHub Release.
 on:
   push:
     tags: ["v*"]
@@ -24,7 +25,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          prerelease=""
-          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" $prerelease --generate-notes \
-            knurctl/build/distributions/*.zip knurd/build/distributions/*.zip
+          files="knurctl/build/distributions/*.zip knurd/build/distributions/*.zip"
+          # A release drafted on GitHub's website already exists: just attach the files to it.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" $files --clobber
+          else
+            prerelease=""
+            case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+            gh release create "$GITHUB_REF_NAME" $prerelease --generate-notes $files
+          fi
