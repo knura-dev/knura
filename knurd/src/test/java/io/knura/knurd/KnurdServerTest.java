@@ -138,14 +138,14 @@ class KnurdServerTest {
     @Test
     void ownerEndpointNamesTheResolverOwner() throws Exception {
         TapVerifier verifier = new TapVerifier(new TagKeys(ZERO_KEY, ZERO_KEY, Map.of()), new MemoryCounterStore());
-        try (KnurdServer registered = new KnurdServer("127.0.0.1", 0, verifier, (uid, ctr) -> 0, "zk7hq4m2xa")) {
+        try (KnurdServer registered = new KnurdServer("127.0.0.1", 0, verifier, (uid, ctr) -> 0, "rq5tw8np3a")) {
             registered.start();
             String base = "http://127.0.0.1:" + registered.port();
             HttpResponse<String> response = http.send(
                     HttpRequest.newBuilder(URI.create(base + "/.well-known/knura-owner")).GET().build(),
                     HttpResponse.BodyHandlers.ofString());
             assertEquals(200, response.statusCode());
-            assertEquals("{\"owner\":\"zk7hq4m2xa\"}", response.body());
+            assertEquals("{\"owner\":\"rq5tw8np3a\"}", response.body());
             assertEquals("no-store", response.headers().firstValue("Cache-Control").orElseThrow());
             HttpResponse<String> other = http.send(
                     HttpRequest.newBuilder(URI.create(base + "/.well-known/knura-owner/x")).GET().build(),

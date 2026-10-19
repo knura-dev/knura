@@ -9,31 +9,31 @@ test("the shared test vector verifies and matches what Node signs", () => {
     assert.deepEqual(signedUpdate(OWNER, SERVER, SEQ), update);
     assert.equal(
         signedText(OWNER, SERVER, SEQ),
-        "knura-resolver-v1\nowner=zk7hq4m2xa\nserver=https://fedora.tail113e80.ts.net\nseq=1759881600000\n",
+        "knura-resolver-v1\nowner=rq5tw8np3a\nserver=https://knurd.example.ts.net\nseq=1759881600000\n",
     );
 });
 
 test("a signature is bound to the owner, server and seq", () => {
     const update = { server: SERVER, seq: SEQ, publicKey: PUBLIC_KEY, signature: SIGNATURE };
-    assert.equal(verifySignature("zk7hq4m2xb", update), false);
+    assert.equal(verifySignature("rq5tw8np3b", update), false);
     assert.equal(verifySignature(OWNER, { ...update, server: "https://evil.example.com" }), false);
     assert.equal(verifySignature(OWNER, { ...update, seq: SEQ + 1 }), false);
 });
 
 test("owner IDs", () => {
-    assert.ok(OWNER_ID.test("zk7hq4m2xa"));
-    for (const bad of ["zk7hq4m2x", "zk7hq4m2xaa", "Zk7hq4m2xa", "zk7hq4m2xl", "zk7hq4m2xo", "zk7hq4m2x0", "zk7hq4m2x1", "api/v1/own"]) {
+    assert.ok(OWNER_ID.test("rq5tw8np3a"));
+    for (const bad of ["rq5tw8np3", "rq5tw8np3aa", "Zk7hq4m2xa", "rq5tw8np3l", "rq5tw8np3o", "rq5tw8np30", "rq5tw8np31", "api/v1/own"]) {
         assert.equal(OWNER_ID.test(bad), false, bad);
     }
 });
 
 test("servers must be plain https host names", () => {
-    for (const good of ["https://fedora.tail113e80.ts.net", "https://knurd.example.com:8443", "https://example.com/knurd"]) {
+    for (const good of ["https://knurd.example.ts.net", "https://knurd.example.com:8443", "https://example.com/knurd"]) {
         assert.equal(checkServer(good), null, good);
     }
     for (const bad of [
-        "http://fedora.tail113e80.ts.net",
-        "https://fedora.tail113e80.ts.net/",
+        "http://knurd.example.ts.net",
+        "https://knurd.example.ts.net/",
         "https://1.2.3.4",
         "https://[::1]",
         "https://localhost",

@@ -201,7 +201,7 @@ class AdminCommandsTest {
             String body = switch (path) {
                 case "/v1/whoami" -> "{\"token\":\"laptop\"}";
                 case "/v1/status" -> "{\"status\":\"up\",\"uptimeSeconds\":93784,\"keys\":\"master\",\"publicUrl\":null,"
-                        + "\"resolverOwner\":\"zk7hq4m2xa\",\"knots\":2,\"tags\":1}";
+                        + "\"resolverOwner\":\"rq5tw8np3a\",\"knots\":2,\"tags\":1}";
                 case "/v1/tags" -> "{\"tags\":[{\"uid\":\"04DE5F1EACC040\",\"lastCounter\":61}]}";
                 case "/v1/taps?limit=5" -> "{\"taps\":[{\"time\":\"2026-10-15T00:00:00Z\",\"status\":\"replay\","
                         + "\"uid\":\"04DE5F1EACC040\",\"counter\":61,\"actions\":0},{\"time\":\"2026-10-15T00:00:00Z\","
@@ -239,7 +239,7 @@ class AdminCommandsTest {
 
             assertEquals(0, run("admin", "status", "--creds", cc.toString()), err());
             assertTrue(out().contains("knurd is up (for 1d 2h 3m)"), out());
-            assertTrue(out().contains("owner zk7hq4m2xa"), out());
+            assertTrue(out().contains("owner rq5tw8np3a"), out());
             assertEquals(0, run("admin", "tags", "--creds", cc.toString()), err());
             assertTrue(out().contains("04DE5F1EACC040   61"), out());
             assertEquals(0, run("admin", "taps", "--limit", "5", "--creds", cc.toString()), err());

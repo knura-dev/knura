@@ -74,9 +74,9 @@ Write your own values file and install with `helm install knura deploy/helm/knur
 -f my-values.yaml`. Everything is described in [`values.yaml`](helm/knura/values.yaml):
 
 ```yaml
-publicUrl: https://fedora.tail113e80.ts.net
+publicUrl: https://knurd.example.ts.net
 resolver:            # the resolver.* lines from knurd.properties, minus resolver.key
-  owner: sj5iucyxjz
+  owner: rq5tw8np3a
   publicKey: <64 hex digits>
 knots:
   - uid: "042D6B02936980"

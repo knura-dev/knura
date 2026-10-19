@@ -6,12 +6,12 @@ import { signedText } from "../src/record.js";
 
 export const SEED = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
 export const PUBLIC_KEY = "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a";
-export const OWNER = "zk7hq4m2xa";
-export const SERVER = "https://fedora.tail113e80.ts.net";
+export const OWNER = "rq5tw8np3a";
+export const SERVER = "https://knurd.example.ts.net";
 export const SEQ = 1759881600000;
 export const SIGNATURE =
-    "f8f47dcdea335b450ae3758888bfe1785772f17d7c5f3cd2511a9a3b75020f04" +
-    "09395aabd9a9fd56a8b51e2edf7a4ab05a0ddb7eb582c3221722f7ab5894fd0b";
+    "ca378da0d9a347f7b12388edfdaddad62b3fe9f324915220783b669b49e7bfe8" +
+    "2f26c3febdb7a24a9066846c248af8417321fd0836b6b738b95cecd0db45f405";
 
 const PKCS8_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
 

@@ -12,6 +12,42 @@ genuine tag, then trigger actions from it.
 | `knurgn-matter` | Matter bridge (Node.js, matter.js) | knots as contact sensors in Apple Home, Google Home, Alexa |
 | `knura-resolver` | tap.knura.io (Node.js, AWS Lambda) | forwards taps to the owner's knurd, so tags survive a move |
 
+> **Alpha.** Knura is early software for people comfortable with a command line. Expect
+> breaking changes between versions, and don't use it to protect anything that matters yet. Locks,
+> garage doors and alarms are deliberately not supported. See [Known limits](#known-limits).
+
+## Getting started
+
+You need an NTAG 424 DNA tag, a PC/SC USB reader such as the ACR122U, JDK 21, and Linux or macOS.
+This takes one tag from new to a verified tap on your own computer.
+
+```sh
+# 1. Reader driver (Fedora shown; Debian/Ubuntu: sudo apt install pcscd libccid)
+sudo dnf install pcsc-lite pcsc-lite-ccid
+sudo systemctl enable --now pcscd.socket
+
+# 2. Build and set up
+git clone https://github.com/knura-dev/knura.git && cd knura
+./gradlew :knurctl:installDist
+alias knurctl="$PWD/knurctl/build/install/knurctl/bin/knurctl"
+knurctl init                 # writes knurd.properties with a new master.key: back it up
+
+# 3. Set up a tag (put it on the reader)
+knurctl provision
+knurctl tap                  # reads the tag like a phone and prints its link
+
+# 4. Start knurd and check a tap
+./gradlew :knurd:run
+# in another terminal, open the link knurctl tap printed:
+curl '<link from knurctl tap>'   # {"status":"ok",...}; the same link again gives "replay"
+```
+
+Next steps: [tap with a phone](#tapping-with-a-phone), send each tap to a
+[signed webhook](#knurgn) or the [Matter bridge](knurgn-matter/README.md), or run it all on
+[Kubernetes](deploy/README.md).
+
+Keep `master.key` secret and backed up: it is the only way to verify or rewrite your tags.
+
 The knura.io website lives in [`site/`](site/README.md), with steps to host it on AWS.
 
 To run knurd and the Matter bridge on Kubernetes, use the Helm chart and container images in
@@ -246,3 +282,21 @@ Rules:
   seconds; a routine in the app does the rest. Its address must be on this computer.
 - Not yet: sensitive actions (locks, garage, alarm), a saved outbox that survives a restart, and
   encrypting the secrets file. See the knurgN connectors design.
+
+## Known limits
+
+- No sensitive actions (locks, garage doors, alarms) until approved-phone confirmation exists.
+- Actions waiting to be sent are lost if knurd restarts (no saved outbox yet).
+- Secrets files are protected by file permissions only, not encrypted.
+- One knurd per set of tags: replay counters live in a local file.
+- The admin API is read-only.
+- Connectors: signed webhooks and the Matter bridge. MQTT, Home Assistant and others are planned.
+- The tap MAC must cover an empty input (SDMMACInputOffset equal to SDMMACOffset).
+
+## Security
+
+Please report vulnerabilities privately, as described in [SECURITY.md](SECURITY.md).
+
+## License
+
+Apache License 2.0, see [LICENSE](LICENSE). NTAG and NTAG 424 DNA are trademarks of NXP B.V.
