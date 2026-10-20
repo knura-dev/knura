@@ -126,11 +126,13 @@ address must never change (it's written onto the tag). The free, simplest way is
    ```sh
    sudo tailscale funnel --bg 8424
    ```
-   It prints your address, like `https://my-computer.tail1234.ts.net`.
-3. Tell knurd its address: open `knurd.properties` and set
+   It prints your own address, ending in `.ts.net` (`tailscale funnel status` shows it again later).
+3. Tell knurd its address: open `knurd.properties` and set `public.url` to **your** address from
+   step 2, for example:
    ```properties
-   public.url=https://my-computer.tail1234.ts.net
+   public.url=https://<your-computer>.<your-tailnet>.ts.net
    ```
+   Don't copy the example as it is: whatever you put here is written onto your tags.
 4. Restart knurd (Ctrl+C, then `knurd`).
 5. Rewrite the tag's link to use the new address:
    ```sh
@@ -230,6 +232,7 @@ carry over, and tags keep working.
 | knurd says it can't find `knurd.properties` | Run knurd from your settings folder, where `knurctl init` wrote it. |
 | knurd refuses a secrets or key file | Only you may read it: `chmod 600 <file>`. |
 | Every tap is `rejected` | The tag was set up with a different master key. Use the `knurd.properties` it was provisioned with. |
+| Phone says "address not found" | The tag's link has the wrong address. Check `public.url` against `tailscale funnel status`, restart knurd, and run `knurctl provision --from knura` again. |
 | Phone shows a blank page | A new Funnel address can take up to 15 minutes to appear. Check `curl https://<your address>/health` from another network. |
 | Phone says "Link already used" on the first tap | Something opened the link before you did, such as a link preview. Tap again. |
 
