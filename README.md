@@ -18,8 +18,12 @@ genuine tag, then trigger actions from it.
 
 ## Getting started
 
-You need an NTAG 424 DNA tag, a PC/SC USB reader such as the ACR122U, JDK 21, and Linux or macOS.
-This takes one tag from new to a verified tap on your own computer.
+**Easiest:** download knurctl and knurd from the [latest release](https://github.com/knura-dev/knura/releases)
+and follow [Set up Knura from the release downloads](docs/setup-from-release.md), which goes from
+a new tag to a phone tap that sends a webhook.
+
+To build from source instead you need an NTAG 424 DNA tag, a PC/SC USB reader such as the ACR122U,
+JDK 21, and Linux or macOS. This takes one tag from new to a verified tap on your own computer.
 
 ```sh
 # 1. Reader driver (Fedora shown; Debian/Ubuntu: sudo apt install pcscd libccid)
