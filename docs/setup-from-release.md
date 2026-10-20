@@ -3,6 +3,9 @@
 This guide takes you from the files on the [Releases page](https://github.com/knura-dev/knura/releases)
 to a tag that a phone can tap and that triggers an action. You don't need to build anything.
 
+The same guide is on the website as an interactive page that fills in your own details:
+[knura.io/get-started.html](https://knura.io/get-started.html).
+
 > **Alpha.** Knura is early software. Don't use it to protect anything that matters yet.
 
 ## What you need
