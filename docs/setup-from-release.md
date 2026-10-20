@@ -225,6 +225,7 @@ carry over, and tags keep working.
 | What you see | What to do |
 | --- | --- |
 | `knurctl readers` lists nothing | Check the reader is plugged in and `pcscd` is running (`systemctl status pcscd`). |
+| `SELECT NDEF file failed with status 6A82` (or another card error) | The tag moved or hadn't settled. Leave it flat on the reader and run the command again. If `knurctl info` works but `tap` keeps failing, open an issue. |
 | `java: command not found` or a version error | Install Java 21 and open a new terminal. |
 | knurd says it can't find `knurd.properties` | Run knurd from your settings folder, where `knurctl init` wrote it. |
 | knurd refuses a secrets or key file | Only you may read it: `chmod 600 <file>`. |
