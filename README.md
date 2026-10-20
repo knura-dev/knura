@@ -1,6 +1,6 @@
 # Knura
 
-Open-source NFC trust and actions platform for NTAG 424 DNA tags: verify that a tap came from a
+Open-source NFC trust and actions platform for NTAG 424 DNA tags(made with Claude): verify that a tap came from a
 genuine tag, then trigger actions from it.
 
 | Module | What it is | Status |
