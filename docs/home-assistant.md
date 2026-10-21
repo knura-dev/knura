@@ -57,7 +57,9 @@ Home Assistant ignore the webhook when it arrives from the internet.
 ## 3. Point knurgN at it
 
 In `knurgn.properties`, add a connector with Home Assistant's address (no path) and add its id
-to the knot's actions:
+to the knot's actions. Use the address you open Home Assistant with, but with its IP address in
+place of `homeassistant.local`; keep the port if it has one (often `:8123`, while newer Home
+Assistant OS installs answer on plain port 80):
 
 ```properties
 knot.042D6B02936980.name=desk-candle
