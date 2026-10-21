@@ -1,6 +1,7 @@
 package io.knura.knurgn;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -89,6 +90,13 @@ class KnurgnConfigTest {
         assertBad("webhook.a.url", "http://example.com/hook", "must use https://");
         assertBad("knot.04AABBCCDDEEFF.name", "desk", "missing");
         assertBad("knot.042D6B02936980.actions", "a,a", "twice");
+
+        Properties bareSecret = secrets();
+        bareSecret.setProperty(HomeAssistantConnectorTest.HOOK, "");
+        IllegalArgumentException bare = assertThrows(
+                IllegalArgumentException.class, () -> KnurgnConfig.knots(rules(), bareSecret, "s", Clock.systemUTC()));
+        assertTrue(bare.getMessage().contains("connector's id in front"), bare.getMessage());
+        assertFalse(bare.getMessage().contains(HomeAssistantConnectorTest.HOOK), bare.getMessage());
 
         Properties extraSecret = secrets();
         extraSecret.setProperty("ghost", SECRET);

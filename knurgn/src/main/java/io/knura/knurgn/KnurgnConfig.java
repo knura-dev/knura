@@ -67,6 +67,13 @@ public final class KnurgnConfig {
 
     /** Builds the knots; {@code secretsName} is only used in error messages. */
     static List<Knot> knots(Properties rules, Properties secrets, String secretsName, Clock clock) {
+        for (String id : secrets.stringPropertyNames()) {
+            // Never echo a bad line: it may be a bare secret pasted without its id.
+            if (!NAME.matcher(id).matches() || secrets.getProperty(id).isBlank()) {
+                throw new IllegalArgumentException(secretsName + " has a line that isn't <connector id>=<secret>;"
+                        + " put the connector's id in front, like living-room=...");
+            }
+        }
         Map<String, Connector> connectors = new HashMap<>();
         Map<String, String> knotNames = new HashMap<>();
         Map<String, String> knotActions = new HashMap<>();
