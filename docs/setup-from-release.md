@@ -193,7 +193,8 @@ Point the webhook at your own code, Node-RED or a home server when you're ready.
 [README](../README.md#knurgn) explains the event format and how to check the signature, and
 [`examples/webhook-receiver`](../examples/webhook-receiver) has a receiver in one file.
 For smart-home apps (Apple Home, Google Home, Alexa), see the
-[Matter bridge](../knurgn-matter/README.md), which you run from the source download.
+[Matter bridge](../knurgn-matter/README.md), which you run from the source download. To run
+Home Assistant automations from taps, see [home-assistant.md](home-assistant.md).
 
 ## 8. Keep knurd running
 
