@@ -15,7 +15,7 @@ import java.util.function.IntUnaryOperator;
 
 /** A local webhook target for tests. {@code statusForCall} maps the call number (1, 2...) to a status. */
 public final class Receiver implements AutoCloseable {
-    public record Request(String method, Map<String, String> headers, String body) {}
+    public record Request(String method, String path, Map<String, String> headers, String body) {}
 
     private final HttpServer server;
     private final BlockingQueue<Request> requests = new LinkedBlockingQueue<>();
@@ -29,7 +29,7 @@ public final class Receiver implements AutoCloseable {
                 body = new String(in.readAllBytes(), StandardCharsets.UTF_8);
             }
             var h = exchange.getRequestHeaders();
-            requests.add(new Request(exchange.getRequestMethod(), Map.of(
+            requests.add(new Request(exchange.getRequestMethod(), exchange.getRequestURI().getRawPath(), Map.of(
                     "content-type", String.valueOf(h.getFirst("Content-Type")),
                     "webhook-id", String.valueOf(h.getFirst("webhook-id")),
                     "webhook-timestamp", String.valueOf(h.getFirst("webhook-timestamp")),

@@ -64,7 +64,20 @@ class KnurgnConfigTest {
     }
 
     @Test
+    void buildsHomeAssistantConnector() {
+        Properties rules = rules();
+        rules.setProperty("knot.042D6B02936980.actions", "a,living-room");
+        rules.setProperty("homeassistant.living-room.url", "http://192.168.56.101:8123");
+        Properties secrets = secrets();
+        secrets.setProperty("living-room", HomeAssistantConnectorTest.HOOK);
+        Knot knot = KnurgnConfig.knots(rules, secrets, "s", Clock.systemUTC()).get(0);
+        assertEquals(List.of("webhook", "homeassistant"), knot.actions().stream().map(Connector::type).toList());
+    }
+
+    @Test
     void rejectsMistakes() {
+        assertBad("homeassistant.lr.url", "http://192.168.56.101:8123", "no secret for homeassistant lr");
+        assertBad("homeassistant.a.url", "http://192.168.56.101:8123", "two connectors are named a");
         assertBad("matter.a.url", "http://127.0.0.1:5541/tap", "two connectors are named a");
         assertBad("matter.home.url", "http://127.0.0.1:5541/tap", "no secret for matter home");
         assertBad("knot.042D6B02936980.actions", "nope", "no connector named");

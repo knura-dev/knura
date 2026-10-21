@@ -284,6 +284,9 @@ Rules:
   [knurgn-matter](knurgn-matter/README.md) on this computer, which shows each knot as a contact
   sensor in Apple Home, Google Home, Alexa and SmartThings. A tap opens the sensor for a few
   seconds; a routine in the app does the rest. Its address must be on this computer.
+- The **Home Assistant** connector (`homeassistant.<id>.url`) starts a Home Assistant
+  automation through its webhook trigger, with no login token. The webhook id goes in the
+  secrets file. See [docs/home-assistant.md](docs/home-assistant.md).
 - Not yet: sensitive actions (locks, garage, alarm), a saved outbox that survives a restart, and
   encrypting the secrets file. See the knurgN connectors design.
 
@@ -294,7 +297,8 @@ Rules:
 - Secrets files are protected by file permissions only, not encrypted.
 - One knurd per set of tags: replay counters live in a local file.
 - The admin API is read-only.
-- Connectors: signed webhooks and the Matter bridge. MQTT, Home Assistant and others are planned.
+- Connectors: signed webhooks, the Matter bridge and Home Assistant webhooks. MQTT and others are
+  planned.
 - The tap MAC must cover an empty input (SDMMACInputOffset equal to SDMMACOffset).
 
 ## Security

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- knurgN: Home Assistant connector (`homeassistant.<id>.url`) that starts an automation through
+  its webhook trigger, with no login token. See docs/home-assistant.md.
+
 ## 0.1.0-alpha (unreleased)
 
 First public alpha.
