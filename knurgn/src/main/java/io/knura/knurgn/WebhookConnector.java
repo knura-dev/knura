@@ -47,10 +47,7 @@ public final class WebhookConnector implements Connector {
         this.url = url;
         this.secret = secret;
         this.clock = clock;
-        this.http = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .connectTimeout(CONNECT_TIMEOUT)
-                .build();
+        this.http = client();
     }
 
     @Override
@@ -76,6 +73,19 @@ public final class WebhookConnector implements Connector {
                 .header("webhook-signature", WebhookSignature.sign(secret, event.id(), timestamp, body))
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
+        return send(http, request);
+    }
+
+    /** An HTTP client that never follows redirects, so a receiver cannot bounce an event elsewhere. */
+    static HttpClient client() {
+        return HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .connectTimeout(CONNECT_TIMEOUT)
+                .build();
+    }
+
+    /** Sends one request and sorts the answer into delivered, worth retrying, or refused. */
+    static Delivery send(HttpClient http, HttpRequest request) {
         HttpResponse<Void> response;
         try {
             response = http.send(request, HttpResponse.BodyHandlers.discarding());

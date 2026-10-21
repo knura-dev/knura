@@ -32,11 +32,13 @@ import java.util.regex.Pattern;
  * knot.042D6B02936980.actions=desk-webhook
  * webhook.desk-webhook.url=http://127.0.0.1:8425/knura
  * matter.home.url=http://127.0.0.1:5541/tap
+ * homeassistant.living-room.url=http://192.168.1.50:8123
  * secrets.file=knurgn-secrets.properties
  *
  * # knurgn-secrets.properties (chmod 600)
  * desk-webhook=whsec_...
  * home=whsec_...
+ * living-room=&lt;Home Assistant webhook id&gt;
  * </pre>
  *
  * Names and ids may use letters, digits, {@code .}, {@code _} and {@code -}. Unknown settings are
@@ -45,6 +47,7 @@ import java.util.regex.Pattern;
 public final class KnurgnConfig {
     static final String DEFAULT_SECRETS_FILE = "knurgn-secrets.properties";
 
+    private static final Set<String> CONNECTOR_TYPES = Set.of("webhook", "matter", "homeassistant");
     private static final Pattern NAME = Pattern.compile("[A-Za-z0-9._-]{1,64}");
     private static final Pattern UID = Pattern.compile("[0-9A-Fa-f]{14}");
     private static final Set<PosixFilePermission> NOT_OWNER = EnumSet.of(
@@ -64,6 +67,13 @@ public final class KnurgnConfig {
 
     /** Builds the knots; {@code secretsName} is only used in error messages. */
     static List<Knot> knots(Properties rules, Properties secrets, String secretsName, Clock clock) {
+        for (String id : secrets.stringPropertyNames()) {
+            // Never echo a bad line: it may be a bare secret pasted without its id.
+            if (!NAME.matcher(id).matches() || secrets.getProperty(id).isBlank()) {
+                throw new IllegalArgumentException(secretsName + " has a line that isn't <connector id>=<secret>;"
+                        + " put the connector's id in front, like living-room=...");
+            }
+        }
         Map<String, Connector> connectors = new HashMap<>();
         Map<String, String> knotNames = new HashMap<>();
         Map<String, String> knotActions = new HashMap<>();
@@ -76,19 +86,21 @@ public final class KnurgnConfig {
                 knotNames.put(uid(parts[1]), name(key, value));
             } else if (parts.length == 3 && parts[0].equals("knot") && parts[2].equals("actions")) {
                 knotActions.put(uid(parts[1]), value);
-            } else if (parts.length == 3 && (parts[0].equals("webhook") || parts[0].equals("matter"))
-                    && parts[2].equals("url")) {
+            } else if (parts.length == 3 && CONNECTOR_TYPES.contains(parts[0]) && parts[2].equals("url")) {
                 String type = parts[0];
                 String id = name(key, parts[1]);
                 String secret = secrets.getProperty(id);
                 if (secret == null) {
+                    String example = type.equals("homeassistant") ? "<webhook id>" : "whsec_...";
                     throw new IllegalArgumentException("no secret for " + type + " " + id + ": add " + id
-                            + "=whsec_... to " + secretsName);
+                            + "=" + example + " to " + secretsName);
                 }
-                Secret parsed = WebhookSignature.parseSecret(id, secret);
-                Connector connector = type.equals("matter")
-                        ? new MatterConnector(id, uri(key, value), parsed, clock)
-                        : new WebhookConnector(id, uri(key, value), parsed, clock);
+                Connector connector = switch (type) {
+                    case "matter" -> new MatterConnector(id, uri(key, value), WebhookSignature.parseSecret(id, secret), clock);
+                    case "homeassistant" -> new HomeAssistantConnector(
+                            id, uri(key, value), HomeAssistantConnector.parseWebhookId(id, secret), clock);
+                    default -> new WebhookConnector(id, uri(key, value), WebhookSignature.parseSecret(id, secret), clock);
+                };
                 if (connectors.put(id, connector) != null) {
                     throw new IllegalArgumentException("two connectors are named " + id);
                 }
@@ -102,7 +114,7 @@ public final class KnurgnConfig {
         for (String id : secrets.stringPropertyNames()) {
             if (!connectors.containsKey(id)) {
                 throw new IllegalArgumentException(secretsName + " has a secret for " + id
-                        + ", but there is no webhook." + id + ".url or matter." + id + ".url");
+                        + ", but there is no webhook." + id + ".url, matter." + id + ".url or homeassistant." + id + ".url");
             }
         }
         for (String uid : knotNames.keySet()) {
