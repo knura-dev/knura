@@ -20,19 +20,11 @@ token. It can start the automations that listen on your webhook id, and nothing 
   step 6, until tapping a tag shows "Tap verified" on your phone.
 - **Home Assistant is running** on your home network: Home Assistant OS, Container, or a virtual
   machine. Any version from 2024.10 on.
-- **knurd has the Home Assistant connector.** It's in the code after v0.1.0-alpha. Until the next
-  release, build knurd from source (needs `git` and Java 21):
-
-  ```sh
-  git clone https://github.com/knura-dev/knura.git ~/knura/knura
-  cd ~/knura/knura
-  ./gradlew :knurctl:installDist :knurd:installDist
-  alias knurd="$HOME/knura/knura/knurd/build/install/knurd/bin/knurd"
-  alias knurctl="$HOME/knura/knura/knurctl/build/install/knurctl/bin/knurctl"
-  ```
-
-  Add the two `alias` lines to `~/.bashrc` to keep them. Keep running knurd and knurctl from your
-  settings folder (`~/knura/home` in the setup guide), where `knurd.properties` is.
+- **knurd is v0.2.0-alpha or newer.** That's the first release with the Home Assistant
+  connector. If you set up Knura from v0.1.0-alpha, download the new zips and follow
+  [Upgrading](setup-from-release.md#upgrading): your settings, keys and tags carry over. Keep
+  running knurd and knurctl from your settings folder (`~/knura/home` in the setup guide), where
+  `knurd.properties` is.
 
 ## 1. Find Home Assistant's address
 
