@@ -11,14 +11,16 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.TreeMap;
 
 /**
  * The admin API tokens knurd accepts, from {@code admin.tokens.file}. The file is read again
  * whenever it changes, so {@code knurctl admin token add} and {@code remove} work without a
- * restart. If the file goes missing, becomes readable by other users or can't be parsed, no token
+ * restart. A phone may also remove tokens through {@link AdminServer}. If the file goes missing, becomes readable by other users or can't be parsed, no token
  * is accepted until it is fixed: a problem here locks the admin API rather than opening it.
  */
 final class TokenStore {
@@ -60,6 +62,32 @@ final class TokenStore {
     synchronized int count() {
         reloadIfChanged();
         return tokens.size();
+    }
+
+    /** The token names, sorted. */
+    synchronized List<String> names() {
+        reloadIfChanged();
+        return new TreeMap<>(tokens).keySet().stream().toList();
+    }
+
+    /**
+     * Removes a token from the file, like {@code knurctl admin token remove}. Returns false if
+     * there is no such token. Throws if the file can't be read or written, for example when it is
+     * mounted read-only.
+     */
+    synchronized boolean remove(String name) throws IOException {
+        reloadIfChanged();
+        if (problem != null) {
+            throw new IOException(problem);
+        }
+        if (!tokens.containsKey(name)) {
+            return false;
+        }
+        Map<String, String> rest = new TreeMap<>(tokens);
+        rest.remove(name);
+        PrivateFiles.replace(file, AdminTokens.format(rest));
+        reloadIfChanged();
+        return true;
     }
 
     private void reloadIfChanged() {

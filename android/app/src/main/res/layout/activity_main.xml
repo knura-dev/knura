@@ -95,6 +95,12 @@
                 android:text="@string/knurd_taps" />
         </LinearLayout>
 
+        <Button
+            android:id="@+id/knurdTokens"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/knurd_tokens" />
+
         <TextView
             android:id="@+id/status"
             android:layout_width="match_parent"

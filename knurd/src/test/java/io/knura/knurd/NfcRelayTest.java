@@ -268,6 +268,32 @@ class NfcRelayTest {
         return r.body();
     }
 
+    @Test
+    void phoneListsAndRemovesTokens() throws Exception {
+        assertEquals("{\"you\":\"fold7\",\"tokens\":[\"fold7\",\"laptop\"]}", send("GET", "/v1/tokens", phone).body());
+        assertEquals("{\"you\":\"laptop\",\"tokens\":[\"fold7\",\"laptop\"]}", send("GET", "/v1/tokens", laptop).body());
+
+        assertEquals(403, send("DELETE", "/v1/tokens/fold7", laptop).statusCode(), "only phone tokens may remove");
+        assertEquals(404, send("DELETE", "/v1/tokens/nobody", phone).statusCode());
+        assertEquals(404, send("DELETE", "/v1/tokens/..%2Fx", phone).statusCode());
+        assertEquals(405, send("GET", "/v1/tokens/laptop", phone).statusCode());
+
+        HttpResponse<String> removed = send("DELETE", "/v1/tokens/laptop", phone);
+        assertEquals(200, removed.statusCode());
+        assertEquals("{\"removed\":\"laptop\"}", removed.body());
+        assertEquals(401, send("GET", "/v1/whoami", laptop).statusCode(), "refused straight away");
+        assertEquals("{\"you\":\"fold7\",\"tokens\":[\"fold7\"]}", send("GET", "/v1/tokens", phone).body());
+        assertTrue(Files.readString(auditFile).contains("removed token laptop"));
+
+        assertEquals(200, send("DELETE", "/v1/tokens/fold7", phone).statusCode(), "a phone may remove its own token");
+        assertEquals(401, send("GET", "/v1/whoami", phone).statusCode());
+    }
+
+    private HttpResponse<String> send(String method, String path, String token) throws Exception {
+        return http.send(request(path, token).method(method, HttpRequest.BodyPublishers.noBody()).build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
     private static String field(String json, String name) {
         Matcher m = Pattern.compile("\"" + name + "\":\"([^\"]*)\"").matcher(json);
         return m.find() ? m.group(1) : null;

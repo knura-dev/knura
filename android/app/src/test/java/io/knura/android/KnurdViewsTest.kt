@@ -29,4 +29,11 @@ class KnurdViewsTest {
                 """{"time":"2026-10-22T02:20:58Z","status":"ok","uid":"04DE5F1EACC040","counter":61,"actions":1},""" +
                 """{"time":"2026-10-22T02:19:00Z","status":"malformed","uid":null,"actions":0}]}""")))
     }
+
+    @Test
+    fun tokenNames() {
+        assertEquals(listOf("fold7", "laptop"),
+            KnurdViews.tokenNames(JSONObject("""{"you":"fold7","tokens":["fold7","laptop"]}""")))
+        assertEquals(emptyList<String>(), KnurdViews.tokenNames(JSONObject("{}")))
+    }
 }

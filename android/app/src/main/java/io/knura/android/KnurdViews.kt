@@ -44,4 +44,10 @@ object KnurdViews {
         }
         return "Newest first, times in UTC:\n" + out.toString().trimEnd()
     }
+
+    /** The names from knurd's `GET /v1/tokens`. */
+    fun tokenNames(json: JSONObject): List<String> {
+        val tokens = json.optJSONArray("tokens") ?: return emptyList()
+        return (0 until tokens.length()).map { tokens.getString(it) }
+    }
 }

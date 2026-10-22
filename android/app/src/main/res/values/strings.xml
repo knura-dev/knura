@@ -10,6 +10,7 @@
     <string name="knurd_status">Status</string>
     <string name="knurd_tags">Tags</string>
     <string name="knurd_taps">Recent taps</string>
+    <string name="knurd_tokens">Remove a token</string>
     <string-array name="actions">
         <item>Set up a tag (provision)</item>
         <item>Show tag info</item>
