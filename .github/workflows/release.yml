@@ -1,7 +1,8 @@
 name: Release
 
 # Push a tag like v0.1.0-alpha, or publish a release with a new tag on GitHub, to build knurctl
-# and knurd and attach their zips to that GitHub Release.
+# and knurd and attach their zips, and the Android app, to that GitHub Release. The app is a
+# test build signed with a fresh debug key, like android-latest.
 on:
   push:
     tags: ["v*"]
@@ -21,11 +22,15 @@ jobs:
           cache: gradle
       - name: Build and test
         run: ./gradlew build :knurctl:distZip :knurd:distZip -Pversion="${GITHUB_REF_NAME#v}"
+      - name: Build the Android app
+        run: |
+          ./gradlew -p android testDebugUnitTest assembleDebug
+          cp android/app/build/outputs/apk/debug/app-debug.apk "knura-${GITHUB_REF_NAME#v}.apk"
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          files="knurctl/build/distributions/*.zip knurd/build/distributions/*.zip"
+          files="knurctl/build/distributions/*.zip knurd/build/distributions/*.zip knura-*.apk"
           # A release drafted on GitHub's website already exists: just attach the files to it.
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" $files --clobber
