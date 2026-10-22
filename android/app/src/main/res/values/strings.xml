@@ -6,6 +6,10 @@
     <string name="knura_keys">Tag already has Knura keys</string>
     <string name="start">Start</string>
     <string name="cancel">Cancel</string>
+    <string name="your_knurd">Your knurd</string>
+    <string name="knurd_status">Status</string>
+    <string name="knurd_tags">Tags</string>
+    <string name="knurd_taps">Recent taps</string>
     <string-array name="actions">
         <item>Set up a tag (provision)</item>
         <item>Show tag info</item>

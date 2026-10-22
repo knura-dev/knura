@@ -80,6 +80,11 @@ class MainActivity : Activity() {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
         startButton.setOnClickListener { if (running == null) start() else stop("Cancelled.") }
+        findViewById<Button>(R.id.knurdStatus).setOnClickListener { ask("/v1/status", "knurd status", KnurdViews::status) }
+        findViewById<Button>(R.id.knurdTags).setOnClickListener { ask("/v1/tags", "Tags knurd has seen", KnurdViews::tags) }
+        findViewById<Button>(R.id.knurdTaps).setOnClickListener {
+            ask("/v1/taps?limit=20", "Latest taps", KnurdViews::taps)
+        }
         showPairing()
         CrashLog.takeLast(this)?.let {
             status.text = "The app crashed last time. Please send this to the Knura developers:"
@@ -153,6 +158,36 @@ class MainActivity : Activity() {
                 .authenticate(CancellationSignal(), mainExecutor, callback)
         } catch (e: RuntimeException) {
             status.text = "Couldn't ask for your fingerprint or screen lock: ${e.message}"
+        }
+    }
+
+    /** Unlocks, reads one of knurd's read-only admin answers and shows it, like knurctl admin status. */
+    private fun ask(path: String, title: String, show: (JSONObject) -> String) {
+        if (!vault.isPaired() || running != null) return
+        unlock("Unlock to use knurd") {
+            val knurd = try {
+                KnurdClient(vault.load())
+            } catch (e: Exception) {
+                status.text = "Couldn't read the pairing (${e.message}). Forget this knurd and pair again."
+                return@unlock
+            }
+            status.text = "Asking knurd..."
+            log.text = ""
+            worker.execute {
+                val text = try {
+                    val reply = knurd.get(path)
+                    if (reply.code == 200) title + "\n\n" + show(reply.json)
+                    else "knurd said no: " + reply.json.optString("detail", "status ${reply.code}")
+                } catch (e: IOException) {
+                    explain(e, knurd.url)
+                } catch (e: org.json.JSONException) {
+                    "knurd's answer didn't make sense: ${e.message}"
+                }
+                ui {
+                    status.text = ""
+                    log.text = text
+                }
+            }
         }
     }
 

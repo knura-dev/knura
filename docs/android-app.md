@@ -98,6 +98,12 @@ around the back slowly: phones read tags at one spot only.
 | Check a tap | Reads the tag like a phone tap and checks it with your keys. |
 | Reset tag to factory | All keys back to zero, no link. Untick the box for a tag that still has factory keys. |
 
+Under **Your knurd**, three buttons show what `knurctl admin` shows on the computer:
+**Status** (uptime, keys, public URL, resolver, knots), **Tags** (every tag knurd has accepted,
+with its last counter) and **Recent taps** (the latest 20, and how each went). They only read.
+Setting up keys, TLS, tokens and the resolver stays on the computer, so a lost phone can't
+change your setup.
+
 If the tag slips away halfway through, run the same action again. Key 0 is always changed
 last, so the tag is never left in a state knurd can't fix.
 
