@@ -51,6 +51,7 @@ under **Assets**:
 | --- | --- |
 | `knurctl-<version>.zip` | The tag setup tool. Needed on the computer with the USB reader. |
 | `knurd-<version>.zip` | The server that checks taps and runs actions (knurgN is built in). |
+| `knura-<version>.apk` | Optional: the Android app, to set tags up with your phone instead of a USB reader. See [android-app.md](android-app.md). |
 
 You can ignore "Source code (zip)" and "Source code (tar.gz)": GitHub adds those to every release.
 
@@ -64,12 +65,12 @@ unzip ~/Downloads/knurd-*.zip
 mkdir -p home && cd home          # your settings live here
 
 # shortcuts for this terminal (add them to ~/.bashrc to keep them)
-alias knurctl="$HOME/knura/knurctl-0.2.0-alpha/bin/knurctl"
-alias knurd="$HOME/knura/knurd-0.2.0-alpha/bin/knurd"
+alias knurctl="$HOME/knura/knurctl-0.3.0-alpha/bin/knurctl"
+alias knurd="$HOME/knura/knurd-0.3.0-alpha/bin/knurd"
 ```
 
-On Windows, unzip with Explorer and run `knurctl-0.2.0-alpha\bin\knurctl.bat` and
-`knurd-0.2.0-alpha\bin\knurd.bat` from a Command Prompt opened in your settings folder.
+On Windows, unzip with Explorer and run `knurctl-0.3.0-alpha\bin\knurctl.bat` and
+`knurd-0.3.0-alpha\bin\knurd.bat` from a Command Prompt opened in your settings folder.
 
 ## 3. Make your master key
 
@@ -208,7 +209,7 @@ Description=Knura tap server
 
 [Service]
 WorkingDirectory=$HOME/knura/home
-ExecStart=$HOME/knura/knurd-0.2.0-alpha/bin/knurd
+ExecStart=$HOME/knura/knurd-0.3.0-alpha/bin/knurd
 Restart=on-failure
 
 [Install]

@@ -2,11 +2,13 @@
 
 ## Unreleased
 
-- knurd: set tags up, reset and read them through a phone's NFC, for the coming Android app.
+## 0.3.0-alpha (2026-10-22)
+
+- knurd: set tags up, reset and read them through a phone's NFC, for the Android app.
   The phone only relays messages between the tag and knurd, so tag keys never leave knurd. Off
   unless `admin.provision.tokens` names a token; see knurd.example.properties.
 - Knura Android app (`android/`): set tags up, check and reset them with the phone's NFC. CI
-  builds a test APK. See docs/android-app.md.
+  builds a test APK, and each release carries one. See docs/android-app.md.
 - Android app: knurd status, tags and recent taps, like `knurctl admin status|tags|taps`.
 - knurd admin API: `GET /v1/tokens` lists token names; `DELETE /v1/tokens/NAME` removes one
   (phone tokens only). The Android app uses it for "Remove a token".
