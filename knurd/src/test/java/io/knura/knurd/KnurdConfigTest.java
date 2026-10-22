@@ -284,4 +284,32 @@ class KnurdConfigTest {
                 .getMessage();
         assertTrue(message.contains("admin.tokens.file"), message);
     }
+
+    @Test
+    void phoneProvisioningIsOffUnlessTokensAreNamed() {
+        assertTrue(KnurdConfig.fromProperties(withAdmin(), dir).admin().provisionTokens().isEmpty());
+        KnurdConfig.Admin admin = KnurdConfig.fromProperties(withAdmin("public.url", "https://desk.tail1234.ts.net",
+                "admin.provision.tokens", "fold7, pixel ,"), dir).admin();
+        assertEquals(java.util.Set.of("fold7", "pixel"), admin.provisionTokens());
+    }
+
+    @Test
+    void phoneProvisioningNeedsAMasterKeyTokensAndAPublicUrl() {
+        assertTrue(adminError("admin.provision.tokens", "Fold 7", "public.url", "https://desk.tail1234.ts.net")
+                .contains("not a token name"));
+        assertTrue(adminError("admin.provision.tokens", "fold7").contains("needs public.url"));
+        Properties fixed = withAdmin("admin.provision.tokens", "fold7", "public.url", "https://desk.tail1234.ts.net");
+        fixed.remove("master.key");
+        fixed.setProperty("sdm.fileReadKey", "00112233445566778899AABBCCDDEEFF");
+        fixed.setProperty("sdm.metaReadKey", "00112233445566778899AABBCCDDEEFF");
+        String message = assertThrows(IllegalArgumentException.class, () -> KnurdConfig.fromProperties(fixed, dir))
+                .getMessage();
+        assertTrue(message.contains("needs master.key"), message);
+        Properties plain = new Properties();
+        plain.setProperty("master.key", "00112233445566778899AABBCCDDEEFF");
+        plain.setProperty("admin.security", "plaintext");
+        plain.setProperty("admin.provision.tokens", "fold7");
+        message = assertThrows(IllegalArgumentException.class, () -> KnurdConfig.fromProperties(plain, dir)).getMessage();
+        assertTrue(message.contains("needs admin.security=token"), message);
+    }
 }

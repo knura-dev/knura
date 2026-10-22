@@ -134,12 +134,24 @@ public final class Main {
         KnurdConfig.Resolver resolver = config.resolver();
         AdminServer.Info info = new AdminServer.Info(config.keys().mode(), config.publicUrl(),
                 resolver == null ? null : resolver.owner(), knots, Instant.now());
-        AdminServer admin = new AdminServer(a.host(), a.port(), tls, tokens, audit, counters, taps, info, Clock.systemUTC());
+        NfcRelay nfc = null;
+        if (!a.provisionTokens().isEmpty()) {
+            String tapBase = resolver == null
+                    ? config.publicUrl() + "/tap"
+                    : new ResolverClient(resolver.url()).tapBase(resolver.owner());
+            nfc = new NfcRelay(config.keys(), tapBase, a.provisionTokens(), NfcRelay.REPLY_WAIT);
+        }
+        AdminServer admin = new AdminServer(
+                a.host(), a.port(), tls, tokens, audit, counters, taps, info, Clock.systemUTC(), nfc);
         admin.start();
         System.out.printf("knurd admin API on %s://%s:%d, for knurctl only: never put this port on the internet%n",
                 a.tls() ? "https" : "http", a.host(), admin.port());
         if (fingerprint != null) {
             System.out.println("Admin API certificate fingerprint (SHA-256): " + fingerprint);
+        }
+        if (nfc != null) {
+            System.out.println("Phones may set tags up with these admin tokens: "
+                    + String.join(", ", a.provisionTokens().stream().sorted().toList()));
         }
         if (tokens == null) {
             System.out.printf("Admin API is in plaintext mode: no login, this computer only. Every request is"

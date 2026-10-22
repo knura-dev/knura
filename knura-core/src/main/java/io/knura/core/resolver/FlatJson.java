@@ -7,7 +7,7 @@ import java.util.Map;
  * Reads one flat JSON object whose values are strings, whole numbers, true, false or null: enough
  * for the resolver's answers without a JSON library. Nested objects and arrays are refused.
  */
-final class FlatJson {
+public final class FlatJson {
     private final String text;
     private int pos;
 
@@ -16,7 +16,7 @@ final class FlatJson {
     }
 
     /** Throws {@link IllegalArgumentException} if {@code json} is not such an object. */
-    static Map<String, Object> parse(String json) {
+    public static Map<String, Object> parse(String json) {
         FlatJson p = new FlatJson(json);
         Map<String, Object> fields = new HashMap<>();
         p.skipSpace();

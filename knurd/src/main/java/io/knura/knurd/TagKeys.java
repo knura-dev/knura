@@ -2,6 +2,7 @@ package io.knura.knurd;
 
 import io.knura.core.crypto.Hex;
 import io.knura.core.keys.TagKeyDerivation;
+import io.knura.core.provision.TagKeySet;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -71,6 +72,14 @@ public final class TagKeys {
             return Optional.of(TagKeyDerivation.tagKey(masterKey, Hex.decode(uidHex), TagKeyDerivation.SDM_FILE_READ_KEY));
         }
         return Optional.ofNullable(key == null ? sharedFileReadKey : key).map(byte[]::clone);
+    }
+
+    /**
+     * All five keys Knura puts on this tag, for setting it up through a phone, or empty when
+     * knurd has no master key. The master key itself never leaves this class.
+     */
+    public Optional<TagKeySet> knuraKeys(byte[] uid) {
+        return masterKey == null ? Optional.empty() : Optional.of(TagKeySet.knura(masterKey, uid));
     }
 
     private static byte[] checkKey(byte[] key) {
