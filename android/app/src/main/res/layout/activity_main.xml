@@ -61,6 +61,47 @@
             android:text="@string/start" />
 
         <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/your_knurd"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/knurdStatus"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/knurd_status" />
+
+            <Button
+                android:id="@+id/knurdTags"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/knurd_tags" />
+
+            <Button
+                android:id="@+id/knurdTaps"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/knurd_taps" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/knurdTokens"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/knurd_tokens" />
+
+        <TextView
             android:id="@+id/status"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

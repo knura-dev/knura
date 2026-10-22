@@ -1,6 +1,7 @@
 package io.knura.android
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.hardware.biometrics.BiometricManager.Authenticators
 import android.hardware.biometrics.BiometricPrompt
 import android.nfc.NfcAdapter
@@ -80,6 +81,12 @@ class MainActivity : Activity() {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
         startButton.setOnClickListener { if (running == null) start() else stop("Cancelled.") }
+        findViewById<Button>(R.id.knurdStatus).setOnClickListener { ask("/v1/status", "knurd status", KnurdViews::status) }
+        findViewById<Button>(R.id.knurdTags).setOnClickListener { ask("/v1/tags", "Tags knurd has seen", KnurdViews::tags) }
+        findViewById<Button>(R.id.knurdTaps).setOnClickListener {
+            ask("/v1/taps?limit=20", "Latest taps", KnurdViews::taps)
+        }
+        findViewById<Button>(R.id.knurdTokens).setOnClickListener { pickTokenToRemove() }
         showPairing()
         CrashLog.takeLast(this)?.let {
             status.text = "The app crashed last time. Please send this to the Knura developers:"
@@ -154,6 +161,104 @@ class MainActivity : Activity() {
         } catch (e: RuntimeException) {
             status.text = "Couldn't ask for your fingerprint or screen lock: ${e.message}"
         }
+    }
+
+    /** Unlocks, reads one of knurd's read-only admin answers and shows it, like knurctl admin status. */
+    private fun ask(path: String, title: String, show: (JSONObject) -> String) {
+        if (!vault.isPaired() || running != null) return
+        unlock("Unlock to use knurd") {
+            val knurd = try {
+                KnurdClient(vault.load())
+            } catch (e: Exception) {
+                status.text = "Couldn't read the pairing (${e.message}). Forget this knurd and pair again."
+                return@unlock
+            }
+            status.text = "Asking knurd..."
+            log.text = ""
+            worker.execute {
+                val text = try {
+                    val reply = knurd.get(path)
+                    if (reply.code == 200) title + "\n\n" + show(reply.json)
+                    else "knurd said no: " + reply.json.optString("detail", "status ${reply.code}")
+                } catch (e: IOException) {
+                    explain(e, knurd.url)
+                } catch (e: org.json.JSONException) {
+                    "knurd's answer didn't make sense: ${e.message}"
+                }
+                ui {
+                    status.text = ""
+                    log.text = text
+                }
+            }
+        }
+    }
+
+    /** Unlocks, lists knurd's admin tokens, and removes the one picked, like knurctl admin token remove. */
+    private fun pickTokenToRemove() {
+        if (!vault.isPaired() || running != null) return
+        unlock("Unlock to use knurd") {
+            val knurd = try {
+                KnurdClient(vault.load())
+            } catch (e: Exception) {
+                status.text = "Couldn't read the pairing (${e.message}). Forget this knurd and pair again."
+                return@unlock
+            }
+            status.text = "Asking knurd..."
+            worker.execute {
+                val reply = try {
+                    knurd.get("/v1/tokens")
+                } catch (e: IOException) {
+                    ui { status.text = explain(e, knurd.url) }
+                    return@execute
+                }
+                ui {
+                    if (reply.code != 200) {
+                        status.text = "knurd said no: " + reply.json.optString("detail", "status ${reply.code}")
+                        return@ui
+                    }
+                    status.text = ""
+                    val you = reply.json.optString("you")
+                    val names = KnurdViews.tokenNames(reply.json)
+                    val labels = names.map { if (it == you) "$it (this phone)" else it }.toTypedArray()
+                    AlertDialog.Builder(this)
+                        .setTitle("Remove which token?")
+                        .setItems(labels) { _, which -> confirmRemove(knurd, names[which], names[which] == you) }
+                        .setNegativeButton(R.string.cancel, null)
+                        .show()
+                }
+            }
+        }
+    }
+
+    private fun confirmRemove(knurd: KnurdClient, name: String, isThisPhone: Boolean) {
+        val warning = if (isThisPhone) "This phone's own token: the app won't reach knurd again until you pair it again."
+        else "Whatever uses it (a phone or a knurctl creds file) stops working right away."
+        AlertDialog.Builder(this)
+            .setTitle("Remove token \"$name\"?")
+            .setMessage(warning)
+            .setPositiveButton("Remove") { _, _ ->
+                status.text = "Removing $name..."
+                worker.execute {
+                    var removed = false
+                    val text = try {
+                        val reply = knurd.delete("/v1/tokens/$name")
+                        removed = reply.code == 200
+                        if (removed) "Removed token \"$name\". knurd refuses it from now on."
+                        else "knurd said no: " + reply.json.optString("detail", "status ${reply.code}")
+                    } catch (e: IOException) {
+                        explain(e, knurd.url)
+                    }
+                    ui {
+                        status.text = text
+                        if (isThisPhone && removed) {
+                            vault.forget()
+                            showPairing()
+                        }
+                    }
+                }
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
     }
 
     private fun start() {

@@ -7,6 +7,9 @@
   unless `admin.provision.tokens` names a token; see knurd.example.properties.
 - Knura Android app (`android/`): set tags up, check and reset them with the phone's NFC. CI
   builds a test APK. See docs/android-app.md.
+- Android app: knurd status, tags and recent taps, like `knurctl admin status|tags|taps`.
+- knurd admin API: `GET /v1/tokens` lists token names; `DELETE /v1/tokens/NAME` removes one
+  (phone tokens only). The Android app uses it for "Remove a token".
 - knurctl: `admin pair-phone NAME` makes a token for the app and shows a QR code to pair it.
 
 ## 0.2.0-alpha (2026-10-22)

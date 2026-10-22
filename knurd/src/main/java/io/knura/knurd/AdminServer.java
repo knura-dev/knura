@@ -6,6 +6,7 @@ import com.sun.net.httpserver.HttpServer;
 import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsParameters;
 import com.sun.net.httpserver.HttpsServer;
+import io.knura.core.admin.AdminTokens;
 import io.knura.core.admin.LocalAddresses;
 import io.knura.core.resolver.FlatJson;
 import java.io.IOException;
@@ -47,7 +48,7 @@ import javax.net.ssl.SSLParameters;
  *
  * <p>Every request, refused or not, is written to the {@link AuditLog} before it is answered; if
  * that fails the answer is a 500. The API never returns key material. Apart from setting tags up
- * through a phone, it only reads:
+ * through a phone and removing tokens, it only reads:
  *
  * <ul>
  *   <li>{@code GET /v1/whoami}: {@code {"token":"laptop"}}, the name of the token used.
@@ -57,6 +58,10 @@ import javax.net.ssl.SSLParameters;
  *   <li>{@code POST /v1/nfc/sessions} and {@code POST /v1/nfc/sessions/<id>}: set a tag up,
  *       reset or read it through a phone ({@link NfcRelay}). Only for the tokens named in {@code
  *       admin.provision.tokens}, and off when that is empty.
+ *   <li>{@code GET /v1/tokens}: {@code {"you":"fold7","tokens":["fold7","laptop"]}}, the token names.
+ *   <li>{@code DELETE /v1/tokens/<name>}: removes a token, as {@code knurctl admin token remove}
+ *       does, so a phone can lock out a lost laptop. Only for the tokens in {@code
+ *       admin.provision.tokens}.
  * </ul>
  */
 final class AdminServer implements AutoCloseable {
@@ -72,6 +77,7 @@ final class AdminServer implements AutoCloseable {
 
     private static final String NFC_SESSIONS = "/v1/nfc/sessions";
     private static final int MAX_NFC_BODY = 4096;
+    private static final String TOKENS = "/v1/tokens";
 
     private final HttpServer server;
     private final TokenStore tokens;
@@ -203,8 +209,11 @@ final class AdminServer implements AutoCloseable {
         if (path.equals(NFC_SESSIONS) || path.startsWith(NFC_SESSIONS + "/")) {
             return nfc(method, path, tokenName, body, exchange);
         }
+        if (path.startsWith(TOKENS + "/")) {
+            return removeToken(method, path.substring(TOKENS.length() + 1), tokenName, exchange);
+        }
         boolean known = switch (path) {
-            case "/v1/whoami", "/v1/status", "/v1/tags", "/v1/taps" -> true;
+            case "/v1/whoami", "/v1/status", "/v1/tags", "/v1/taps", TOKENS -> true;
             default -> false;
         };
         if (!known) {
@@ -219,6 +228,9 @@ final class AdminServer implements AutoCloseable {
                     + (tokens == null ? "\"plaintext\"" : "\"token\"") + "}");
             case "/v1/status" -> ok(status());
             case "/v1/tags" -> ok(tags());
+            case TOKENS -> tokens == null
+                    ? new Answer(404, error("not_found", "plaintext mode has no tokens"), null)
+                    : ok(tokenList(tokenName));
             default -> {
                 Integer limit = limit(query);
                 yield limit == null
@@ -256,6 +268,41 @@ final class AdminServer implements AutoCloseable {
         }
         NfcRelay.Reply reply = id == null ? nfc.start(tokenName, fields) : nfc.step(tokenName, id, fields);
         return new Answer(reply.status(), reply.json(), reply.detail());
+    }
+
+    private String tokenList(String you) {
+        StringBuilder json = new StringBuilder("{\"you\":").append(Json.quote(you)).append(",\"tokens\":[");
+        String sep = "";
+        for (String name : tokens.names()) {
+            json.append(sep).append(Json.quote(name));
+            sep = ",";
+        }
+        return json.append("]}").toString();
+    }
+
+    /** {@code DELETE /v1/tokens/<name>}: only tokens that may set tags up may remove tokens. */
+    private Answer removeToken(String method, String name, String tokenName, HttpExchange exchange) {
+        if (tokens == null || !AdminTokens.isValidName(name)) {
+            return new Answer(404, error("not_found", null), null);
+        }
+        if (!"DELETE".equals(method)) {
+            exchange.getResponseHeaders().set("Allow", "DELETE");
+            return new Answer(405, error("method_not_allowed", null), null);
+        }
+        if (nfc == null || !nfc.allows(tokenName)) {
+            return new Answer(403, error("forbidden", "only tokens in admin.provision.tokens may remove tokens"),
+                    "token may not remove tokens");
+        }
+        try {
+            if (!tokens.remove(name)) {
+                return new Answer(404, error("not_found", "no token named " + name), "no token " + name);
+            }
+        } catch (IOException e) {
+            LOG.log(Level.ERROR, "could not remove admin token " + name, e);
+            return new Answer(500, error("error", "couldn't change the tokens file: " + e.getMessage()),
+                    "remove token " + name + " failed");
+        }
+        return new Answer(200, "{\"removed\":" + Json.quote(name) + "}", "removed token " + name);
     }
 
     private String status() {

@@ -27,7 +27,13 @@ class KnurdClient(private val pairing: Pairing) {
         init(null, arrayOf(PinnedTrustManager(pairing.fingerprint)), null)
     }
 
-    fun post(path: String, body: JSONObject): Reply {
+    fun get(path: String): Reply = send("GET", path, null)
+
+    fun post(path: String, body: JSONObject): Reply = send("POST", path, body)
+
+    fun delete(path: String): Reply = send("DELETE", path, null)
+
+    private fun send(method: String, path: String, body: JSONObject?): Reply {
         val connection = URL(pairing.url + path).openConnection() as HttpsURLConnection
         try {
             connection.sslSocketFactory = tls.socketFactory
@@ -36,11 +42,13 @@ class KnurdClient(private val pairing: Pairing) {
             connection.connectTimeout = 5000
             // knurd waits up to 20 seconds for the tag's next step before answering.
             connection.readTimeout = 30000
-            connection.requestMethod = "POST"
-            connection.doOutput = true
             connection.setRequestProperty("Authorization", "Bearer " + pairing.token)
-            connection.setRequestProperty("Content-Type", "application/json")
-            connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            connection.requestMethod = method
+            if (body != null) {
+                connection.doOutput = true
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            }
             val code = connection.responseCode
             val stream = if (code < HttpURLConnection.HTTP_BAD_REQUEST) connection.inputStream else connection.errorStream
             val text = stream?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
