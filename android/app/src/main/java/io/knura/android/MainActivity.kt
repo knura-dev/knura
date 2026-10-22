@@ -51,6 +51,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CrashLog.install(this)
         setContentView(R.layout.activity_main)
         vault = TokenVault(this)
         nfc = NfcAdapter.getDefaultAdapter(this)
@@ -80,6 +81,10 @@ class MainActivity : Activity() {
         }
         startButton.setOnClickListener { if (running == null) start() else stop("Cancelled.") }
         showPairing()
+        CrashLog.takeLast(this)?.let {
+            status.text = "The app crashed last time. Please send this to the Knura developers:"
+            log.text = it
+        }
     }
 
     override fun onPause() {
@@ -131,11 +136,7 @@ class MainActivity : Activity() {
 
     /** Asks for fingerprint or screen lock, then runs [then] on the main thread. */
     private fun unlock(title: String, then: () -> Unit) {
-        val prompt = BiometricPrompt.Builder(this)
-            .setTitle(title)
-            .setAllowedAuthenticators(Authenticators.BIOMETRIC_STRONG or Authenticators.DEVICE_CREDENTIAL)
-            .build()
-        prompt.authenticate(CancellationSignal(), mainExecutor, object : BiometricPrompt.AuthenticationCallback() {
+        val callback = object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
                 then()
             }
@@ -143,7 +144,16 @@ class MainActivity : Activity() {
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
                 status.text = "Not unlocked: $errString"
             }
-        })
+        }
+        try {
+            BiometricPrompt.Builder(this)
+                .setTitle(title)
+                .setAllowedAuthenticators(Authenticators.BIOMETRIC_STRONG or Authenticators.DEVICE_CREDENTIAL)
+                .build()
+                .authenticate(CancellationSignal(), mainExecutor, callback)
+        } catch (e: RuntimeException) {
+            status.text = "Couldn't ask for your fingerprint or screen lock: ${e.message}"
+        }
     }
 
     private fun start() {
