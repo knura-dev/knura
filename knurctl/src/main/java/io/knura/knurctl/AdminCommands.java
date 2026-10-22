@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.io.Reader;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,11 +17,14 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -61,8 +65,15 @@ final class AdminCommands {
             }
             return;
         }
+        if (sub.equals("pair-phone")) {
+            if (words.size() != 3) {
+                throw new UsageException("use: knurctl admin pair-phone <name>, like: knurctl admin pair-phone fold7");
+            }
+            pairPhone(words.get(2));
+            return;
+        }
         if (words.size() != 2) {
-            throw new UsageException("use: knurctl admin whoami|status|tags|taps|token|tls ...");
+            throw new UsageException("use: knurctl admin whoami|status|tags|taps|token|tls|pair-phone ...");
         }
         switch (sub) {
             case "whoami" -> whoami();
@@ -235,6 +246,115 @@ final class AdminCommands {
         }
         out.println("  knurctl admin status --creds " + outFile);
         out.println("Treat that file like a password. To copy it to another computer use scp, then chmod 600 it there.");
+    }
+
+    /**
+     * Pairs a phone running the Knura app: makes a token that may set tags up through the phone
+     * (admin.provision.tokens) and shows a QR code for the app to scan, holding knurd's admin
+     * address, its certificate fingerprint and the token. No creds file is written: the token only
+     * goes to the phone.
+     */
+    private void pairPhone(String name) throws IOException, UsageException {
+        if (!AdminTokens.isValidName(name)) {
+            throw new UsageException("token names are 1-32 of a-z, 0-9, - and _, like fold7 or pixel");
+        }
+        Properties config = knurdConfig();
+        if ("plaintext".equalsIgnoreCase(config.getProperty("admin.security", "").trim())) {
+            throw new UsageException("admin.security is plaintext in " + configPath + ", which only answers this"
+                    + " computer. Change it to admin.security=token so a phone can log in");
+        }
+        if (config.getProperty("master.key", "").isBlank()) {
+            throw new UsageException("no master.key in " + configPath + "; a phone sets tags up with Knura keys,"
+                    + " which knurd works out from it (knurctl init makes one)");
+        }
+        if (config.getProperty("public.url", "").isBlank()) {
+            throw new UsageException("set public.url in " + configPath + " first: tags set up with a phone point"
+                    + " there (or at your tap.knura.io link), so phones can tap them");
+        }
+        if (config.getProperty("admin.tls.keystore", "").isBlank()) {
+            throw new UsageException("the phone reaches knurd over your Wi-Fi, which needs TLS: run knurctl admin tls"
+                    + " create, and set admin.listen.host to this computer's LAN address (see: ip -4 addr)");
+        }
+        URI url = adminUrl(config);
+        if (LocalAddresses.isLoopbackName(url.getHost())) {
+            throw new UsageException("admin.listen.host is " + url.getHost() + ", which only this computer can reach."
+                    + " Set admin.listen.host in " + configPath + " to this computer's LAN address (see: ip -4 addr),"
+                    + " or pass --admin-url https://<that address>:8425");
+        }
+        String fingerprint = AdminKeystore.load(
+                        resolve(config.getProperty("admin.tls.keystore").trim()),
+                        resolve(config.getProperty("admin.tls.password.file", "").trim()))
+                .fingerprint();
+        boolean enabling = config.getProperty("admin.tokens.file", "").isBlank();
+        Path tokensFile = resolve(enabling ? DEFAULT_TOKENS_FILE : config.getProperty("admin.tokens.file").trim());
+        Map<String, String> tokens = readTokens(tokensFile);
+        if (tokens.containsKey(name)) {
+            throw new UsageException("there is already a token named " + name + "; remove it first"
+                    + " (knurctl admin token remove " + name + ") or pick another name");
+        }
+
+        String token = AdminTokens.generate(new SecureRandom());
+        tokens.put(name, AdminTokens.hash(token));
+        PrivateFiles.replace(tokensFile, AdminTokens.format(tokens));
+        if (enabling) {
+            appendSettings("""
+                    # knurd admin API (knurctl admin pair-phone). Its own port, never the tap port: keep it off
+                    # the internet.
+                    admin.tokens.file=%s
+                    """.formatted(DEFAULT_TOKENS_FILE));
+        }
+        addProvisionToken(config, name);
+
+        out.println("Made token \"" + name + "\" for your phone; knurd keeps only its hash, in "
+                + tokensFile.toAbsolutePath() + ".");
+        out.println("Added it to admin.provision.tokens in " + configPath.toAbsolutePath() + ".");
+        out.println();
+        out.println("In the Knura app, tap Pair and scan this code. It holds the token: don't share or photograph it.");
+        out.println();
+        out.print(TerminalQr.render(pairingLink(url, fingerprint, token)));
+        out.println();
+        out.println("Then restart knurd so it reads admin.provision.tokens. The phone must be on the same network as");
+        out.println(url.getHost() + ", and the firewall must let port " + url.getPort() + " in. On Fedora:");
+        out.println("  sudo firewall-cmd --add-port=" + url.getPort() + "/tcp --permanent && sudo firewall-cmd --reload");
+        out.println("If the phone is lost: knurctl admin token remove " + name);
+    }
+
+    /** What the app scans: {@code knura://pair?url=...&fp=...&token=...}. */
+    static String pairingLink(URI adminUrl, String fingerprint, String token) {
+        return "knura://pair?url=" + URLEncoder.encode(adminUrl.toString(), StandardCharsets.UTF_8)
+                + "&fp=" + fingerprint + "&token=" + token;
+    }
+
+    /** Adds {@code name} to admin.provision.tokens, editing the line if there is one. */
+    private void addProvisionToken(Properties config, String name) throws IOException {
+        String current = config.getProperty("admin.provision.tokens");
+        if (current == null) {
+            appendSettings("""
+                    # Admin tokens allowed to set tags up through a phone (knurctl admin pair-phone).
+                    admin.provision.tokens=%s
+                    """.formatted(name));
+            return;
+        }
+        Set<String> names = new TreeSet<>();
+        for (String part : current.split(",")) {
+            if (!part.isBlank()) {
+                names.add(part.trim());
+            }
+        }
+        names.add(name);
+        String line = "admin.provision.tokens=" + String.join(",", names);
+        List<String> lines = new ArrayList<>(Files.readAllLines(configPath, StandardCharsets.UTF_8));
+        boolean replaced = false;
+        for (int i = 0; i < lines.size(); i++) {
+            if (lines.get(i).matches("\\s*admin\\.provision\\.tokens\\s*[=:].*")) {
+                lines.set(i, line);
+                replaced = true;
+            }
+        }
+        if (!replaced) {
+            lines.add(line);
+        }
+        Files.write(configPath, lines, StandardCharsets.UTF_8);
     }
 
     private void tokenList() throws IOException, UsageException {

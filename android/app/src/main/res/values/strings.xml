@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Knura</string>
+    <string name="pair">Pair with knurd</string>
+    <string name="forget">Forget this knurd</string>
+    <string name="knura_keys">Tag already has Knura keys</string>
+    <string name="start">Start</string>
+    <string name="cancel">Cancel</string>
+    <string-array name="actions">
+        <item>Set up a tag (provision)</item>
+        <item>Show tag info</item>
+        <item>Check a tap</item>
+        <item>Reset tag to factory</item>
+    </string-array>
+</resources>

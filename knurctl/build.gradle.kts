@@ -1,10 +1,12 @@
 // Provisioning and management CLI. Talks to tags over PC/SC (javax.smartcardio, part of the JDK).
+// ZXing draws the QR code that pairs a phone (knurctl admin pair-phone).
 plugins {
     application
 }
 
 dependencies {
     implementation(project(":knura-core"))
+    implementation("com.google.zxing:core:3.5.3")
 }
 
 application {
