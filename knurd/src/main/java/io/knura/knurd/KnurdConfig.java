@@ -1,5 +1,6 @@
 package io.knura.knurd;
 
+import io.knura.core.admin.AdminTokens;
 import io.knura.core.admin.LocalAddresses;
 import io.knura.core.admin.PrivateFiles;
 import io.knura.core.crypto.Hex;
@@ -20,6 +21,8 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * knurd settings, read from a properties file. See {@code knurd.example.properties} for every
@@ -54,10 +57,13 @@ public record KnurdConfig(
      * The admin API's own listener, separate from the tap port so the tap port can be put on the
      * internet and this one never is. {@code keystore} and {@code passwordFile} are null when it
      * serves plain HTTP, which is only allowed on this computer (loopback). With {@code
-     * plaintext}, there is no login ({@code tokensFile} is null) and it must be loopback.
+     * plaintext}, there is no login ({@code tokensFile} is null) and it must be loopback. {@code
+     * provisionTokens} names the tokens allowed to set tags up through a phone ({@link NfcRelay});
+     * it is empty unless {@code admin.provision.tokens} is set.
      */
     public record Admin(
-            String host, int port, boolean plaintext, Path tokensFile, Path keystore, Path passwordFile, Path auditFile) {
+            String host, int port, boolean plaintext, Path tokensFile, Path keystore, Path passwordFile, Path auditFile,
+            Set<String> provisionTokens) {
         public boolean tls() {
             return keystore != null;
         }
@@ -108,6 +114,17 @@ public record KnurdConfig(
         Path counters = baseDir.resolve(p.getProperty("counters.file", "knurd-counters.properties").trim());
         String actions = p.getProperty("actions.file", "").trim();
         String publicUrl = publicUrl(p.getProperty("public.url", "").trim());
+        Admin admin = admin(p, baseDir, port);
+        if (admin != null && !admin.provisionTokens().isEmpty()) {
+            if (!"master".equals(keys.mode())) {
+                throw new IllegalArgumentException("admin.provision.tokens needs master.key: knurd works out each"
+                        + " tag's keys from it while a phone sets the tag up");
+            }
+            if (publicUrl == null) {
+                throw new IllegalArgumentException("admin.provision.tokens needs public.url: tags set up through a phone"
+                        + " must point somewhere phones can reach");
+            }
+        }
         return new KnurdConfig(
                 host,
                 port,
@@ -116,7 +133,7 @@ public record KnurdConfig(
                 actions.isEmpty() ? null : baseDir.resolve(actions),
                 publicUrl,
                 resolver(p, publicUrl),
-                admin(p, baseDir, port));
+                admin);
     }
 
     /**
@@ -157,6 +174,7 @@ public record KnurdConfig(
                     + " may be on the internet and the admin port never should be");
         }
         boolean loopback = adminHost(host);
+        Set<String> provisionTokens = provisionTokens(p.getProperty("admin.provision.tokens", ""));
         String audit = p.getProperty("admin.audit.file", "knurd-admin-audit.log").trim();
         if (plaintext) {
             if (!loopback) {
@@ -164,7 +182,11 @@ public record KnurdConfig(
                         + " computer: set admin.listen.host=127.0.0.1, or use admin.security=token for " + host);
             }
             // No login means nothing to protect in transit on loopback; TLS and tokens don't apply.
-            return new Admin(host, port, true, null, null, null, baseDir.resolve(audit));
+            if (!provisionTokens.isEmpty()) {
+                throw new IllegalArgumentException("admin.provision.tokens needs admin.security=token: plaintext mode"
+                        + " only answers this computer, so no phone could reach it");
+            }
+            return new Admin(host, port, true, null, null, null, baseDir.resolve(audit), Set.of());
         }
         String keystore = p.getProperty("admin.tls.keystore", "").trim();
         String password = p.getProperty("admin.tls.password.file", "").trim();
@@ -183,7 +205,24 @@ public record KnurdConfig(
                 baseDir.resolve(tokens),
                 keystore.isEmpty() ? null : baseDir.resolve(keystore),
                 password.isEmpty() ? null : baseDir.resolve(password),
-                baseDir.resolve(audit));
+                baseDir.resolve(audit),
+                provisionTokens);
+    }
+
+    /** admin.provision.tokens: token names, separated by commas. */
+    static Set<String> provisionTokens(String value) {
+        Set<String> names = new TreeSet<>();
+        for (String part : value.split(",")) {
+            String name = part.trim();
+            if (name.isEmpty()) {
+                continue;
+            }
+            if (!AdminTokens.isValidName(name)) {
+                throw new IllegalArgumentException("admin.provision.tokens: not a token name: " + name);
+            }
+            names.add(name);
+        }
+        return Set.copyOf(names);
     }
 
     /**

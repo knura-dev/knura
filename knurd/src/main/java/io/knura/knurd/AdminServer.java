@@ -7,6 +7,7 @@ import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsParameters;
 import com.sun.net.httpserver.HttpsServer;
 import io.knura.core.admin.LocalAddresses;
+import io.knura.core.resolver.FlatJson;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -45,13 +46,17 @@ import javax.net.ssl.SSLParameters;
  * web page can't reach the API by pointing its own domain name at 127.0.0.1 (DNS rebinding).
  *
  * <p>Every request, refused or not, is written to the {@link AuditLog} before it is answered; if
- * that fails the answer is a 500. The API is read-only for now and never returns key material:
+ * that fails the answer is a 500. The API never returns key material. Apart from setting tags up
+ * through a phone, it only reads:
  *
  * <ul>
  *   <li>{@code GET /v1/whoami}: {@code {"token":"laptop"}}, the name of the token used.
  *   <li>{@code GET /v1/status}: uptime, key mode, public URL, resolver owner, knot and tag counts.
  *   <li>{@code GET /v1/tags}: every tag seen so far and its last accepted counter.
  *   <li>{@code GET /v1/taps?limit=N}: the latest taps (default 50, at most 200), newest first.
+ *   <li>{@code POST /v1/nfc/sessions} and {@code POST /v1/nfc/sessions/<id>}: set a tag up,
+ *       reset or read it through a phone ({@link NfcRelay}). Only for the tokens named in {@code
+ *       admin.provision.tokens}, and off when that is empty.
  * </ul>
  */
 final class AdminServer implements AutoCloseable {
@@ -65,6 +70,9 @@ final class AdminServer implements AutoCloseable {
 
     private record Answer(int status, String json, String detail) {}
 
+    private static final String NFC_SESSIONS = "/v1/nfc/sessions";
+    private static final int MAX_NFC_BODY = 4096;
+
     private final HttpServer server;
     private final TokenStore tokens;
     private final AuditLog audit;
@@ -73,13 +81,20 @@ final class AdminServer implements AutoCloseable {
     private final RecentTaps taps;
     private final Info info;
     private final Clock clock;
+    private final NfcRelay nfc;
+
+    AdminServer(String host, int port, SSLContext tls, TokenStore tokens, AuditLog audit, CounterStore counters,
+            RecentTaps taps, Info info, Clock clock) throws IOException {
+        this(host, port, tls, tokens, audit, counters, taps, info, clock, null);
+    }
 
     /**
      * @param tls the TLS setup, or null for plain HTTP (loopback only; KnurdConfig enforces it)
      * @param tokens the tokens to accept, or null for plaintext mode: no login (loopback only)
+     * @param nfc setting tags up through a phone, or null when that is off
      */
     AdminServer(String host, int port, SSLContext tls, TokenStore tokens, AuditLog audit, CounterStore counters,
-            RecentTaps taps, Info info, Clock clock) throws IOException {
+            RecentTaps taps, Info info, Clock clock, NfcRelay nfc) throws IOException {
         InetSocketAddress address = new InetSocketAddress(host, port);
         if (tls == null) {
             server = HttpServer.create(address, 0);
@@ -102,6 +117,7 @@ final class AdminServer implements AutoCloseable {
         this.taps = taps;
         this.info = info;
         this.clock = clock;
+        this.nfc = nfc;
         server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
         server.createContext("/", this::handle);
     }
@@ -120,8 +136,11 @@ final class AdminServer implements AutoCloseable {
     }
 
     private void handle(HttpExchange exchange) throws IOException {
+        byte[] requestBody;
         try (InputStream body = exchange.getRequestBody()) {
-            body.readNBytes(64 * 1024); // Nothing takes a body yet; drain a little so keep-alive works.
+            // Only the phone relay reads a body, and a small one; reading a little more than it
+            // allows lets keep-alive work and too large a body be refused.
+            requestBody = body.readNBytes(64 * 1024);
         }
         InetAddress remote = exchange.getRemoteAddress().getAddress();
         String remoteText = remote.getHostAddress();
@@ -140,7 +159,7 @@ final class AdminServer implements AutoCloseable {
                     + " 127.0.0.1 or localhost"), "Host is not this computer");
         } else if (tokens == null) {
             try {
-                answer = route(method, path, exchange.getRequestURI().getRawQuery(), null, exchange);
+                answer = route(method, path, exchange.getRequestURI().getRawQuery(), null, requestBody, exchange);
             } catch (RuntimeException e) {
                 LOG.log(Level.ERROR, "admin request " + method + " " + path + " failed", e);
                 answer = new Answer(500, error("error", null), "internal error");
@@ -156,7 +175,7 @@ final class AdminServer implements AutoCloseable {
                 throttle.succeeded(remoteText);
                 tokenName = name.get();
                 try {
-                    answer = route(method, path, exchange.getRequestURI().getRawQuery(), tokenName, exchange);
+                    answer = route(method, path, exchange.getRequestURI().getRawQuery(), tokenName, requestBody, exchange);
                 } catch (RuntimeException e) {
                     LOG.log(Level.ERROR, "admin request " + method + " " + path + " failed", e);
                     answer = new Answer(500, error("error", null), "internal error");
@@ -179,7 +198,11 @@ final class AdminServer implements AutoCloseable {
         send(exchange, answer.status(), answer.json());
     }
 
-    private Answer route(String method, String path, String query, String tokenName, HttpExchange exchange) {
+    private Answer route(String method, String path, String query, String tokenName, byte[] body,
+            HttpExchange exchange) {
+        if (path.equals(NFC_SESSIONS) || path.startsWith(NFC_SESSIONS + "/")) {
+            return nfc(method, path, tokenName, body, exchange);
+        }
         boolean known = switch (path) {
             case "/v1/whoami", "/v1/status", "/v1/tags", "/v1/taps" -> true;
             default -> false;
@@ -203,6 +226,36 @@ final class AdminServer implements AutoCloseable {
                         : ok(taps(limit));
             }
         };
+    }
+
+    private Answer nfc(String method, String path, String tokenName, byte[] body, HttpExchange exchange) {
+        String id = path.equals(NFC_SESSIONS) ? null : path.substring(NFC_SESSIONS.length() + 1);
+        if (id != null && !NfcRelay.isSessionId(id)) {
+            return new Answer(404, error("not_found", null), null);
+        }
+        if (!"POST".equals(method)) {
+            exchange.getResponseHeaders().set("Allow", "POST");
+            return new Answer(405, error("method_not_allowed", null), null);
+        }
+        if (nfc == null) {
+            return new Answer(403, error("forbidden", "setting tags up through a phone is off; turn it on with"
+                    + " admin.provision.tokens in knurd.properties"), "nfc off");
+        }
+        if (!nfc.allows(tokenName)) {
+            return new Answer(403, error("forbidden", "this token may not set tags up; add it to"
+                    + " admin.provision.tokens in knurd.properties"), "token may not use nfc");
+        }
+        if (body.length > MAX_NFC_BODY) {
+            return new Answer(413, error("too_large", "request body over " + MAX_NFC_BODY + " bytes"), null);
+        }
+        Map<String, Object> fields;
+        try {
+            fields = FlatJson.parse(new String(body, StandardCharsets.UTF_8));
+        } catch (IllegalArgumentException e) {
+            return new Answer(400, error("malformed", "the body must be a flat JSON object: " + e.getMessage()), null);
+        }
+        NfcRelay.Reply reply = id == null ? nfc.start(tokenName, fields) : nfc.step(tokenName, id, fields);
+        return new Answer(reply.status(), reply.json(), reply.detail());
     }
 
     private String status() {
