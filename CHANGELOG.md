@@ -1,11 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.2.0-alpha (2026-10-22)
 
 - knurgN: Home Assistant connector (`homeassistant.<id>.url`) that starts an automation through
   its webhook trigger, with no login token. See docs/home-assistant.md.
+- knurgN: a clear error when a secrets file line is missing its connector id, without printing
+  the line.
+- docs: a step-by-step Home Assistant guide, linked from the release setup guide.
 
-## 0.1.0-alpha (unreleased)
+## 0.1.0-alpha (2026-10-19)
 
 First public alpha.
 

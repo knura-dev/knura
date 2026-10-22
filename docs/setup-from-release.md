@@ -64,12 +64,12 @@ unzip ~/Downloads/knurd-*.zip
 mkdir -p home && cd home          # your settings live here
 
 # shortcuts for this terminal (add them to ~/.bashrc to keep them)
-alias knurctl="$HOME/knura/knurctl-0.1.0-alpha/bin/knurctl"
-alias knurd="$HOME/knura/knurd-0.1.0-alpha/bin/knurd"
+alias knurctl="$HOME/knura/knurctl-0.2.0-alpha/bin/knurctl"
+alias knurd="$HOME/knura/knurd-0.2.0-alpha/bin/knurd"
 ```
 
-On Windows, unzip with Explorer and run `knurctl-0.1.0-alpha\bin\knurctl.bat` and
-`knurd-0.1.0-alpha\bin\knurd.bat` from a Command Prompt opened in your settings folder.
+On Windows, unzip with Explorer and run `knurctl-0.2.0-alpha\bin\knurctl.bat` and
+`knurd-0.2.0-alpha\bin\knurd.bat` from a Command Prompt opened in your settings folder.
 
 ## 3. Make your master key
 
@@ -208,7 +208,7 @@ Description=Knura tap server
 
 [Service]
 WorkingDirectory=$HOME/knura/home
-ExecStart=$HOME/knura/knurd-0.1.0-alpha/bin/knurd
+ExecStart=$HOME/knura/knurd-0.2.0-alpha/bin/knurd
 Restart=on-failure
 
 [Install]
