@@ -63,6 +63,8 @@ public final class Main {
                                     The first time, also turns the admin API on: restart knurd
               admin token list      list token names          admin token remove NAME
               admin tls create      make the TLS certificate the admin API needs for LAN use
+              admin pair-phone NAME pair the Knura Android app: makes a token that may set tags
+                                    up through the phone and shows a QR code for the app to scan
               admin whoami          check that knurctl can log in, and in which mode
               admin status          knurd's uptime, keys mode, public URL, knots and tags
               admin tags            every tag knurd has accepted, with its last counter
@@ -84,7 +86,7 @@ public final class Main {
               --creds FILE          admin: knurd's admin URL and token (default
                                     knurctl-creds.properties). Must be chmod 600. Not needed
                                     when knurd.properties here says admin.security=plaintext
-              --admin-url URL       admin token add: the address to put in the creds file
+              --admin-url URL       admin token add, pair-phone: knurd's admin address to hand out
               --out FILE            admin token add: where to write the creds file
               --limit N             admin taps: how many to show
             """;

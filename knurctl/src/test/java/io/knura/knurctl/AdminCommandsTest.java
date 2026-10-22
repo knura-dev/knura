@@ -327,4 +327,95 @@ class AdminCommandsTest {
         assertThrows(IllegalArgumentException.class, () -> MiniJson.parse("{\"a\":1} x"));
         assertThrows(IllegalArgumentException.class, () -> MiniJson.parse("[".repeat(40)));
     }
+
+    // ---- pair-phone ----
+
+    private void readyForPhones() throws IOException {
+        assertEquals(0, run("init", "--config", config().toString()));
+        assertEquals(0, run("admin", "tls", "create", "--config", config().toString()), err());
+        Files.writeString(config(), "public.url=https://desk.tail1234.ts.net\nadmin.listen.host=192.168.1.20\n",
+                java.nio.file.StandardOpenOption.APPEND);
+    }
+
+    @Test
+    void pairPhoneMakesAProvisionTokenAndAScannableCode() throws Exception {
+        readyForPhones();
+        assertEquals(0, run("admin", "pair-phone", "fold7", "--config", config().toString()), err());
+        Properties settings = load(config());
+        assertEquals("fold7", settings.getProperty("admin.provision.tokens"));
+        assertEquals("knurd-admin-tokens.properties", settings.getProperty("admin.tokens.file"));
+        assertTrue(out().contains("restart knurd"), out());
+
+        String link = scan(out());
+        String fingerprint = AdminKeystore.load(dir.resolve("knurd-admin.p12"), dir.resolve("knurd-admin.p12.password"))
+                .fingerprint();
+        assertTrue(link.startsWith("knura://pair?url=https%3A%2F%2F192.168.1.20%3A8425&fp=" + fingerprint + "&token=knurd_"),
+                link);
+        String token = link.substring(link.indexOf("&token=") + 7);
+        Properties tokens = load(dir.resolve("knurd-admin-tokens.properties"));
+        assertEquals(AdminTokens.hash(token), tokens.getProperty("fold7"));
+        assertFalse(Files.list(dir).anyMatch(f -> f.getFileName().toString().equals(Creds.DEFAULT_FILE)),
+                "the token goes only to the phone");
+
+        assertEquals(0, run("admin", "pair-phone", "pixel", "--config", config().toString()), err());
+        assertEquals("fold7,pixel", load(config()).getProperty("admin.provision.tokens"));
+        assertEquals(1, Files.readString(config()).split("admin.provision.tokens=", -1).length - 1, "edits the line");
+        assertEquals(2, run("admin", "pair-phone", "pixel", "--config", config().toString()), "names are unique");
+    }
+
+    @Test
+    void pairPhoneNeedsWhatAPhoneNeeds() throws Exception {
+        assertEquals(0, run("init", "--config", config().toString()));
+        assertEquals(2, run("admin", "pair-phone", "fold7", "--config", config().toString()));
+        assertTrue(err().contains("public.url"), err());
+        Files.writeString(config(), "public.url=https://desk.tail1234.ts.net\n", java.nio.file.StandardOpenOption.APPEND);
+        assertEquals(2, run("admin", "pair-phone", "fold7", "--config", config().toString()));
+        assertTrue(err().contains("tls create"), err());
+        assertEquals(0, run("admin", "tls", "create", "--config", config().toString()), err());
+        assertEquals(2, run("admin", "pair-phone", "fold7", "--config", config().toString()));
+        assertTrue(err().contains("LAN address"), err());
+        assertEquals(0, run("admin", "pair-phone", "fold7", "--config", config().toString(),
+                "--admin-url", "https://192.168.1.20:8425"), err());
+        assertEquals(2, run("admin", "pair-phone", "--config", config().toString()));
+        assertEquals(2, run("admin", "pair-phone", "Fold 7", "--config", config().toString()));
+    }
+
+    /** Reads the QR code knurctl drew back into text, as the phone's scanner would. */
+    private static String scan(String output) throws Exception {
+        java.util.regex.Matcher cell = java.util.regex.Pattern.compile("\u001b\\[(30|97);(40|107)m\u2580").matcher("");
+        List<boolean[]> rows = new java.util.ArrayList<>();
+        for (String line : output.split("\n")) {
+            cell.reset(line);
+            List<Boolean> top = new java.util.ArrayList<>();
+            List<Boolean> bottom = new java.util.ArrayList<>();
+            while (cell.find()) {
+                top.add(cell.group(1).equals("30"));
+                bottom.add(cell.group(2).equals("40"));
+            }
+            if (!top.isEmpty()) {
+                rows.add(toArray(top));
+                rows.add(toArray(bottom));
+            }
+        }
+        int scale = 4;
+        int width = rows.get(0).length * scale;
+        int height = rows.size() * scale;
+        int[] pixels = new int[width * height];
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                pixels[y * width + x] = rows.get(y / scale)[x / scale] ? 0xFF000000 : 0xFFFFFFFF;
+            }
+        }
+        com.google.zxing.BinaryBitmap bitmap = new com.google.zxing.BinaryBitmap(new com.google.zxing.common.HybridBinarizer(
+                new com.google.zxing.RGBLuminanceSource(width, height, pixels)));
+        return new com.google.zxing.qrcode.QRCodeReader().decode(bitmap).getText();
+    }
+
+    private static boolean[] toArray(List<Boolean> values) {
+        boolean[] a = new boolean[values.size()];
+        for (int i = 0; i < a.length; i++) {
+            a[i] = values.get(i);
+        }
+        return a;
+    }
 }

@@ -210,7 +210,8 @@ knurd can open a second port, 8425, for management (and later LoomStudio). It is
 the tap port so the tap port can be public and this one never is: knurd only listens on this
 computer or a local network address, refuses requests from public addresses and requests that
 came through a proxy or tunnel, and writes every request to an audit log (tokens and keys never
-are). It is read-only for now and never returns key material.
+are). It never returns key material, and apart from setting tags up through a phone (below) it
+only reads.
 
 `admin.security` in knurd.properties picks one of two modes, like Kafka's PLAINTEXT and SASL:
 
@@ -239,6 +240,15 @@ knurctl admin token remove desk         # stops working at once, no restart
 The creds file (`--creds`, like Kafka's `--command-config`) holds the URL, the token and the
 certificate fingerprint. knurctl refuses it unless it is chmod 600, and refuses plain `http://`
 unless it is this computer. knurd keeps only each token's SHA-256.
+
+### Setting tags up with an Android phone
+
+The Knura app in [android/](android/) sets tags up, checks them and resets them with the phone's
+NFC instead of a USB reader. The phone only relays: knurd works out the tag's keys from
+`master.key`, sends each command through the admin API and checks each reply, so keys never
+reach the phone. `knurctl admin pair-phone fold7` makes a token for it (named in
+`admin.provision.tokens`) and shows a QR code for the app to scan. See
+[docs/android-app.md](docs/android-app.md).
 
 ## knurgn
 
