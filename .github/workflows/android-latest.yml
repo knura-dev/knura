@@ -1,0 +1,43 @@
+name: Android app download
+
+# Keeps a plain download link to the newest Knura app for phones:
+# https://github.com/knura-dev/knura/releases/download/android-latest/knura.apk
+# It is a pre-release named android-latest, rebuilt whenever the app changes on main. Test
+# builds are signed with a fresh debug key each time, so uninstall the old app before
+# installing a newer one.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "android/**"
+      - ".github/workflows/android-latest.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-latest
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+      - run: ./gradlew -p android testDebugUnitTest assembleDebug
+      - name: Replace the android-latest pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk knura.apk
+          # Recreated each time so its tag points at the commit the app was built from.
+          gh release delete android-latest --cleanup-tag --yes 2>/dev/null || true
+          gh release create android-latest knura.apk --prerelease --latest=false \
+            --target "$GITHUB_SHA" --title "Knura Android app (test build)" \
+            --notes "Newest test build of the Knura app, from ${GITHUB_SHA::7}. Setup: docs/android-app.md. Uninstall the old app before installing this one: each test build is signed with a new debug key."

@@ -58,13 +58,12 @@ needs TLS.
 
 ## 2. Install the app
 
-Until the app is part of a release, GitHub builds it on every change:
-
-1. On the phone, open the repository's **Actions** tab on github.com (signed in), open the
-   latest **CI** run for main and download **knura-android-apk** at the bottom.
-2. Open the download in **My Files**, extract the zip, and tap `app-debug.apk`.
-3. Allow **Install unknown apps** for My Files when Android asks. If Play Protect warns about an
-   unknown developer, choose **Install anyway**.
+1. On the phone, open this link in the browser and download the app:
+   **https://github.com/knura-dev/knura/releases/download/android-latest/knura.apk**
+   (it always has the newest test build).
+2. Open the download and tap **Install**.
+3. Allow **Install unknown apps** for your browser when Android asks. If Play Protect warns
+   about an unknown developer, choose **Install anyway**.
 
 Each build is signed with a fresh test key, so to install a newer one, uninstall the old app
 first (then pair again).
