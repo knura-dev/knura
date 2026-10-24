@@ -311,6 +311,12 @@ Rules:
   planned.
 - The tap MAC must cover an empty input (SDMMACInputOffset equal to SDMMACOffset).
 
+## Who builds Knura
+
+Knura is built by one person working with AI coding tools. Every change is reviewed by hand, runs
+250+ automated tests (the tag crypto against NXP's published examples), and is tried on real tags,
+readers and phones before release. The code is all here, so you can check it yourself.
+
 ## Community
 
 Questions, ideas and projects go in [GitHub Discussions](https://github.com/knura-dev/knura/discussions).
