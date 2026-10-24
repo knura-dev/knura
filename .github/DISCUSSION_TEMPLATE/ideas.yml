@@ -1,0 +1,20 @@
+title: "[Idea] "
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like Knura to do?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why would it help?
+      description: The tap, the action, and who it is for.
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Links, devices or other tools that already do something similar.

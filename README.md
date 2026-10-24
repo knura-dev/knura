@@ -311,6 +311,11 @@ Rules:
   planned.
 - The tap MAC must cover an empty input (SDMMACInputOffset equal to SDMMACOffset).
 
+## Community
+
+Questions, ideas and projects go in [GitHub Discussions](https://github.com/knura-dev/knura/discussions).
+Use [issues](https://github.com/knura-dev/knura/issues) for confirmed bugs.
+
 ## Security
 
 Please report vulnerabilities privately, as described in [SECURITY.md](SECURITY.md).
