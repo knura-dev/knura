@@ -79,7 +79,7 @@ Use any name for the phone. This makes a login token that may set tags up, adds 
 
 1. Restart knurd (it reads `admin.provision.tokens` when it starts). Its first lines should say
    `Phones may set tags up with these admin tokens: fold7`.
-2. In the app, tap **Pair with knurd**, scan the code, and unlock with your fingerprint or
+2. In the app, tap **Scan pairing code**, scan the code, and unlock with your fingerprint or
    screen lock.
 
 The code holds the token, so don't photograph or share it. If the phone is lost:
