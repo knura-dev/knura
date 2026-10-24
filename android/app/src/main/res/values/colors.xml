@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Light colors, from the knura.io site and logo (site/styles.css). Dark ones are in values-night. -->
+<resources>
+    <color name="bg">#F6F8FA</color>
+    <color name="card">#FFFFFF</color>
+    <color name="line">#E4E8EE</color>
+    <color name="line_strong">#D3D9E1</color>
+    <color name="fg">#0B1220</color>
+    <color name="muted">#5A6675</color>
+    <!-- Darker than the logo's #E06B12 so white text on it is easy to read. -->
+    <color name="accent">#B45309</color>
+    <color name="on_accent">#FFFFFF</color>
+    <color name="accent_text">#B45309</color>
+    <color name="accent_stroke">#E06B12</color>
+    <color name="accent_tint">#17E06B12</color>
+    <color name="accent_ring_1">#2EE06B12</color>
+    <color name="accent_ring_2">#66E06B12</color>
+    <color name="ok">#15965F</color>
+    <color name="ok_text">#0F7A4C</color>
+    <color name="ok_tint">#1A15965F</color>
+    <color name="bad">#D63B3B</color>
+    <color name="bad_text">#B42323</color>
+    <color name="bad_tint">#1AD63B3B</color>
+    <color name="term">#EEF1F5</color>
+    <color name="code_text">#B45309</color>
+    <color name="logo_core">#14202B</color>
+    <color name="ripple">#1F0B1220</color>
+    <!-- The launcher icon is dark in both modes, like the site's favicon on its dark pages. -->
+    <color name="launcher_bg">#0A0D12</color>
+</resources>

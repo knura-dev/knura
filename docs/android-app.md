@@ -87,25 +87,31 @@ The code holds the token, so don't photograph or share it. If the phone is lost:
 
 ## 4. Use it
 
-Pick what to do, tap **Start**, unlock, and hold the tag flat against the back of the phone
-until the app says it's done. That takes a few seconds. If nothing happens, slide the tag
+Tap one of the four tiles, tap **Start, then hold the tag**, unlock, and hold the tag flat
+against the back of the phone until the result screen comes up. That takes a few seconds. The
+result screen shows the tag's UID and what changed; **What knurd did** has knurd's full log and
+**Copy details** copies it all. If nothing happens, slide the tag
 around the back slowly: phones read tags at one spot only.
 
 | Action | What it does |
 | --- | --- |
-| Set up a tag (provision) | Knura keys and your tap link. Tick "Tag already has Knura keys" to re-point a tag knurd already set up (like `--from knura`). |
-| Show tag info | UID, link, whose keys it has, and whether the link checks out. |
+| Set up a tag | Knura keys and your tap link. Turn on "Tag already has Knura keys" to re-point a tag knurd already set up (like `--from knura`). |
+| Tag info | UID, link, whose keys it has, and whether the link checks out. |
 | Check a tap | Reads the tag like a phone tap and checks it with your keys. |
-| Reset tag to factory | All keys back to zero, no link. Untick the box for a tag that still has factory keys. |
+| Reset tag | All keys back to zero, no link. Turn the switch off for a tag that still has factory keys. |
 
-Under **Your knurd**, three buttons show what `knurctl admin` shows on the computer:
+Under **knurd**, three rows show what `knurctl admin` shows on the computer:
 **Status** (uptime, keys, public URL, resolver, knots), **Tags** (every tag knurd has accepted,
-with its last counter) and **Recent taps** (the latest 20, and how each went). They only read.
+with its last counter) and **Recent taps** (the latest 20 in your phone's time, each marked
+Genuine, Replay, Rejected or Malformed). They only read.
 
 **Remove a token** lists knurd's admin tokens and removes the one you pick, like
 `knurctl admin token remove`. Use it to lock out a lost laptop or another phone straight away.
 Only phone tokens (the ones in `admin.provision.tokens`) may do this. If you remove this phone's
 own token, the app forgets knurd and you pair again.
+
+The app follows the phone's light or dark mode. On a foldable, the home screen shows the tag
+actions and knurd side by side when the phone is open, and folding it mid-session keeps going.
 
 Setting up keys, TLS, new tokens and the resolver stays on the computer, so a lost phone can't
 open up your setup.

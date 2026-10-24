@@ -13,8 +13,10 @@
     <!-- allowBackup off: nothing here is useful on another phone, and the token stays put. -->
     <application
         android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:theme="@android:style/Theme.DeviceDefault.DayNight">
+        android:roundIcon="@mipmap/ic_launcher"
+        android:theme="@style/Theme.Knura">
 
         <meta-data
             android:name="com.google.mlkit.vision.DEPENDENCIES"
@@ -22,8 +24,10 @@
 
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
             android:exported="true"
             android:launchMode="singleTop">
+            <!-- configChanges: folding or unfolding the phone keeps the screen as it is, mid-session too. -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

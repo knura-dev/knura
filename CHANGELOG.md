@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Android app 0.3.0: a new look in the Knura colors, with light and dark modes. Tap tiles pick
+  the action, a "hold the tag" screen shows each step, and results get their own screen with the
+  full log under "What knurd did". Status, tags and recent taps show as lists (taps marked
+  Genuine, Replay, Rejected or Malformed, in the phone's time). Two columns on an unfolded
+  foldable, a Knura launcher icon, and "Forget" now asks first.
+
 ## 0.3.0-alpha (2026-10-22)
 
 - knurd: set tags up, reset and read them through a phone's NFC, for the Android app.

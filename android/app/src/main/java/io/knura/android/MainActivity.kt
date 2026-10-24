@@ -1,7 +1,14 @@
 package io.knura.android
 
+import android.animation.ObjectAnimator
+import android.animation.PropertyValuesHolder
+import android.animation.ValueAnimator
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.res.Configuration
+import android.graphics.Typeface
 import android.hardware.biometrics.BiometricManager.Authenticators
 import android.hardware.biometrics.BiometricPrompt
 import android.nfc.NfcAdapter
@@ -9,11 +16,19 @@ import android.nfc.Tag
 import android.nfc.tech.IsoDep
 import android.os.Bundle
 import android.os.CancellationSignal
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.ImageSpan
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.View
-import android.widget.AdapterView
 import android.widget.Button
-import android.widget.CheckBox
-import android.widget.Spinner
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
@@ -24,31 +39,46 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * One screen: pair with knurd, pick what to do, unlock, hold a tag to the phone. The phone only
- * relays: knurd sends each command for the tag and checks every reply, and the tag's keys never
- * reach the phone.
+ * Pair with knurd, pick what to do, unlock, hold a tag to the phone. The phone only relays: knurd
+ * sends each command for the tag and checks every reply, and the tag's keys never reach the phone.
+ * The screens all live in activity_main.xml and this activity shows one at a time.
  */
 class MainActivity : Activity() {
-    /** What the app can do, in the order of the action list, with knurd's name for each. */
-    private enum class Action(val api: String) { PROVISION("provision"), INFO("info"), TAP("tap"), RESET("reset") }
+    /** What the app can do, with knurd's name for each and the words the screens use for it. */
+    private enum class Action(val api: String, val label: String, val doing: String, val again: String) {
+        PROVISION("provision", "Set up a tag", "knurd writes the keys", "Set up another"),
+        INFO("info", "Tag info", "knurd reads the tag", "Read another"),
+        TAP("tap", "Check a tap", "knurd checks the signature", "Check another"),
+        RESET("reset", "Reset tag", "knurd resets the keys", "Reset another"),
+    }
+
+    private enum class Step { PENDING, ACTIVE, DONE }
 
     private lateinit var vault: TokenVault
-    private lateinit var paired: TextView
-    private lateinit var pairButton: Button
-    private lateinit var forgetButton: Button
-    private lateinit var actionSpinner: Spinner
-    private lateinit var knuraKeys: CheckBox
+    private lateinit var scroll: ScrollView
+    private lateinit var content: LinearLayout
+    private lateinit var screens: List<View>
+    private lateinit var screenUnpaired: View
+    private lateinit var screenHome: View
+    private lateinit var screenWorking: View
+    private lateinit var screenResult: View
+    private lateinit var screenKnurd: View
+    private lateinit var tiles: Map<Action, View>
+    private lateinit var knuraKeys: Switch
     private lateinit var startButton: Button
-    private lateinit var status: TextView
     private lateinit var log: TextView
 
     private val worker = Executors.newSingleThreadExecutor()
     private var nfc: NfcAdapter? = null
+    private var action = Action.PROVISION
     /** Set while waiting for a tag or relaying to one. */
     private var client: KnurdClient? = null
     private var running: Action? = null
     /** The keys the tag has now, as knurd names them, or null when the action doesn't need it. */
     private var from: String? = null
+    private var pulse: ValueAnimator? = null
+    /** The last result, as text for Copy details. */
+    private var details = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,48 +86,73 @@ class MainActivity : Activity() {
         setContentView(R.layout.activity_main)
         vault = TokenVault(this)
         nfc = NfcAdapter.getDefaultAdapter(this)
-        paired = findViewById(R.id.paired)
-        pairButton = findViewById(R.id.pair)
-        forgetButton = findViewById(R.id.forget)
-        actionSpinner = findViewById(R.id.action)
-        knuraKeys = findViewById(R.id.knuraKeys)
-        startButton = findViewById(R.id.start)
-        status = findViewById(R.id.status)
-        log = findViewById(R.id.log)
+        scroll = findViewById<ScrollView>(R.id.scroll)
+        content = findViewById<LinearLayout>(R.id.content)
+        screenUnpaired = findViewById<View>(R.id.screenUnpaired)
+        screenHome = findViewById<View>(R.id.screenHome)
+        screenWorking = findViewById<View>(R.id.screenWorking)
+        screenResult = findViewById<View>(R.id.screenResult)
+        screenKnurd = findViewById<View>(R.id.screenKnurd)
+        screens = listOf(screenUnpaired, screenHome, screenWorking, screenResult, screenKnurd)
+        tiles = mapOf(
+            Action.PROVISION to findViewById<View>(R.id.tileProvision),
+            Action.INFO to findViewById<View>(R.id.tileInfo),
+            Action.TAP to findViewById<View>(R.id.tileTap),
+            Action.RESET to findViewById<View>(R.id.tileReset),
+        )
+        knuraKeys = findViewById<Switch>(R.id.knuraKeys)
+        startButton = findViewById<Button>(R.id.start)
+        log = findViewById<TextView>(R.id.log)
 
-        pairButton.setOnClickListener { scanPairingCode() }
-        forgetButton.setOnClickListener {
-            vault.forget()
-            showPairing()
-        }
-        actionSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                // A new tag has factory keys; a tag being reset was most likely set up by Knura.
-                val action = Action.entries[position]
-                knuraKeys.visibility = if (action == Action.PROVISION || action == Action.RESET) View.VISIBLE else View.GONE
-                knuraKeys.isChecked = action == Action.RESET
-            }
+        withIcon(findViewById<Button>(R.id.pair), R.drawable.ic_scan)
+        withIcon(startButton, R.drawable.ic_nfc_on_accent)
+        findViewById<View>(R.id.knurdMenu).clipToOutline = true
+        findViewById<View>(R.id.knurdRows).clipToOutline = true
 
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        findViewById<View>(R.id.pair).setOnClickListener { scanPairingCode() }
+        findViewById<View>(R.id.forget).setOnClickListener { confirmForget() }
+        for ((a, tile) in tiles) {
+            tile.setOnClickListener { pick(a) }
         }
-        startButton.setOnClickListener { if (running == null) start() else stop("Cancelled.") }
-        findViewById<Button>(R.id.knurdStatus).setOnClickListener { ask("/v1/status", "knurd status", KnurdViews::status) }
-        findViewById<Button>(R.id.knurdTags).setOnClickListener { ask("/v1/tags", "Tags knurd has seen", KnurdViews::tags) }
-        findViewById<Button>(R.id.knurdTaps).setOnClickListener {
-            ask("/v1/taps?limit=20", "Latest taps", KnurdViews::taps)
+        pick(Action.PROVISION)
+        startButton.setOnClickListener { start() }
+        findViewById<View>(R.id.cancel).setOnClickListener { stop(); showHome("Cancelled.") }
+        findViewById<View>(R.id.resultClose).setOnClickListener { showHome(null) }
+        findViewById<View>(R.id.again).setOnClickListener { start() }
+        findViewById<View>(R.id.copy).setOnClickListener { copyDetails() }
+        findViewById<View>(R.id.logToggle).setOnClickListener {
+            log.visibility = if (log.visibility == View.VISIBLE) View.GONE else View.VISIBLE
         }
-        findViewById<Button>(R.id.knurdTokens).setOnClickListener { pickTokenToRemove() }
-        showPairing()
+        findViewById<View>(R.id.knurdBack).setOnClickListener { showHome(null) }
+        findViewById<View>(R.id.knurdStatus).setOnClickListener {
+            ask("/v1/status", getString(R.string.knurd_status), pairs = true, KnurdViews::status)
+        }
+        findViewById<View>(R.id.knurdTags).setOnClickListener {
+            ask("/v1/tags", getString(R.string.knurd_tags), pairs = false, KnurdViews::tags)
+        }
+        findViewById<View>(R.id.knurdTaps).setOnClickListener {
+            ask("/v1/taps?limit=20", getString(R.string.knurd_taps), pairs = false) { KnurdViews.taps(it) }
+        }
+        findViewById<View>(R.id.knurdTokens).setOnClickListener { pickTokenToRemove() }
+        fitWidth()
+        showHome(null)
         CrashLog.takeLast(this)?.let {
-            status.text = "The app crashed last time. Please send this to the Knura developers:"
-            log.text = it
+            showResult("Knura", TagResults.Result(false, "The app crashed last time",
+                "Please send this to the Knura developers. Copy details copies it.", emptyList()), it, againLabel = null)
         }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Folding or unfolding the phone: the manifest keeps the activity, so only the layout changes.
+        fitWidth()
     }
 
     override fun onPause() {
         super.onPause()
         if (running != null) {
-            stop("Stopped: the app went to the background.")
+            stop()
+            showHome("Stopped: the app went to the background.")
         }
     }
 
@@ -106,17 +161,251 @@ class MainActivity : Activity() {
         worker.shutdownNow()
     }
 
-    private fun showPairing() {
-        val isPaired = vault.isPaired()
-        paired.text = when {
-            nfc == null -> "This phone has no NFC."
-            isPaired -> "Paired with knurd at ${vault.url}"
-            else -> "Not paired yet. On knurd's computer run: knurctl admin pair-phone <name>, then tap Pair and scan the code."
+    @Deprecated("Still the simplest way to handle Back on Android 11 and 12.")
+    override fun onBackPressed() {
+        when {
+            running != null -> {
+                stop()
+                showHome("Cancelled.")
+            }
+            screenResult.visibility == View.VISIBLE || screenKnurd.visibility == View.VISIBLE -> showHome(null)
+            else -> @Suppress("DEPRECATION") super.onBackPressed()
         }
-        pairButton.visibility = if (isPaired) View.GONE else View.VISIBLE
-        forgetButton.visibility = if (isPaired) View.VISIBLE else View.GONE
-        startButton.isEnabled = isPaired && nfc != null
     }
+
+    /**
+     * Narrow screens (the Fold's cover screen) get one column. Wide ones (unfolded) put the tag
+     * actions and knurd side by side on the home screen, and keep the other screens a readable width.
+     */
+    private fun fitWidth() {
+        val widthDp = resources.configuration.screenWidthDp
+        val wide = widthDp >= 600
+        val columns = findViewById<LinearLayout>(R.id.homeColumns)
+        val tagColumn = findViewById<View>(R.id.homeTagColumn)
+        val knurdColumn = findViewById<View>(R.id.homeKnurdColumn)
+        columns.orientation = if (wide) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+        tagColumn.layoutParams = LinearLayout.LayoutParams(
+            if (wide) 0 else LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT, if (wide) 1f else 0f)
+        knurdColumn.layoutParams = LinearLayout.LayoutParams(
+            if (wide) 0 else LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT, if (wide) 1f else 0f
+        ).apply {
+            if (wide) marginStart = dp(24) else topMargin = dp(22)
+        }
+        val side = if (wide) dp(24) else dp(20)
+        content.setPadding(side, content.paddingTop, side, content.paddingBottom)
+        // Single-column screens stay at most 560dp wide, centered.
+        val inner = if (wide) maxOf(0, (dp(widthDp) - 2 * side - dp(560)) / 2) else 0
+        for (screen in listOf(screenUnpaired, screenWorking, screenResult, screenKnurd)) {
+            screen.setPadding(inner, 0, inner, 0)
+        }
+    }
+
+    // ---------------------------------------------------------------- screens
+
+    private fun show(screen: View) {
+        for (s in screens) {
+            s.visibility = if (s === screen) View.VISIBLE else View.GONE
+        }
+        scroll.scrollTo(0, 0)
+    }
+
+    /** The home screen when paired, the pairing screen when not, with an optional [notice] under Start. */
+    private fun showHome(notice: String?, bad: Boolean = false) {
+        val isPaired = vault.isPaired()
+        val noNfc = if (nfc == null) "This phone has no NFC, so it can't talk to tags." else null
+        if (isPaired) {
+            findViewById<TextView>(R.id.knurdUrl).text = vault.url?.removePrefix("https://") ?: ""
+            startButton.isEnabled = nfc != null
+            say(R.id.homeNotice, noNfc ?: notice, bad || noNfc != null)
+            show(screenHome)
+        } else {
+            say(R.id.unpairedNotice, noNfc ?: notice, bad || noNfc != null)
+            show(screenUnpaired)
+        }
+    }
+
+    private fun say(id: Int, text: String?, bad: Boolean) {
+        val view = findViewById<TextView>(id)
+        view.text = text ?: ""
+        view.visibility = if (text.isNullOrEmpty()) View.GONE else View.VISIBLE
+        view.setTextColor(getColor(if (bad) R.color.bad_text else R.color.muted))
+    }
+
+    private fun pick(picked: Action) {
+        action = picked
+        for ((a, tile) in tiles) {
+            tile.isSelected = a == picked
+        }
+        // A new tag has factory keys; a tag being reset was most likely set up by Knura.
+        knuraKeys.visibility = if (picked == Action.PROVISION || picked == Action.RESET) View.VISIBLE else View.GONE
+        knuraKeys.isChecked = picked == Action.RESET
+    }
+
+    private fun showWorking(a: Action) {
+        findViewById<TextView>(R.id.workAction).text = a.label
+        findViewById<TextView>(R.id.workTitle).setText(R.string.hold_title)
+        hint(getString(R.string.hold_hint), bad = false)
+        step(1, Step.DONE)
+        findViewById<TextView>(R.id.step2Text).setText(R.string.step_waiting)
+        step(2, Step.ACTIVE)
+        findViewById<TextView>(R.id.step3Text).text = a.doing
+        step(3, Step.PENDING)
+        show(screenWorking)
+        val target = findViewById<FrameLayout>(R.id.target)
+        pulse = ObjectAnimator.ofPropertyValuesHolder(target,
+            PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.05f),
+            PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.05f)).apply {
+            duration = 900
+            repeatMode = ValueAnimator.REVERSE
+            repeatCount = ValueAnimator.INFINITE
+            start()
+        }
+    }
+
+    private fun hint(text: String, bad: Boolean) {
+        val view = findViewById<TextView>(R.id.workHint)
+        view.text = text
+        view.setTextColor(getColor(if (bad) R.color.bad_text else R.color.muted))
+    }
+
+    private fun step(n: Int, state: Step) {
+        val icon = findViewById<ImageView>(listOf(R.id.step1Icon, R.id.step2Icon, R.id.step3Icon)[n - 1])
+        val spin = findViewById<ProgressBar>(listOf(R.id.step1Spin, R.id.step2Spin, R.id.step3Spin)[n - 1])
+        val text = findViewById<TextView>(listOf(R.id.step1Text, R.id.step2Text, R.id.step3Text)[n - 1])
+        spin.visibility = if (state == Step.ACTIVE) View.VISIBLE else View.GONE
+        icon.visibility = if (state == Step.ACTIVE) View.GONE else View.VISIBLE
+        icon.setImageResource(if (state == Step.DONE) R.drawable.ic_check_ok else R.drawable.step_pending)
+        text.setTextColor(getColor(if (state == Step.PENDING) R.color.muted else R.color.fg))
+        text.typeface = if (state == Step.ACTIVE) Typeface.create("sans-serif-medium", Typeface.NORMAL) else Typeface.DEFAULT
+    }
+
+    /** The result screen. [againLabel] null hides the button that runs the action again. */
+    private fun showResult(label: String, result: TagResults.Result, logText: String, againLabel: String?) {
+        findViewById<TextView>(R.id.resultAction).text = label
+        findViewById<View>(R.id.resultIconBox).setBackgroundResource(
+            if (result.good) R.drawable.bg_result_good else R.drawable.bg_result_bad)
+        findViewById<ImageView>(R.id.resultIcon).setImageResource(
+            if (result.good) R.drawable.ic_check_ok else R.drawable.ic_cross_bad)
+        findViewById<TextView>(R.id.resultTitle).text = result.title
+        findViewById<TextView>(R.id.resultSubtitle).text = result.subtitle
+        val rows = findViewById<LinearLayout>(R.id.resultRows)
+        rows.removeAllViews()
+        for ((name, value) in result.rows) {
+            rows.addView(pairRow(name, value, mono = name == "UID" || value.startsWith("http")))
+        }
+        rows.visibility = if (result.rows.isEmpty()) View.GONE else View.VISIBLE
+        log.text = logText.trimEnd()
+        log.visibility = View.VISIBLE
+        findViewById<View>(R.id.logBox).visibility = if (logText.isBlank()) View.GONE else View.VISIBLE
+        val again = findViewById<Button>(R.id.again)
+        again.visibility = if (againLabel == null) View.GONE else View.VISIBLE
+        again.text = againLabel ?: ""
+        details = buildString {
+            append(result.title).append('\n').append(result.subtitle).append('\n')
+            for ((name, value) in result.rows) append(name).append(": ").append(value).append('\n')
+            if (logText.isNotBlank()) append('\n').append(logText.trimEnd())
+        }
+        show(screenResult)
+    }
+
+    /** The screen for one of knurd's answers, first with a spinner while it loads. */
+    private fun showKnurd(title: String) {
+        findViewById<TextView>(R.id.knurdTitle).text = title
+        findViewById<View>(R.id.knurdNote).visibility = View.GONE
+        findViewById<View>(R.id.knurdRows).visibility = View.GONE
+        findViewById<View>(R.id.knurdMessage).visibility = View.GONE
+        findViewById<View>(R.id.knurdLoading).visibility = View.VISIBLE
+        show(screenKnurd)
+    }
+
+    private fun showAnswer(answer: KnurdViews.Answer, pairs: Boolean) {
+        findViewById<View>(R.id.knurdLoading).visibility = View.GONE
+        val note = findViewById<TextView>(R.id.knurdNote)
+        note.text = answer.note ?: ""
+        note.visibility = if (answer.note == null || answer.rows.isEmpty()) View.GONE else View.VISIBLE
+        val rows = findViewById<LinearLayout>(R.id.knurdRows)
+        rows.removeAllViews()
+        for (row in answer.rows) {
+            rows.addView(if (pairs) pairRow(row.title, row.detail, row.mono) else listRow(row))
+        }
+        rows.visibility = if (answer.rows.isEmpty()) View.GONE else View.VISIBLE
+        if (answer.rows.isEmpty()) knurdMessage(answer.empty ?: "Nothing here yet.", bad = false)
+    }
+
+    private fun knurdMessage(text: String, bad: Boolean) {
+        findViewById<View>(R.id.knurdLoading).visibility = View.GONE
+        val view = findViewById<TextView>(R.id.knurdMessage)
+        view.text = text
+        view.setTextColor(getColor(if (bad) R.color.bad_text else R.color.muted))
+        view.visibility = View.VISIBLE
+    }
+
+    /** A label on the left and its value on the right, like "UID   04406B02936980". */
+    private fun pairRow(name: String, value: String, mono: Boolean): View {
+        val row = LinearLayout(this)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.gravity = Gravity.CENTER_VERTICAL
+        row.minimumHeight = dp(48)
+        row.setPadding(dp(16), dp(10), dp(16), dp(10))
+        row.addView(text(name, 14f, R.color.muted).apply { setPadding(0, 0, dp(16), 0) })
+        row.addView(text(value, if (mono) 13f else 14f, R.color.fg, mono).apply {
+            gravity = Gravity.END
+            setTextIsSelectable(true)
+        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        return row
+    }
+
+    /** A title, a detail line under it and an optional badge, like one tap in Recent taps. */
+    private fun listRow(r: KnurdViews.Row): View {
+        val row = LinearLayout(this)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.gravity = Gravity.CENTER_VERTICAL
+        row.minimumHeight = dp(56)
+        row.setPadding(dp(16), dp(10), dp(16), dp(10))
+        val column = LinearLayout(this)
+        column.orientation = LinearLayout.VERTICAL
+        column.addView(text(r.title, if (r.mono) 14f else 15f, R.color.fg, r.mono))
+        if (r.detail.isNotEmpty()) {
+            column.addView(text(r.detail, 12f, R.color.muted).apply { setPadding(0, dp(3), 0, 0) })
+        }
+        row.addView(column, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        if (r.badge != null) {
+            val good = r.badgeKind == KnurdViews.Badge.GOOD
+            row.addView(text(r.badge, 12f, if (good) R.color.ok_text else R.color.bad_text).apply {
+                setBackgroundResource(if (good) R.drawable.bg_pill_good else R.drawable.bg_pill_bad)
+                setPadding(dp(10), dp(4), dp(10), dp(4))
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            })
+        }
+        return row
+    }
+
+    private fun text(value: String, sp: Float, color: Int, mono: Boolean = false) = TextView(this).apply {
+        text = value
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
+        setTextColor(getColor(color))
+        if (mono) typeface = Typeface.MONOSPACE
+    }
+
+    /** Puts [icon] just before the button's centered text. */
+    private fun withIcon(button: Button, icon: Int) {
+        val drawable = getDrawable(icon) ?: return
+        val size = dp(22)
+        drawable.setBounds(0, 0, size, size)
+        val text = SpannableString("  " + button.text)
+        text.setSpan(ImageSpan(drawable, ImageSpan.ALIGN_CENTER), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        button.text = text
+    }
+
+    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+
+    private fun copyDetails() {
+        getSystemService(ClipboardManager::class.java)
+            .setPrimaryClip(ClipData.newPlainText("Knura", details))
+        // Android 13+ shows its own "Copied" message.
+    }
+
+    // ---------------------------------------------------------------- pairing
 
     private fun scanPairingCode() {
         val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
@@ -125,20 +414,31 @@ class MainActivity : Activity() {
                 val pairing = try {
                     Pairing.parse(barcode.rawValue ?: "")
                 } catch (e: IllegalArgumentException) {
-                    status.text = e.message
+                    showHome(e.message, bad = true)
                     return@addOnSuccessListener
                 }
                 unlock("Unlock to save the pairing") {
                     try {
                         vault.save(pairing)
-                        status.text = "Paired. Pick what to do, then tap Start."
+                        showHome("Paired. Pick what to do, then tap Start.")
                     } catch (e: Exception) {
-                        status.text = "Couldn't save the pairing: ${e.message}. Does this phone have a screen lock?"
+                        showHome("Couldn't save the pairing: ${e.message}. Does this phone have a screen lock?", bad = true)
                     }
-                    showPairing()
                 }
             }
-            .addOnFailureListener { e -> status.text = "Couldn't scan: ${e.message}" }
+            .addOnFailureListener { e -> showHome("Couldn't scan: ${e.message}", bad = true) }
+    }
+
+    private fun confirmForget() {
+        AlertDialog.Builder(this)
+            .setTitle("Forget this knurd?")
+            .setMessage("The phone deletes its token. To use knurd again, pair with a new code from knurctl admin pair-phone.")
+            .setPositiveButton("Forget") { _, _ ->
+                vault.forget()
+                showHome(null)
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
     }
 
     /** Asks for fingerprint or screen lock, then runs [then] on the main thread. */
@@ -149,7 +449,7 @@ class MainActivity : Activity() {
             }
 
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
-                status.text = "Not unlocked: $errString"
+                showHome("Not unlocked: $errString", bad = true)
             }
         }
         try {
@@ -159,35 +459,39 @@ class MainActivity : Activity() {
                 .build()
                 .authenticate(CancellationSignal(), mainExecutor, callback)
         } catch (e: RuntimeException) {
-            status.text = "Couldn't ask for your fingerprint or screen lock: ${e.message}"
+            showHome("Couldn't ask for your fingerprint or screen lock: ${e.message}", bad = true)
         }
     }
 
+    /** The saved pairing as a client, or null after saying what went wrong. */
+    private fun knurd(): KnurdClient? = try {
+        KnurdClient(vault.load())
+    } catch (e: Exception) {
+        showHome("Couldn't read the pairing (${e.message}). Forget this knurd and pair again.", bad = true)
+        null
+    }
+
+    // ---------------------------------------------------------------- knurd's admin answers
+
     /** Unlocks, reads one of knurd's read-only admin answers and shows it, like knurctl admin status. */
-    private fun ask(path: String, title: String, show: (JSONObject) -> String) {
+    private fun ask(path: String, title: String, pairs: Boolean, view: (JSONObject) -> KnurdViews.Answer) {
         if (!vault.isPaired() || running != null) return
         unlock("Unlock to use knurd") {
-            val knurd = try {
-                KnurdClient(vault.load())
-            } catch (e: Exception) {
-                status.text = "Couldn't read the pairing (${e.message}). Forget this knurd and pair again."
-                return@unlock
-            }
-            status.text = "Asking knurd..."
-            log.text = ""
+            val knurd = knurd() ?: return@unlock
+            showKnurd(title)
             worker.execute {
-                val text = try {
+                try {
                     val reply = knurd.get(path)
-                    if (reply.code == 200) title + "\n\n" + show(reply.json)
-                    else "knurd said no: " + reply.json.optString("detail", "status ${reply.code}")
+                    if (reply.code == 200) {
+                        val answer = view(reply.json)
+                        ui { showAnswer(answer, pairs) }
+                    } else {
+                        ui { knurdMessage("knurd said no: " + reply.json.optString("detail", "status ${reply.code}"), bad = true) }
+                    }
                 } catch (e: IOException) {
-                    explain(e, knurd.url)
+                    ui { knurdMessage(explain(e, knurd.url), bad = true) }
                 } catch (e: org.json.JSONException) {
-                    "knurd's answer didn't make sense: ${e.message}"
-                }
-                ui {
-                    status.text = ""
-                    log.text = text
+                    ui { knurdMessage("knurd's answer didn't make sense: ${e.message}", bad = true) }
                 }
             }
         }
@@ -197,26 +501,21 @@ class MainActivity : Activity() {
     private fun pickTokenToRemove() {
         if (!vault.isPaired() || running != null) return
         unlock("Unlock to use knurd") {
-            val knurd = try {
-                KnurdClient(vault.load())
-            } catch (e: Exception) {
-                status.text = "Couldn't read the pairing (${e.message}). Forget this knurd and pair again."
-                return@unlock
-            }
-            status.text = "Asking knurd..."
+            val knurd = knurd() ?: return@unlock
+            showHome("Asking knurd...")
             worker.execute {
                 val reply = try {
                     knurd.get("/v1/tokens")
                 } catch (e: IOException) {
-                    ui { status.text = explain(e, knurd.url) }
+                    ui { showHome(explain(e, knurd.url), bad = true) }
                     return@execute
                 }
                 ui {
                     if (reply.code != 200) {
-                        status.text = "knurd said no: " + reply.json.optString("detail", "status ${reply.code}")
+                        showHome("knurd said no: " + reply.json.optString("detail", "status ${reply.code}"), bad = true)
                         return@ui
                     }
-                    status.text = ""
+                    showHome(null)
                     val you = reply.json.optString("you")
                     val names = KnurdViews.tokenNames(reply.json)
                     val labels = names.map { if (it == you) "$it (this phone)" else it }.toTypedArray()
@@ -237,7 +536,7 @@ class MainActivity : Activity() {
             .setTitle("Remove token \"$name\"?")
             .setMessage(warning)
             .setPositiveButton("Remove") { _, _ ->
-                status.text = "Removing $name..."
+                showHome("Removing $name...")
                 worker.execute {
                     var removed = false
                     val text = try {
@@ -249,11 +548,10 @@ class MainActivity : Activity() {
                         explain(e, knurd.url)
                     }
                     ui {
-                        status.text = text
                         if (isThisPhone && removed) {
                             vault.forget()
-                            showPairing()
                         }
+                        showHome(text, bad = !removed)
                     }
                 }
             }
@@ -261,71 +559,71 @@ class MainActivity : Activity() {
             .show()
     }
 
+    // ---------------------------------------------------------------- tag sessions
+
     private fun start() {
         val adapter = nfc ?: return
+        if (running != null) return
         if (!adapter.isEnabled) {
-            status.text = "NFC is off. Turn it on in Settings, then tap Start again."
+            showHome("NFC is off. Turn it on in Settings, then tap Start again.", bad = true)
             return
         }
-        val action = Action.entries[actionSpinner.selectedItemPosition]
+        val a = action
         unlock("Unlock to use knurd") {
-            val pairing = try {
-                vault.load()
-            } catch (e: Exception) {
-                status.text = "Couldn't read the pairing (${e.message}). Forget this knurd and pair again."
-                return@unlock
-            }
-            client = KnurdClient(pairing)
-            running = action
-            from = if (action == Action.PROVISION || action == Action.RESET) {
+            val knurd = knurd() ?: return@unlock
+            client = knurd
+            running = a
+            from = if (a == Action.PROVISION || a == Action.RESET) {
                 if (knuraKeys.isChecked) "knura" else "factory"
             } else null
             log.text = ""
-            status.text = "Hold a tag to the back of the phone and keep it there."
-            startButton.text = getString(R.string.cancel)
-            actionSpinner.isEnabled = false
-            knuraKeys.isEnabled = false
+            showWorking(a)
             // Reader mode: the app gets the tag directly, and Android doesn't open its link.
             adapter.enableReaderMode(this, { tag -> worker.execute { relay(tag) } },
                 NfcAdapter.FLAG_READER_NFC_A or NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK, null)
         }
     }
 
-    private fun stop(message: String?) {
+    /** Stops listening for tags. The caller picks the next screen. */
+    private fun stop() {
         nfc?.disableReaderMode(this)
+        pulse?.cancel()
+        pulse = null
+        findViewById<View>(R.id.target).apply { scaleX = 1f; scaleY = 1f }
         client = null
         running = null
-        startButton.text = getString(R.string.start)
-        actionSpinner.isEnabled = true
-        knuraKeys.isEnabled = true
-        if (message != null) {
-            status.text = message
-        }
     }
 
     /** Runs one session with knurd for this tag. On the worker thread. */
     private fun relay(tag: Tag) {
         val knurd = client ?: return
-        val action = running ?: return
+        val a = running ?: return
         val keys = from
         val isoDep = IsoDep.get(tag)
         if (isoDep == null) {
-            ui { status.text = "This tag isn't an NTAG 424 DNA (it has no ISO-DEP). Try another tag." }
+            ui { hint("This tag isn't an NTAG 424 DNA (it has no ISO-DEP). Try another tag.", bad = true) }
             return
         }
-        ui { status.text = "Talking to the tag. Keep holding it..." }
+        ui {
+            findViewById<TextView>(R.id.workTitle).text = "Keep holding it"
+            hint(getString(R.string.hold_hint), bad = false)
+            findViewById<TextView>(R.id.step2Text).setText(R.string.step_found)
+            step(2, Step.DONE)
+            step(3, Step.ACTIVE)
+        }
+        val lines = StringBuilder()
         try {
             isoDep.connect()
             isoDep.timeout = 5000
-            val start = JSONObject().put("action", action.api).put("uid", tag.id.toHex())
+            val start = JSONObject().put("action", a.api).put("uid", tag.id.toHex())
             if (keys != null) {
                 start.put("from", keys)
             }
             var reply = knurd.post("/v1/nfc/sessions", start)
             while (true) {
-                showLog(reply.json.optJSONArray("log"))
+                collect(lines, reply.json.optJSONArray("log"))
                 if (reply.code != 200) {
-                    finish(reply.json.optString("detail", "knurd answered ${reply.code}"))
+                    fail(a, reply.json.optString("detail", "knurd answered ${reply.code}"), lines)
                     return
                 }
                 when (reply.json.optString("status")) {
@@ -339,17 +637,21 @@ class MainActivity : Activity() {
                         reply = knurd.post("/v1/nfc/sessions/" + reply.json.getString("session"), answer)
                     }
                     "done" -> {
-                        finish(describe(action, reply.json.getJSONObject("result")))
+                        val result = TagResults.describe(a.api, reply.json.getJSONObject("result"))
+                        ui {
+                            stop()
+                            showResult(a.label, result, lines.toString(), a.again)
+                        }
                         return
                     }
                     else -> {
-                        finish("Didn't work: " + reply.json.optString("detail", "unknown error"))
+                        fail(a, reply.json.optString("detail", "unknown error"), lines)
                         return
                     }
                 }
             }
         } catch (e: IOException) {
-            finish(explain(e, knurd.url))
+            fail(a, explain(e, knurd.url), lines)
         } finally {
             try {
                 isoDep.close()
@@ -359,35 +661,16 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun finish(message: String) = ui { stop(message) }
-
-    private fun showLog(lines: JSONArray?) {
-        if (lines == null || lines.length() == 0) return
-        val text = StringBuilder()
-        for (i in 0 until lines.length()) {
-            text.append(lines.getString(i)).append('\n')
-        }
-        ui { log.append(text) }
+    private fun fail(a: Action, why: String, lines: StringBuilder) = ui {
+        stop()
+        showResult(a.label, TagResults.Result(false, "Didn't work", why, emptyList()), lines.toString(),
+            getString(R.string.try_again))
     }
 
-    private fun describe(action: Action, r: JSONObject): String {
-        val uid = r.optString("uid")
-        val genuine = if (r.has("genuine")) {
-            if (r.getBoolean("genuine")) "Genuine, tap counter ${r.optInt("counter")}." else "Does NOT verify: ${r.optString("why")}"
-        } else ""
-        return when (action) {
-            Action.PROVISION -> "Tag $uid is set up.\nIt now opens: ${r.optString("tapUrl")}"
-            Action.RESET -> "Tag $uid is back to factory state: all keys zero, no link."
-            Action.TAP -> "Tag $uid. $genuine\n${r.optString("url")}"
-            Action.INFO -> {
-                val keys = when (r.optString("keys")) {
-                    "factory" -> "factory keys (ready to set up)"
-                    "knura" -> "Knura keys from your knurd"
-                    else -> "keys from other software or another master key"
-                }
-                val url = if (r.isNull("url")) "no link" else r.optString("url")
-                "Tag $uid has $keys.\nLink: $url\n$genuine".trim()
-            }
+    private fun collect(into: StringBuilder, lines: JSONArray?) {
+        if (lines == null) return
+        for (i in 0 until lines.length()) {
+            into.append(lines.getString(i)).append('\n')
         }
     }
 
