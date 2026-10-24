@@ -72,8 +72,8 @@ class MainActivity : Activity() {
     private var nfc: NfcAdapter? = null
     private var action = Action.PROVISION
     /** Set while waiting for a tag or relaying to one. */
-    private var client: KnurdClient? = null
-    private var running: Action? = null
+    @Volatile private var client: KnurdClient? = null
+    @Volatile private var running: Action? = null
     /** The keys the tag has now, as knurd names them, or null when the action doesn't need it. */
     private var from: String? = null
     private var pulse: ValueAnimator? = null
@@ -148,8 +148,14 @@ class MainActivity : Activity() {
         fitWidth()
     }
 
+    override fun onResume() {
+        super.onResume()
+        listenForTags()
+    }
+
     override fun onPause() {
         super.onPause()
+        nfc?.disableReaderMode(this)
         if (running != null) {
             stop()
             showHome("Stopped: the app went to the background.")
@@ -578,15 +584,38 @@ class MainActivity : Activity() {
             } else null
             log.text = ""
             showWorking(a)
-            // Reader mode: the app gets the tag directly, and Android doesn't open its link.
-            adapter.enableReaderMode(this, { tag -> worker.execute { relay(tag) } },
-                NfcAdapter.FLAG_READER_NFC_A or NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK, null)
+            // NFC may have been turned on since the app came to the front.
+            listenForTags()
         }
     }
 
-    /** Stops listening for tags. The caller picks the next screen. */
+    /**
+     * Reader mode for as long as the app is in front: every tag comes to the app, and Android
+     * doesn't open the tag's link in the browser, even when the tag is already at the phone
+     * before Start or while the unlock prompt is up. Tags only do something during a session.
+     */
+    private fun listenForTags() {
+        val adapter = nfc ?: return
+        if (!adapter.isEnabled) return
+        adapter.enableReaderMode(this, { tag -> worker.execute { onTag(tag) } },
+            NfcAdapter.FLAG_READER_NFC_A or NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK, null)
+    }
+
+    /** On the worker thread. */
+    private fun onTag(tag: Tag) {
+        if (running != null) {
+            relay(tag)
+        } else {
+            ui {
+                if (screenHome.visibility == View.VISIBLE) {
+                    say(R.id.homeNotice, "Pick what to do and tap Start, then hold the tag.", bad = false)
+                }
+            }
+        }
+    }
+
+    /** Ends the session; tags are ignored again until the next Start. The caller picks the next screen. */
     private fun stop() {
-        nfc?.disableReaderMode(this)
         pulse?.cancel()
         pulse = null
         findViewById<View>(R.id.target).apply { scaleX = 1f; scaleY = 1f }
