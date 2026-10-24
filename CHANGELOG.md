@@ -7,6 +7,9 @@
   full log under "What knurd did". Status, tags and recent taps show as lists (taps marked
   Genuine, Replay, Rejected or Malformed, in the phone's time). Two columns on an unfolded
   foldable, a Knura launcher icon, and "Forget" now asks first.
+- Android app 0.3.1: while the app is open it catches every tag itself, so a tag held to the
+  phone before Start or during the unlock prompt no longer opens its link in the browser and
+  cuts the session off.
 
 ## 0.3.0-alpha (2026-10-22)
 
