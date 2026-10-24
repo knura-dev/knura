@@ -1,0 +1,12 @@
+title: "[Show and tell] "
+body:
+  - type: markdown
+    attributes:
+      value: Share what you built with Knura. Photos and videos are welcome. Leave out keys, tokens and private URLs.
+  - type: textarea
+    id: project
+    attributes:
+      label: What did you build?
+      description: Which tags, what a tap does, and how you set it up.
+    validations:
+      required: true

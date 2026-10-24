@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Ask a question
+    url: https://github.com/knura-dev/knura/discussions/categories/q-a
+    about: Help with setup, tags or connectors. Issues are for confirmed bugs.
+  - name: Suggest an idea
+    url: https://github.com/knura-dev/knura/discussions/categories/ideas
+    about: Ideas for new connectors and features.
+  - name: Report a security vulnerability
+    url: https://github.com/knura-dev/knura/security/policy
+    about: Please report security problems privately, not in a public issue.
