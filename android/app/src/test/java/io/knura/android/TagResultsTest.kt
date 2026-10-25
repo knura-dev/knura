@@ -18,6 +18,15 @@ class TagResultsTest {
     }
 
     @Test
+    fun claim() {
+        val r = TagResults.describe("claim",
+            JSONObject("""{"uid":"04406B02936980","tapUrl":"https://tap.knura.io/zack"}"""))
+        assertTrue(r.good)
+        assertEquals("Tag is yours", r.title)
+        assertEquals("Opens" to "https://tap.knura.io/zack", r.rows[2])
+    }
+
+    @Test
     fun tapThatDoesNotVerify() {
         val r = TagResults.describe("tap",
             JSONObject("""{"uid":"04406B02936980","genuine":false,"why":"replayed counter","url":"https://x"}"""))

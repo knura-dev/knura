@@ -18,6 +18,14 @@ The card shows three things:
 Keep the card until the tag is claimed. If the seal over the code was already broken when the
 card arrived, don't claim that tag: someone may have read the code first.
 
+## Claim a tag with the phone app
+
+In the Knura app, tap **Claim a tag**, then **Start**. Scan the QR code on the card (or tap
+**Type code** and type it), unlock, and hold the tag to the phone. The app checks the code for
+typos and, with the QR code, that you're holding the card's own tag. knurd works out the keys
+and swaps them; the code goes to knurd only, over the pinned connection, and knurd forgets it
+when the job ends. See [android-app.md](android-app.md).
+
 ## Claim a tag with knurctl
 
 Put the tag on the reader and run, with your own code:

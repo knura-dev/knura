@@ -7,7 +7,10 @@ object TagResults {
     /** [good] picks the green tick or the red cross; [rows] are label and value pairs. */
     data class Result(val good: Boolean, val title: String, val subtitle: String, val rows: List<Pair<String, String>>)
 
-    /** knurd's name for an action ("provision", "info", "tap", "reset") and its `result` object. */
+    /**
+     * knurd's name for an action ("provision", "info", "tap", "reset"), or "claim" for a provision
+     * from a claim card, and its `result` object.
+     */
     fun describe(action: String, r: JSONObject): Result {
         val uid = "UID" to r.optString("uid")
         val genuine = r.has("genuine") && r.getBoolean("genuine")
@@ -15,6 +18,9 @@ object TagResults {
         return when (action) {
             "provision" -> Result(true, "Tag is set up",
                 "Taps from this tag now go to knurd and run its actions.",
+                listOf(uid, "Keys" to "Per-tag, from knurd's master key", "Opens" to r.optString("tapUrl")))
+            "claim" -> Result(true, "Tag is yours",
+                "Its keys now come from your knurd's master key, and the claim card no longer works.",
                 listOf(uid, "Keys" to "Per-tag, from knurd's master key", "Opens" to r.optString("tapUrl")))
             "reset" -> Result(true, "Tag is reset",
                 "Back to factory state: all keys zero, no link.", listOf(uid))
