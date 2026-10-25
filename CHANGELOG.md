@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Ready-to-use tags: a tag can ship locked with claim keys and a claim card, and
+  `knurctl provision --from claim:CODE` moves it onto your own master key. The claim code
+  format and keys are in knura-core (`ClaimCode`, `TagKeySet.claim`). See docs/claim-tags.md.
 - Android app 0.3.0: a new look in the Knura colors, with light and dark modes. Tap tiles pick
   the action, a "hold the tag" screen shows each step, and results get their own screen with the
   full log under "What knurd did". Status, tags and recent taps show as lists (taps marked

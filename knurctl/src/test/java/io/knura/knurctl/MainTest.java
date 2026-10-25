@@ -77,4 +77,22 @@ class MainTest {
         p.setProperty("key1", "1234");
         assertThrows(Main.UsageException.class, () -> KeyFile.parse(p, "test"));
     }
+
+    @Test
+    void readsClaimCodesFromCardsAndLinks() throws Exception {
+        byte[] secret = Main.claimCode("claim:0004-1061-050R-3GG2-8A1C-60T3-GFQS").secret();
+        assertArrayEquals(Hex.decode("000102030405060708090A0B0C0D0E0F"), secret);
+        assertArrayEquals(secret, Main.claimCode(
+                "claim:knura://claim?uid=04DE5F1EACC040&code=00041061050R3GG28A1C60T3GFQS").secret());
+        assertEquals(null, Main.claimCode("factory"));
+    }
+
+    @Test
+    void badClaimCodeStopsBeforeTouchingATag() throws Exception {
+        Path config = dir.resolve("knurd.properties");
+        assertEquals(0, run("init", "--config", config.toString()));
+        assertEquals(2, run("provision", "--config", config.toString(), "--base-url", "http://127.0.0.1:8424/tap",
+                "--from", "claim:0004-1061-050R-3GG2-8A1C-60T3-GFQT"));
+        assertTrue(err.toString(StandardCharsets.UTF_8).contains("typo"), err.toString(StandardCharsets.UTF_8));
+    }
 }

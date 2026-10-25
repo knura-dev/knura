@@ -24,7 +24,7 @@ final class KeyFile {
         try (Reader in = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
             p.load(in);
         } catch (NoSuchFileException e) {
-            throw new UsageException("--from must be factory, knura or a keys file; no file " + file);
+            throw new UsageException("--from must be factory, knura, claim:CODE or a keys file; no file " + file);
         }
         return parse(p, file.toString());
     }
