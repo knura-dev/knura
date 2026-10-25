@@ -16,6 +16,7 @@ import android.nfc.Tag
 import android.nfc.tech.IsoDep
 import android.os.Bundle
 import android.os.CancellationSignal
+import android.text.InputType
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.ImageSpan
@@ -23,6 +24,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -50,6 +52,8 @@ class MainActivity : Activity() {
         INFO("info", "Tag info", "knurd reads the tag", "Read another"),
         TAP("tap", "Check a tap", "knurd checks the signature", "Check another"),
         RESET("reset", "Reset tag", "knurd resets the keys", "Reset another"),
+        /** A provision from the claim keys on a ready-to-use tag's claim card. */
+        CLAIM("provision", "Claim a tag", "knurd swaps in your keys", "Claim another"),
     }
 
     private enum class Step { PENDING, ACTIVE, DONE }
@@ -76,6 +80,8 @@ class MainActivity : Activity() {
     @Volatile private var running: Action? = null
     /** The keys the tag has now, as knurd names them, or null when the action doesn't need it. */
     private var from: String? = null
+    /** The claim card's code while claiming a tag. */
+    @Volatile private var claim: ClaimCodes.Claim? = null
     private var pulse: ValueAnimator? = null
     /** The last result, as text for Copy details. */
     private var details = ""
@@ -99,6 +105,7 @@ class MainActivity : Activity() {
             Action.INFO to findViewById<View>(R.id.tileInfo),
             Action.TAP to findViewById<View>(R.id.tileTap),
             Action.RESET to findViewById<View>(R.id.tileReset),
+            Action.CLAIM to findViewById<View>(R.id.tileClaim),
         )
         knuraKeys = findViewById<Switch>(R.id.knuraKeys)
         startButton = findViewById<Button>(R.id.start)
@@ -575,18 +582,79 @@ class MainActivity : Activity() {
             return
         }
         val a = action
+        if (a == Action.CLAIM) {
+            askForClaim { card -> begin(a, card) }
+        } else {
+            begin(a, null)
+        }
+    }
+
+    private fun begin(a: Action, card: ClaimCodes.Claim?) {
         unlock("Unlock to use knurd") {
             val knurd = knurd() ?: return@unlock
+            claim = card
+            from = when (a) {
+                Action.PROVISION, Action.RESET -> if (knuraKeys.isChecked) "knura" else "factory"
+                Action.CLAIM -> "claim"
+                else -> null
+            }
+            // Last: a tag arriving on the worker thread starts relaying once running is set.
             client = knurd
             running = a
-            from = if (a == Action.PROVISION || a == Action.RESET) {
-                if (knuraKeys.isChecked) "knura" else "factory"
-            } else null
             log.text = ""
             showWorking(a)
             // NFC may have been turned on since the app came to the front.
             listenForTags()
         }
+    }
+
+    /** Gets the code from a claim card, by its QR code or typed in, then runs [then] with it. */
+    private fun askForClaim(then: (ClaimCodes.Claim) -> Unit) {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.claim_title)
+            .setMessage(R.string.claim_how)
+            .setPositiveButton(R.string.claim_scan) { _, _ -> scanClaim(then) }
+            .setNeutralButton(R.string.claim_type) { _, _ -> typeClaim(then) }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun scanClaim(then: (ClaimCodes.Claim) -> Unit) {
+        val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
+        GmsBarcodeScanning.getClient(this, options).startScan()
+            .addOnSuccessListener { barcode -> readClaim(barcode.rawValue ?: "", then) }
+            .addOnFailureListener { e -> showHome("Couldn't scan: ${e.message}", bad = true) }
+    }
+
+    private fun typeClaim(then: (ClaimCodes.Claim) -> Unit) {
+        val input = EditText(this).apply {
+            hint = getString(R.string.claim_code_hint)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS or
+                InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            typeface = Typeface.MONOSPACE
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            isSingleLine = true
+        }
+        val box = FrameLayout(this).apply {
+            setPadding(dp(20), dp(8), dp(20), 0)
+            addView(input)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.claim_title)
+            .setView(box)
+            .setPositiveButton(R.string.claim_continue) { _, _ -> readClaim(input.text.toString(), then) }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun readClaim(text: String, then: (ClaimCodes.Claim) -> Unit) {
+        val card = try {
+            ClaimCodes.parse(text)
+        } catch (e: IllegalArgumentException) {
+            showHome(e.message, bad = true)
+            return
+        }
+        then(card)
     }
 
     /**
@@ -621,6 +689,7 @@ class MainActivity : Activity() {
         findViewById<View>(R.id.target).apply { scaleX = 1f; scaleY = 1f }
         client = null
         running = null
+        claim = null
     }
 
     /** Runs one session with knurd for this tag. On the worker thread. */
@@ -628,6 +697,12 @@ class MainActivity : Activity() {
         val knurd = client ?: return
         val a = running ?: return
         val keys = from
+        val card = claim
+        val uid = tag.id.toHex()
+        if (a == Action.CLAIM && card?.uid != null && card.uid != uid) {
+            ui { hint("This isn't the tag from the claim card: the card is for ${card.uid}, this tag is $uid.", bad = true) }
+            return
+        }
         val isoDep = IsoDep.get(tag)
         if (isoDep == null) {
             ui { hint("This tag isn't an NTAG 424 DNA (it has no ISO-DEP). Try another tag.", bad = true) }
@@ -644,9 +719,12 @@ class MainActivity : Activity() {
         try {
             isoDep.connect()
             isoDep.timeout = 5000
-            val start = JSONObject().put("action", a.api).put("uid", tag.id.toHex())
+            val start = JSONObject().put("action", a.api).put("uid", uid)
             if (keys != null) {
                 start.put("from", keys)
+            }
+            if (card != null) {
+                start.put("claim", card.code)
             }
             var reply = knurd.post("/v1/nfc/sessions", start)
             while (true) {
@@ -666,7 +744,8 @@ class MainActivity : Activity() {
                         reply = knurd.post("/v1/nfc/sessions/" + reply.json.getString("session"), answer)
                     }
                     "done" -> {
-                        val result = TagResults.describe(a.api, reply.json.getJSONObject("result"))
+                        val result = TagResults.describe(if (a == Action.CLAIM) "claim" else a.api,
+                            reply.json.getJSONObject("result"))
                         ui {
                             stop()
                             showResult(a.label, result, lines.toString(), a.again)

@@ -8,9 +8,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.knura.core.admin.AdminTokens;
 import io.knura.core.admin.PrivateFiles;
+import io.knura.core.claim.ClaimCode;
 import io.knura.core.crypto.Hex;
 import io.knura.core.ntag424.FakeNtag424;
 import io.knura.core.ntag424.Ntag424;
+import io.knura.core.ntag424.TapUrlLayout;
 import io.knura.core.provision.TagKeySet;
 import io.knura.core.provision.TagProvisioner;
 import io.knura.knurd.TapResult.Status;
@@ -146,6 +148,49 @@ class NfcRelayTest {
         String r = relay(phone, "{\"action\":\"reset\",\"uid\":\"04DE5F1EACC040\"}", new FakeNtag424(UID));
         assertEquals("failed", field(r, "status"), r);
         assertTrue(r.contains("not the Knura key"), r);
+    }
+
+    @Test
+    void claimsAReadyToUseTag() throws Exception {
+        ClaimCode claim = ClaimCode.of(Hex.decode("000102030405060708090A0B0C0D0E0F"));
+        FakeNtag424 tag = claimTag(claim);
+        String start = "{\"action\":\"provision\",\"uid\":\"04DE5F1EACC040\",\"from\":\"claim\",\"claim\":\"%s\"}";
+
+        String wrongCode = relay(phone, start.formatted(ClaimCode.of(new byte[16]).formatted()), tag);
+        assertEquals("failed", field(wrongCode, "status"), wrongCode);
+        assertTrue(wrongCode.contains("doesn't open with that claim code"), wrongCode);
+
+        String done = relay(phone, start.formatted(claim.link(UID)), tag);
+        assertEquals("done", field(done, "status"), done);
+        assertArrayEquals(TagKeySet.knura(MASTER, UID).key(0), tag.key(0));
+        assertFalse(Files.readString(auditFile).contains(claim.formatted().substring(0, 9)), "no claim code in the audit log");
+    }
+
+    @Test
+    void checksTheClaimCardBeforeTheTag() throws Exception {
+        ClaimCode claim = ClaimCode.of(Hex.decode("000102030405060708090A0B0C0D0E0F"));
+        String start = "{\"action\":\"%s\",\"uid\":\"04DE5F1EACC040\",\"from\":\"claim\",\"claim\":\"%s\"}";
+        String typo = claim.formatted().replace('4', '5');
+        byte[] other = UID.clone();
+        other[6] ^= 1;
+
+        HttpResponse<String> r = post("/v1/nfc/sessions", phone, start.formatted("provision", typo));
+        assertEquals(400, r.statusCode());
+        assertTrue(r.body().contains("typo"), r.body());
+        r = post("/v1/nfc/sessions", phone, start.formatted("provision", claim.link(other)));
+        assertEquals(400, r.statusCode());
+        assertTrue(r.body().contains("is for tag " + Hex.encode(other)), r.body());
+        assertEquals(400, post("/v1/nfc/sessions", phone, start.formatted("info", claim.formatted())).statusCode());
+        assertEquals(400, post("/v1/nfc/sessions", phone,
+                "{\"action\":\"provision\",\"uid\":\"04DE5F1EACC040\",\"from\":\"claim\"}").statusCode());
+    }
+
+    /** A tag the way a seller ships it: claim keys and a starter link. */
+    private static FakeNtag424 claimTag(ClaimCode claim) throws IOException {
+        FakeNtag424 tag = new FakeNtag424(UID);
+        new TagProvisioner(line -> { }).provision(new Ntag424(tag), UID, TagKeySet.factory(), claim.keys(UID),
+                TapUrlLayout.forBaseUrl("https://knura.io/new"));
+        return tag;
     }
 
     @Test

@@ -1,5 +1,6 @@
 package io.knura.knurd;
 
+import io.knura.core.claim.ClaimCode;
 import io.knura.core.crypto.Hex;
 import io.knura.core.keys.TagKeyDerivation;
 import io.knura.core.ntag424.Ntag424;
@@ -16,6 +17,7 @@ import java.lang.System.Logger.Level;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
@@ -37,8 +39,9 @@ import java.util.regex.Pattern;
  * <ul>
  *   <li>{@code POST /v1/nfc/sessions} with {@code {"action":"provision","uid":"04..."}} starts a
  *       session. {@code action} is provision, reset, info or tap; {@code uid} is the 7-byte UID
- *       the phone read; {@code from} is factory or knura, the keys the tag has now (provision
- *       defaults to factory, reset to knura).
+ *       the phone read; {@code from} is factory, knura or claim, the keys the tag has now
+ *       (provision defaults to factory, reset to knura). With claim, {@code claim} holds the code
+ *       from the tag's claim card, or the {@code knura://claim?...} link from its QR code.
  *   <li>{@code POST /v1/nfc/sessions/<id>} with {@code {"response":"<hex>"}}, the tag's reply to
  *       the last command, or {@code {"error":"tag lost"}} when the phone couldn't get one.
  * </ul>
@@ -120,15 +123,34 @@ final class NfcRelay {
             return bad("uid must be the tag's 7-byte UID in hex (14 digits)");
         }
         String from = text(body, "from", action == Action.RESET ? "knura" : "factory");
-        if (!from.equals("factory") && !from.equals("knura")) {
-            return bad("from must be factory or knura");
+        if (!from.equals("factory") && !from.equals("knura") && !from.equals("claim")) {
+            return bad("from must be factory, knura or claim");
+        }
+        byte[] uid = Hex.decode(uidHex);
+        ClaimCode claim = null;
+        if (from.equals("claim")) {
+            if (action != Action.PROVISION && action != Action.RESET) {
+                return bad("from claim only works with provision or reset");
+            }
+            String text = text(body, "claim", "");
+            try {
+                claim = ClaimCode.parse(text);
+            } catch (IllegalArgumentException e) {
+                return bad(e.getMessage());
+            }
+            byte[] cardUid = ClaimCode.linkUid(text);
+            if (cardUid != null && !Arrays.equals(cardUid, uid)) {
+                claim.destroy();
+                return bad("this claim card is for tag " + Hex.encode(cardUid) + ", not " + uidHex);
+            }
         }
         byte[] id = new byte[16];
         random.nextBytes(id);
         Session session = new Session(Base64.getUrlEncoder().withoutPadding().encodeToString(id), tokenName, action,
-                Hex.decode(uidHex), from);
+                uid, from, claim);
         synchronized (this) {
             if (active != null) {
+                session.forgetClaim();
                 return new Reply(409, error("busy", "another phone is setting a tag up; try again when it finishes"),
                         "nfc busy");
             }
@@ -175,6 +197,8 @@ final class NfcRelay {
         final Action action;
         final byte[] uid;
         final String from;
+        /** The claim card's code when {@code from} is claim, else null. Wiped when the job ends. */
+        final ClaimCode claim;
         final ReentrantLock lock = new ReentrantLock();
         private final BlockingQueue<Event> toPhone = new LinkedBlockingQueue<>();
         private final BlockingQueue<Object> fromPhone = new LinkedBlockingQueue<>();
@@ -182,12 +206,28 @@ final class NfcRelay {
         private int logSent; // guarded by lock
         private boolean awaiting; // guarded by lock
 
-        Session(String id, String token, Action action, byte[] uid, String from) {
+        Session(String id, String token, Action action, byte[] uid, String from, ClaimCode claim) {
             this.id = id;
             this.token = token;
             this.action = action;
             this.uid = uid;
             this.from = from;
+            this.claim = claim;
+        }
+
+        /** The keys the tag has now. */
+        TagKeySet current(TagKeySet knura) {
+            return switch (from) {
+                case "knura" -> knura;
+                case "claim" -> claim.keys(uid);
+                default -> TagKeySet.factory();
+            };
+        }
+
+        void forgetClaim() {
+            if (claim != null) {
+                claim.destroy();
+            }
         }
 
         @Override
@@ -225,6 +265,7 @@ final class NfcRelay {
                 LOG.log(Level.ERROR, "nfc " + action + " failed", e);
                 end = new Finished(false, "internal error");
             } finally {
+                forgetClaim();
                 ended(this);
             }
             toPhone.add(end);
@@ -306,7 +347,7 @@ final class NfcRelay {
         try {
             switch (s.action) {
                 case PROVISION -> {
-                    TagKeySet current = s.from.equals("knura") ? knura : TagKeySet.factory();
+                    TagKeySet current = s.current(knura);
                     TagProvisioner.Result r;
                     try {
                         r = provisioner.provision(tag, s.uid, current, knura, TapUrlLayout.forBaseUrl(tapBase));
@@ -318,7 +359,7 @@ final class NfcRelay {
                 }
                 case RESET -> {
                     try {
-                        provisioner.reset(tag, s.uid, s.from.equals("knura") ? knura : TagKeySet.factory());
+                        provisioner.reset(tag, s.uid, s.current(knura));
                     } catch (Ntag424Exception e) {
                         throw explainKeyMismatch(e, s.from);
                     }
@@ -378,10 +419,13 @@ final class NfcRelay {
         if (!e.isAuthenticationError()) {
             return e;
         }
-        return new IOException("the tag refused the key: " + (from.equals("factory")
-                ? "this tag no longer has factory keys. If Knura set it up with this master key, use from knura."
-                : "this tag's key 0 is not the Knura key from this master key. It may have factory keys (try info),"
-                        + " another master key, or keys from other software."), e);
+        return new IOException("the tag refused the key: " + switch (from) {
+            case "factory" -> "this tag no longer has factory keys. If Knura set it up with this master key, use from knura.";
+            case "claim" -> "this tag doesn't open with that claim code. Check the card belongs to this tag;"
+                    + " if the tag was already claimed, use from knura.";
+            default -> "this tag's key 0 is not the Knura key from this master key. It may have factory keys (try info),"
+                        + " another master key, or keys from other software.";
+        }, e);
     }
 
     private static String text(Map<String, Object> body, String name, String fallback) {
