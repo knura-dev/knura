@@ -47,6 +47,16 @@ public final class TagKeySet {
         return new TagKeySet(keys);
     }
 
+    /**
+     * The claim keys a ready-to-use tag ships with: every slot diversified from the 16-byte claim
+     * secret on its claim card and the tag's UID (see {@link TagKeyDerivation#claimKey}).
+     */
+    public static TagKeySet claim(byte[] claimSecret, byte[] uid) {
+        byte[][] keys = new byte[TagKeyDerivation.KEY_SLOTS][];
+        Arrays.setAll(keys, slot -> TagKeyDerivation.claimKey(claimSecret, uid, slot));
+        return new TagKeySet(keys);
+    }
+
     public byte[] key(int slot) {
         return keys[slot].clone();
     }

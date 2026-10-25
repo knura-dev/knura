@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.knura.core.claim.ClaimCode;
 import io.knura.core.crypto.Hex;
 import io.knura.core.keys.TagKeyDerivation;
 import io.knura.core.ntag424.FakeNtag424;
@@ -90,6 +91,22 @@ class TagProvisionerTest {
         for (int slot = 0; slot < 5; slot++) {
             assertArrayEquals(target.key(slot), fake.key(slot), "key " + slot);
         }
+    }
+
+    @Test
+    void claimTagMovesOntoTheBuyersKeys() throws Exception {
+        FakeNtag424 fake = new FakeNtag424(UID);
+        ClaimCode claim = ClaimCode.of(Hex.decode("000102030405060708090A0B0C0D0E0F"));
+        provisioner.provision(new Ntag424(fake), UID, TagKeySet.factory(), claim.keys(UID),
+                TapUrlLayout.forBaseUrl("https://knura.io/new"));
+
+        TagKeySet buyer = TagKeySet.knura(MASTER, UID);
+        TagProvisioner.Result result = provisioner.provision(new Ntag424(fake), UID, claim.keys(UID), buyer, LOCAL);
+
+        for (int slot = 0; slot < 5; slot++) {
+            assertArrayEquals(buyer.key(slot), fake.key(slot), "key " + slot);
+        }
+        assertEquals("04DE5F1EACC040", result.uidHex());
     }
 
     @Test

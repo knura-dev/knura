@@ -1,5 +1,6 @@
 package io.knura.knurctl;
 
+import io.knura.core.claim.ClaimCode;
 import io.knura.core.crypto.Hex;
 import io.knura.core.keys.TagKeyDerivation;
 import io.knura.core.ntag424.Ntag424;
@@ -28,6 +29,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -79,6 +81,8 @@ public final class Main {
               --resolver URL        resolver register: the resolver (default https://tap.knura.io)
               --from SOURCE         the keys the tag has now: factory (provision default),
                                     knura (set up by Knura with this master key; reset default),
+                                    claim:CODE (a ready-to-use tag: the code from its claim card,
+                                    or the knura://claim link in its QR code),
                                     or a file with key0= to key4= lines
               --reader N|NAME       reader number from 'knurctl readers', or part of its name
               --wait SECONDS        how long to wait for a tag (default 30)
@@ -91,6 +95,7 @@ public final class Main {
               --limit N             admin taps: how many to show
             """;
 
+    private static final String CLAIM_PREFIX = "claim:";
     private static final Set<String> FLAGS = Set.of("--verbose", "--help");
     private static final Set<String> OPTIONS =
             Set.of("--config", "--base-url", "--from", "--reader", "--wait", "--server", "--resolver",
@@ -266,9 +271,11 @@ public final class Main {
             warnUnlessForwarding(config);
         }
         String from = options.getOrDefault("--from", "factory");
+        ClaimCode claim = claimCode(from);
         try (PcscReader reader = connect()) {
             byte[] uid = reader.uid();
-            TagKeySet current = currentKeys(from, master, uid);
+            checkClaimUid(from, uid);
+            TagKeySet current = currentKeys(from, claim, master, uid);
             TagKeySet target = TagKeySet.knura(master, uid);
             TagProvisioner provisioner = new TagProvisioner(line -> out.println("  " + line));
             TagProvisioner.Result result;
@@ -281,6 +288,9 @@ public final class Main {
             out.println("Provisioned tag " + result.uidHex() + ".");
             out.println("It read back as: " + result.tapUrl());
             out.println("(UID " + result.tap().uidHex() + ", counter " + result.tap().readCounter() + ", MAC checks out)");
+            if (claim != null) {
+                out.println("Claimed: the tag now has keys only your master key opens. Its claim card no longer works.");
+            }
             out.println();
             out.println("To check it with knurd (start knurd first):");
             out.println("  curl '" + result.tapUrl() + "'");
@@ -307,9 +317,11 @@ public final class Main {
     private void reset() throws IOException, ReaderException, UsageException {
         String from = options.getOrDefault("--from", "knura");
         byte[] master = "knura".equals(from) ? masterKey() : null;
+        ClaimCode claim = claimCode(from);
         try (PcscReader reader = connect()) {
             byte[] uid = reader.uid();
-            TagKeySet current = currentKeys(from, master, uid);
+            checkClaimUid(from, uid);
+            TagKeySet current = currentKeys(from, claim, master, uid);
             try {
                 new TagProvisioner(line -> out.println("  " + line)).reset(new Ntag424(reader), uid, current);
             } catch (Ntag424Exception e) {
@@ -344,12 +356,40 @@ public final class Main {
         }
     }
 
-    private TagKeySet currentKeys(String from, byte[] master, byte[] uid) throws IOException, UsageException {
+    private TagKeySet currentKeys(String from, ClaimCode claim, byte[] master, byte[] uid)
+            throws IOException, UsageException {
+        if (claim != null) {
+            return claim.keys(uid);
+        }
         return switch (from) {
             case "factory" -> TagKeySet.factory();
             case "knura" -> TagKeySet.knura(master, uid);
             default -> KeyFile.load(Path.of(from));
         };
+    }
+
+    /** The claim code in {@code --from claim:CODE}, checked before any tag is touched; else null. */
+    static ClaimCode claimCode(String from) throws UsageException {
+        if (!from.startsWith(CLAIM_PREFIX)) {
+            return null;
+        }
+        try {
+            return ClaimCode.parse(from.substring(CLAIM_PREFIX.length()));
+        } catch (IllegalArgumentException e) {
+            throw new UsageException("--from claim: " + e.getMessage());
+        }
+    }
+
+    /** Stops early when a claim link names a different tag from the one on the reader. */
+    private static void checkClaimUid(String from, byte[] uid) throws UsageException {
+        if (!from.startsWith(CLAIM_PREFIX)) {
+            return;
+        }
+        byte[] expected = ClaimCode.linkUid(from.substring(CLAIM_PREFIX.length()));
+        if (expected != null && !Arrays.equals(expected, uid)) {
+            throw new UsageException("this claim card is for tag " + Hex.encode(expected) + ", but the tag on the reader is "
+                    + Hex.encode(uid));
+        }
     }
 
     private static IOException explainKeyMismatch(Ntag424Exception e, String from) {
@@ -361,7 +401,10 @@ public final class Main {
                     + " key, use --from knura; if other software did, use --from <keys file>.";
             case "knura" -> "This tag's key 0 is not the Knura key from this master key. It may have"
                     + " factory keys (try knurctl info), another master key, or keys from other software.";
-            default -> "This tag's key 0 does not match key0 in " + from + ".";
+            default -> from.startsWith(CLAIM_PREFIX)
+                    ? "This claim code doesn't open this tag. Check it's the card that came with this tag;"
+                            + " if the tag was already claimed, use --from knura."
+                    : "This tag's key 0 does not match key0 in " + from + ".";
         };
         return new IOException("the tag refused the key: " + hint, e);
     }

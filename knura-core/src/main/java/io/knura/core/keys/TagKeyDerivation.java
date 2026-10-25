@@ -14,6 +14,8 @@ import java.nio.charset.StandardCharsets;
  * <ul>
  *   <li>Per-tag key: {@code "Knura" || 0x01 || keyNo || UID} (14 bytes).
  *   <li>Fleet key: {@code "Knura" || 0x02 || keyNo} (7 bytes), the same for every tag.
+ *   <li>Claim key: {@code "Knura" || 0x03 || keyNo || UID} (14 bytes), diversified from a tag's
+ *       claim secret instead of a master key (see {@link io.knura.core.claim.ClaimCode}).
  * </ul>
  *
  * <p>SDMMetaReadKey is a fleet key because the verifier needs it to decrypt the PICC data before
@@ -34,6 +36,7 @@ public final class TagKeyDerivation {
     private static final byte[] SYSTEM_ID = "Knura".getBytes(StandardCharsets.US_ASCII);
     private static final byte PER_TAG = 0x01;
     private static final byte FLEET = 0x02;
+    private static final byte CLAIM = 0x03;
 
     private TagKeyDerivation() {}
 
@@ -50,6 +53,20 @@ public final class TagKeyDerivation {
     /** The key for slot {@code keyNo} shared by every tag under this master key. */
     public static byte[] fleetKey(byte[] masterKey, int keyNo) {
         return KeyDiversification.aes128(masterKey, header(FLEET, keyNo, 0));
+    }
+
+    /**
+     * The claim key for slot {@code keyNo} of the tag with this 7-byte {@code uid}, from the
+     * 16-byte claim secret printed on its claim card. Every slot is per tag, so a card only opens
+     * its own tag.
+     */
+    public static byte[] claimKey(byte[] claimSecret, byte[] uid, int keyNo) {
+        if (uid.length != SdmVerifier.UID_LENGTH) {
+            throw new IllegalArgumentException("UID must be 7 bytes, got " + uid.length);
+        }
+        byte[] input = header(CLAIM, keyNo, uid.length);
+        System.arraycopy(uid, 0, input, SYSTEM_ID.length + 2, uid.length);
+        return KeyDiversification.aes128(claimSecret, input);
     }
 
     private static byte[] header(byte purpose, int keyNo, int extra) {
