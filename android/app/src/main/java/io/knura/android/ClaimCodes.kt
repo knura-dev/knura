@@ -12,12 +12,16 @@ import java.security.MessageDigest
  * the phone only passes the code on.
  *
  * The card shows 28 Crockford base32 characters in groups of four; its QR code holds
- * `knura://claim?uid=<UID>&code=<code>`. Case, spaces and dashes don't matter, O reads as 0, and
- * I and L read as 1.
+ * `knura://claim?uid=<UID>&code=<code>`, or `knura://claim?code=<code>` on a pack card, whose one
+ * code claims every tag of a pack. Case, spaces and dashes don't matter, O reads as 0, and I and L
+ * read as 1.
  */
 object ClaimCodes {
-    /** [code] is the 28 characters without dashes; [uid] is the card's tag UID in hex, when the QR code gave one. */
-    data class Claim(val code: String, val uid: String?)
+    /**
+     * [code] is the 28 characters without dashes; [uid] is the card's tag UID in hex, when the QR
+     * code gave one; [pack] is true for a pack card's QR code, which names no tag.
+     */
+    data class Claim(val code: String, val uid: String?, val pack: Boolean = false)
 
     private const val ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
     private const val SECRET_CHARS = 26
@@ -27,10 +31,12 @@ object ClaimCodes {
     fun parse(text: String): Claim {
         var code = text.trim()
         var uid: String? = null
+        var pack = false
         if (code.startsWith("knura://", ignoreCase = true)) {
             val params = linkParams(code)
             code = params["code"] ?: throw IllegalArgumentException("That's not a Knura claim card's QR code.")
             uid = params["uid"]?.uppercase()?.takeIf { UID.matches(it) }
+            pack = "uid" !in params
         }
         val chars = StringBuilder()
         for (c in code.uppercase()) {
@@ -59,7 +65,7 @@ object ClaimCodes {
         val bits = ((digest[0].toInt() and 0xFF) shl 2) or ((digest[1].toInt() and 0xFF) ushr 6)
         val check = "" + ALPHABET[bits ushr 5] + ALPHABET[bits and 31]
         require(chars.substring(SECRET_CHARS) == check) { "That claim code doesn't check out. Look for a typo." }
-        return Claim(chars.toString(), uid)
+        return Claim(chars.toString(), uid, pack)
     }
 
     private fun linkParams(link: String): Map<String, String> {

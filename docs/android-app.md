@@ -99,7 +99,7 @@ around the back slowly: phones read tags at one spot only.
 | Tag info | UID, link, whose keys it has, and whether the link checks out. |
 | Check a tap | Reads the tag like a phone tap and checks it with your keys. |
 | Reset tag | All keys back to zero, no link. Turn the switch off for a tag that still has factory keys. |
-| Claim a tag | For a ready-to-use tag that came with a claim card. Scan the card's QR code or type its code, then hold the tag: knurd swaps the card's keys for your own and the card stops working (like `--from claim:CODE`). |
+| Claim a tag | For a ready-to-use tag that came with a claim card. Scan the card's QR code or type its code, then hold the tag: knurd swaps the card's keys for your own and the card stops working (like `--from claim:CODE`). With a pack card (one card for several tags), **Claim next tag** claims the next tag without scanning the card again. |
 
 Under **knurd**, three rows show what `knurctl admin` shows on the computer:
 **Status** (uptime, keys, public URL, resolver, knots), **Tags** (every tag knurd has accepted,

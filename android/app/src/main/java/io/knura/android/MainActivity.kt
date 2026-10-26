@@ -82,6 +82,13 @@ class MainActivity : Activity() {
     private var from: String? = null
     /** The claim card's code while claiming a tag. */
     @Volatile private var claim: ClaimCodes.Claim? = null
+    /**
+     * A pack card (a claim card with no UID, for several tags) kept after a claim so "Claim next
+     * tag" needs no new scan, and how many tags it has claimed. UI thread only; cleared on leaving
+     * the result screen.
+     */
+    private var packCard: ClaimCodes.Claim? = null
+    private var packClaimed = 0
     private var pulse: ValueAnimator? = null
     /** The last result, as text for Copy details. */
     private var details = ""
@@ -124,8 +131,11 @@ class MainActivity : Activity() {
         pick(Action.PROVISION)
         startButton.setOnClickListener { start() }
         findViewById<View>(R.id.cancel).setOnClickListener { stop(); showHome("Cancelled.") }
-        findViewById<View>(R.id.resultClose).setOnClickListener { showHome(null) }
-        findViewById<View>(R.id.again).setOnClickListener { start() }
+        findViewById<View>(R.id.resultClose).setOnClickListener { forgetPackCard(); showHome(null) }
+        findViewById<View>(R.id.again).setOnClickListener {
+            val pack = packCard
+            if (action == Action.CLAIM && pack != null && running == null) begin(Action.CLAIM, pack) else start()
+        }
         findViewById<View>(R.id.copy).setOnClickListener { copyDetails() }
         findViewById<View>(R.id.logToggle).setOnClickListener {
             log.visibility = if (log.visibility == View.VISIBLE) View.GONE else View.VISIBLE
@@ -245,6 +255,7 @@ class MainActivity : Activity() {
     }
 
     private fun pick(picked: Action) {
+        forgetPackCard()
         action = picked
         for ((a, tile) in tiles) {
             tile.isSelected = a == picked
@@ -583,6 +594,7 @@ class MainActivity : Activity() {
         }
         val a = action
         if (a == Action.CLAIM) {
+            forgetPackCard()
             askForClaim { card -> begin(a, card) }
         } else {
             begin(a, null)
@@ -748,7 +760,14 @@ class MainActivity : Activity() {
                             reply.json.getJSONObject("result"))
                         ui {
                             stop()
-                            showResult(a.label, result, lines.toString(), a.again)
+                            if (a == Action.CLAIM && card != null && card.pack) {
+                                // A pack card: keep it, so the next tag of the pack needs no new scan.
+                                packCard = card
+                                packClaimed++
+                                showResult(packLabel(), result, lines.toString(), getString(R.string.claim_next))
+                            } else {
+                                showResult(a.label, result, lines.toString(), a.again)
+                            }
                         }
                         return
                     }
@@ -770,9 +789,22 @@ class MainActivity : Activity() {
     }
 
     private fun fail(a: Action, why: String, lines: StringBuilder) = ui {
+        val card = claim
         stop()
-        showResult(a.label, TagResults.Result(false, "Didn't work", why, emptyList()), lines.toString(),
-            getString(R.string.try_again))
+        if (a == Action.CLAIM && card != null && card.pack) {
+            // Keep a pack card through a failed tag too: "Try again" goes on with the same card.
+            packCard = card
+        }
+        showResult(if (packCard != null) packLabel() else a.label,
+            TagResults.Result(false, "Didn't work", why, emptyList()), lines.toString(), getString(R.string.try_again))
+    }
+
+    /** The result screen's heading while claiming the tags of a pack card. */
+    private fun packLabel() = resources.getQuantityString(R.plurals.claim_pack_count, packClaimed, packClaimed)
+
+    private fun forgetPackCard() {
+        packCard = null
+        packClaimed = 0
     }
 
     private fun collect(into: StringBuilder, lines: JSONArray?) {

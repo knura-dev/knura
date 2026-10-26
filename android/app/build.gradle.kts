@@ -12,8 +12,8 @@ android {
         // Android 11: BiometricPrompt with a screen-lock fallback, and Keystore keys that need it.
         minSdk = 30
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.3.2"
+        versionCode = 8
+        versionName = "0.3.3"
     }
 
     buildFeatures {

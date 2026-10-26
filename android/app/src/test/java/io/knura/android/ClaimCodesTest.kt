@@ -1,6 +1,7 @@
 package io.knura.android
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -22,6 +23,15 @@ class ClaimCodesTest {
         val claim = ClaimCodes.parse("knura://claim?uid=04DE5F1EACC040&code=$plain")
         assertEquals(ClaimCodes.Claim(plain, "04DE5F1EACC040"), claim)
         assertNull(ClaimCodes.parse("knura://claim?uid=nope&code=$plain").uid)
+        assertFalse(claim.pack)
+        assertFalse("a bad UID isn't a pack card", ClaimCodes.parse("knura://claim?uid=nope&code=$plain").pack)
+    }
+
+    @Test
+    fun packCardLinkHasNoUid() {
+        val claim = ClaimCodes.parse("knura://claim?code=$plain")
+        assertEquals(ClaimCodes.Claim(plain, null, pack = true), claim)
+        assertFalse("a typed code could be any card", ClaimCodes.parse(plain).pack)
     }
 
     @Test
