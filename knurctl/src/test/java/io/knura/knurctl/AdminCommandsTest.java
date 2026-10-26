@@ -408,7 +408,10 @@ class AdminCommandsTest {
         }
         com.google.zxing.BinaryBitmap bitmap = new com.google.zxing.BinaryBitmap(new com.google.zxing.common.HybridBinarizer(
                 new com.google.zxing.RGBLuminanceSource(width, height, pixels)));
-        return new com.google.zxing.qrcode.QRCodeReader().decode(bitmap).getText();
+        // The image is the exact code, so read it as one. Hunting for the finder patterns in a
+        // perfectly sharp synthetic image misses about 1 code in 100, depending on the token.
+        return new com.google.zxing.qrcode.QRCodeReader()
+                .decode(bitmap, Map.of(com.google.zxing.DecodeHintType.PURE_BARCODE, Boolean.TRUE)).getText();
     }
 
     private static boolean[] toArray(List<Boolean> values) {
