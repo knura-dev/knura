@@ -2,7 +2,9 @@ package io.knura.android
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PairingTest {
@@ -16,6 +18,14 @@ class PairingTest {
     }
 
     @Test
+    fun readsAKnuraCloudAccountPage() {
+        val p = Pairing.parse("knura://pair?url=https%3A%2F%2F8vp3oukhcd.execute-api.us-east-1.amazonaws.com%2Fo%2Fwjuyhuiznh&token=$token")
+        assertEquals(Pairing("https://8vp3oukhcd.execute-api.us-east-1.amazonaws.com/o/wjuyhuiznh", "", token), p)
+        assertTrue(p.cloud)
+        assertFalse(Pairing.parse("knura://pair?url=https%3A%2F%2F192.168.1.20%3A8425&fp=$fp&token=$token").cloud)
+    }
+
+    @Test
     fun refusesAnythingElse() {
         for (bad in listOf(
             "",
@@ -25,6 +35,13 @@ class PairingTest {
             "knura://pair?url=https%3A%2F%2F192.168.1.20%3A8425&fp=abc&token=$token",
             "knura://pair?url=https%3A%2F%2F192.168.1.20%3A8425&fp=$fp&token=nope",
             "knura://other?url=https%3A%2F%2F192.168.1.20%3A8425&fp=$fp&token=$token",
+            // Without a pinned certificate, only a Knura Cloud account address on a public host name.
+            "knura://pair?url=https%3A%2F%2F192.168.1.20%3A8425&token=$token",
+            "knura://pair?url=https%3A%2F%2F192.168.1.20%2Fo%2Fwjuyhuiznh&token=$token",
+            "knura://pair?url=https%3A%2F%2Fexample.com%2Fo%2Fnot-an-owner&token=$token",
+            "knura://pair?url=https%3A%2F%2Fexample.com%3A8443%2Fo%2Fwjuyhuiznh&token=$token",
+            "knura://pair?url=http%3A%2F%2Fexample.com%2Fo%2Fwjuyhuiznh&token=$token",
+            "knura://pair?url=https%3A%2F%2Fexample.com%2Fo%2Fwjuyhuiznh&token=nope",
         )) {
             assertThrows(bad, IllegalArgumentException::class.java) { Pairing.parse(bad) }
         }
