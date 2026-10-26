@@ -7,6 +7,9 @@
   format and keys are in knura-core (`ClaimCode`, `TagKeySet.claim`). See docs/claim-tags.md.
 - Android app 0.3.2: "Claim a tag" claims a ready-to-use tag from its claim card, by QR code or
   typed code. knurd's phone relay takes `"from":"claim"` with the card's code in `"claim"`.
+- Android app 0.3.3: pack cards. A claim card whose QR code has no UID
+  (`knura://claim?code=...`) claims every tag of a pack; after each tag, **Claim next tag**
+  goes on with the same card and counts the tags claimed. See docs/claim-tags.md.
 - Android app 0.3.0: a new look in the Knura colors, with light and dark modes. Tap tiles pick
   the action, a "hold the tag" screen shows each step, and results get their own screen with the
   full log under "What knurd did". Status, tags and recent taps show as lists (taps marked

@@ -167,6 +167,17 @@ class NfcRelayTest {
     }
 
     @Test
+    void aPackCardLinkClaimsAnyTagOfItsPack() throws Exception {
+        ClaimCode claim = ClaimCode.of(Hex.decode("000102030405060708090A0B0C0D0E0F"));
+        FakeNtag424 tag = claimTag(claim);
+        String packLink = "knura://claim?code=" + claim.formatted().replace("-", "");
+        String done = relay(phone, ("{\"action\":\"provision\",\"uid\":\"04DE5F1EACC040\",\"from\":\"claim\","
+                + "\"claim\":\"%s\"}").formatted(packLink), tag);
+        assertEquals("done", field(done, "status"), done);
+        assertArrayEquals(TagKeySet.knura(MASTER, UID).key(0), tag.key(0));
+    }
+
+    @Test
     void checksTheClaimCardBeforeTheTag() throws Exception {
         ClaimCode claim = ClaimCode.of(Hex.decode("000102030405060708090A0B0C0D0E0F"));
         String start = "{\"action\":\"%s\",\"uid\":\"04DE5F1EACC040\",\"from\":\"claim\",\"claim\":\"%s\"}";

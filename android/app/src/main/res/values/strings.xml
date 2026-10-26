@@ -29,6 +29,11 @@
     <string name="claim_type">Type code</string>
     <string name="claim_code_hint">XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX</string>
     <string name="claim_continue">Continue</string>
+    <string name="claim_next">Claim next tag</string>
+    <plurals name="claim_pack_count">
+        <item quantity="one">Pack card: %d tag claimed</item>
+        <item quantity="other">Pack card: %d tags claimed</item>
+    </plurals>
     <string name="knura_keys">Tag already has Knura keys</string>
     <string name="start">Start, then hold the tag</string>
     <string name="cancel">Cancel</string>

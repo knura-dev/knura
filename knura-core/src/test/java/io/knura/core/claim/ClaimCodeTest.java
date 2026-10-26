@@ -60,6 +60,13 @@ class ClaimCodeTest {
     }
 
     @Test
+    void readsAPackCardLinkWithNoUid() {
+        String pack = "knura://claim?code=00041061050R3GG28A1C60T3GFQS";
+        assertArrayEquals(SECRET, ClaimCode.parse(pack).secret());
+        assertNull(ClaimCode.linkUid(pack), "a pack card names no tag");
+    }
+
+    @Test
     void catchesTypos() {
         String typo = CODE.substring(0, 5) + (CODE.charAt(5) == '2' ? '3' : '2') + CODE.substring(6);
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> ClaimCode.parse(typo));
