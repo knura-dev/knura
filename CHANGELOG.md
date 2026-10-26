@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Home link (`knura-link`): runs your knurgN rules at home for taps a hosted Knura account has
+  checked. It connects out over `wss://` with a token from the account's dashboard
+  (`knura-link pair`), so no ports need opening; each message carries only the tag UID, counter
+  and tap time, and your rules and connector secrets stay at home. Duplicate and late taps run
+  nothing. See docs/home-link.md. knurgN gains `onVerifiedTap(uid, counter, tappedAt)` for taps
+  verified elsewhere.
 - Android app 0.4.0: pairs with a hosted Knura account as well as a knurd. A pairing code from a
   hosted account has no certificate fingerprint and an account address
   (`https://<host>/o/<owner>`); the app then checks the certificate the usual way. A hosted

@@ -9,6 +9,7 @@ genuine tag, then trigger actions from it.
 | `knurctl` | Provisioning and management CLI | sets up NTAG 424 DNA tags over a PC/SC reader |
 | `knurd` | Verification daemon | HTTP tap endpoint with replay protection |
 | `knurgn` | Actions engine (knurgN) | signed webhooks and the Matter bridge connector |
+| `knura-link` | Home link | runs knurgN at home for taps a hosted Knura account checked |
 | `knurgn-matter` | Matter bridge (Node.js, matter.js) | knots as contact sensors in Apple Home, Google Home, Alexa |
 | `knura-resolver` | tap.knura.io (Node.js, AWS Lambda) | forwards taps to the owner's knurd, so tags survive a move |
 
@@ -297,6 +298,9 @@ Rules:
 - The **Home Assistant** connector (`homeassistant.<id>.url`) starts a Home Assistant
   automation through its webhook trigger, with no login token. The webhook id goes in the
   secrets file. See [docs/home-assistant.md](docs/home-assistant.md).
+- With a **hosted Knura account** instead of your own knurd, the home link (`knura-link`) runs
+  the same knurgN rules at home for the taps the account checked. It dials out, so no ports need
+  opening. See [docs/home-link.md](docs/home-link.md).
 - Not yet: sensitive actions (locks, garage, alarm), a saved outbox that survives a restart, and
   encrypting the secrets file. See the knurgN connectors design.
 

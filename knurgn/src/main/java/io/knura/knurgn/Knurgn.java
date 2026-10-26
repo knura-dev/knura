@@ -89,12 +89,20 @@ public final class Knurgn implements AutoCloseable {
      * @return the number of actions started (0 if the tag has no knot rule)
      */
     public int onVerifiedTap(String uid, int counter) {
+        return onVerifiedTap(uid, counter, clock.instant());
+    }
+
+    /**
+     * Like {@link #onVerifiedTap(String, int)}, for a tap that was verified elsewhere at {@code
+     * tappedAt}, such as by a hosted Knura account that passes it on through the home link. The
+     * 30-second expiry counts from {@code tappedAt}, so a tap that arrives late runs no action.
+     */
+    public int onVerifiedTap(String uid, int counter, Instant tappedAt) {
         Knot knot = knots.get(uid);
         if (knot == null) {
             LOG.log(Level.INFO, "tap {0}:{1}: no knot rule for this tag, nothing to do", uid, counter);
             return 0;
         }
-        Instant tappedAt = clock.instant();
         TapEvent event = TapEvent.of(uid, counter, knot.name(), tappedAt);
         Instant deadline = tappedAt.plus(expiry);
         for (Connector connector : knot.actions()) {
