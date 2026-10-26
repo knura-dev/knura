@@ -11,6 +11,9 @@
     <string name="pair">Scan pairing code</string>
     <string name="your_knurd">Your knurd</string>
     <string name="knurd_security">Pinned TLS · unlocks with your fingerprint</string>
+    <string name="your_hosted">Your hosted account</string>
+    <string name="hosted_security">Keys stay on the server · unlocks with your fingerprint</string>
+    <string name="pair_hosted">Using a hosted account? Pair a phone on its account page and scan that code instead.</string>
     <string name="forget">Forget</string>
     <string name="what_to_do">What do you want to do with a tag?</string>
     <string name="action_provision">Set up a tag</string>

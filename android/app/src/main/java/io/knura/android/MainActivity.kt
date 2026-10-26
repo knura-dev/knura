@@ -238,6 +238,10 @@ class MainActivity : Activity() {
         val noNfc = if (nfc == null) "This phone has no NFC, so it can't talk to tags." else null
         if (isPaired) {
             findViewById<TextView>(R.id.knurdUrl).text = vault.url?.removePrefix("https://") ?: ""
+            // A hosted pairing points at an account address, https://<host>/o/<owner>.
+            val hosted = vault.url?.contains("/o/") == true
+            findViewById<TextView>(R.id.serverLabel).setText(if (hosted) R.string.your_hosted else R.string.your_knurd)
+            findViewById<TextView>(R.id.serverSecurity).setText(if (hosted) R.string.hosted_security else R.string.knurd_security)
             startButton.isEnabled = nfc != null
             say(R.id.homeNotice, noNfc ?: notice, bad || noNfc != null)
             show(screenHome)

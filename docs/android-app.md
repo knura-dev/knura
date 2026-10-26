@@ -18,6 +18,10 @@ You need:
 
 Run every `knurctl` command below in the folder that holds your `knurd.properties`.
 
+Using a hosted Knura account instead of your own knurd? Skip steps 1 and 3: install the app
+(step 2), pair the phone on the account's page, and scan that code with **Scan pairing code**.
+The tiles then work the same, with your keys kept on the hosted server.
+
 ## 1. Let the phone reach knurd's admin API
 
 The admin API normally only answers this computer. The phone reaches it over your Wi-Fi, which

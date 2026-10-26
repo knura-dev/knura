@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Android app 0.4.0: pairs with a hosted Knura account as well as a knurd. A pairing code from a
+  hosted account has no certificate fingerprint and an account address
+  (`https://<host>/o/<owner>`); the app then checks the certificate the usual way. A hosted
+  server answers the same admin API requests as knurd, so every tile works the same.
 - Ready-to-use tags: a tag can ship locked with claim keys and a claim card, and
   `knurctl provision --from claim:CODE` moves it onto your own master key. The claim code
   format and keys are in knura-core (`ClaimCode`, `TagKeySet.claim`). See docs/claim-tags.md.

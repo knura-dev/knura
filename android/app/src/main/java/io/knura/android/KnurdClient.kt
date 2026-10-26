@@ -16,6 +16,10 @@ import org.json.JSONObject
  * Talks to knurd's admin API over HTTPS, trusting only the certificate whose SHA-256 the pairing
  * code carried, as knurctl does with --creds. knurd's certificate is self-signed and names no
  * host, so the pin replaces the usual certificate authority and host name checks.
+ *
+ * A hosted Knura server answers the same requests at an account address, with a public
+ * certificate, so for a hosted pairing the phone's usual certificate authority and host name
+ * checks apply instead.
  */
 class KnurdClient(private val pairing: Pairing) {
     /** An answer from knurd: the HTTP status and its JSON body. */
@@ -23,7 +27,7 @@ class KnurdClient(private val pairing: Pairing) {
 
     val url: String get() = pairing.url
 
-    private val tls: SSLContext = SSLContext.getInstance("TLS").apply {
+    private val tls: SSLContext? = if (pairing.hosted) null else SSLContext.getInstance("TLS").apply {
         init(null, arrayOf(PinnedTrustManager(pairing.fingerprint)), null)
     }
 
@@ -36,9 +40,11 @@ class KnurdClient(private val pairing: Pairing) {
     private fun send(method: String, path: String, body: JSONObject?): Reply {
         val connection = URL(pairing.url + path).openConnection() as HttpsURLConnection
         try {
-            connection.sslSocketFactory = tls.socketFactory
-            // The certificate is pinned, so whatever name the connection used, it is knurd.
-            connection.hostnameVerifier = javax.net.ssl.HostnameVerifier { _, _ -> true }
+            if (tls != null) {
+                connection.sslSocketFactory = tls.socketFactory
+                // The certificate is pinned, so whatever name the connection used, it is knurd.
+                connection.hostnameVerifier = javax.net.ssl.HostnameVerifier { _, _ -> true }
+            }
             connection.connectTimeout = 5000
             // knurd waits up to 20 seconds for the tag's next step before answering.
             connection.readTimeout = 30000
