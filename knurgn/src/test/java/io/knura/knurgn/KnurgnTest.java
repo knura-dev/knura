@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Queue;
@@ -113,6 +114,27 @@ class KnurgnTest {
         try (Knurgn knurgn = engine(c, Duration.ofSeconds(5))) {
             assertEquals(0, knurgn.onVerifiedTap("04000000000001", 5));
             assertNull(reports.poll(100, TimeUnit.MILLISECONDS));
+            assertEquals(0, c.seen.size());
+        }
+    }
+
+    @Test
+    void tapVerifiedElsewhereKeepsItsTimeAndExpiry() throws Exception {
+        Scripted c = new Scripted(Delivery.delivered("HTTP 200"));
+        Instant tappedAt = Instant.now().minusMillis(500);
+        try (Knurgn knurgn = engine(c, Duration.ofSeconds(5))) {
+            knurgn.onVerifiedTap(UID, 7, tappedAt);
+            assertEquals(Knurgn.Outcome.DELIVERED, reports.poll(5, TimeUnit.SECONDS).outcome());
+            assertEquals(tappedAt, c.seen.poll().tappedAt());
+        }
+    }
+
+    @Test
+    void tapVerifiedTooLongAgoRunsNothing() throws Exception {
+        Scripted c = new Scripted(Delivery.delivered("HTTP 200"));
+        try (Knurgn knurgn = engine(c, Duration.ofSeconds(5))) {
+            knurgn.onVerifiedTap(UID, 8, Instant.now().minusSeconds(6));
+            assertEquals(Knurgn.Outcome.EXPIRED, reports.poll(5, TimeUnit.SECONDS).outcome());
             assertEquals(0, c.seen.size());
         }
     }
