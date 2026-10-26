@@ -10,24 +10,24 @@ import java.net.URLDecoder
  *
  * - From `knurctl admin pair-phone`: `knura://pair?url=https%3A%2F%2F192.168.1.20%3A8425&fp=<64 hex>&token=knurd_...`.
  *   knurd's certificate is self-signed, so the app trusts only that certificate.
- * - From a Knura Cloud account page: `knura://pair?url=https%3A%2F%2F<host>%2Fo%2F<owner>&token=knurd_...`,
- *   with no `fp`. Knura Cloud has an ordinary public certificate, checked the usual way.
+ * - From a hosted Knura account: `knura://pair?url=https%3A%2F%2F<host>%2Fo%2F<owner>&token=knurd_...`,
+ *   with no `fp`. A hosted server has an ordinary public certificate, checked the usual way.
  */
 data class Pairing(val url: String, val fingerprint: String, val token: String) {
-    /** True for Knura Cloud: no pinned certificate, the phone's usual certificate checks instead. */
-    val cloud: Boolean get() = fingerprint.isEmpty()
+    /** True for a hosted account: no pinned certificate, the phone's usual certificate checks instead. */
+    val hosted: Boolean get() = fingerprint.isEmpty()
 
     companion object {
         private val FINGERPRINT = Regex("[0-9a-f]{64}")
         private val TOKEN = Regex("knurd_[A-Za-z0-9_-]{43}")
-        /** A Knura Cloud account's address ends in /o/ and its owner ID, as on tap.knura.io. */
-        private val CLOUD_PATH = Regex("/o/[a-km-np-z2-9]{10}")
+        /** A hosted account's address ends in /o/ and its owner ID, as on tap.knura.io. */
+        private val HOSTED_PATH = Regex("/o/[a-km-np-z2-9]{10}")
         private val IP_ADDRESS = Regex("[0-9.]+|\\[.*]")
 
         /** Throws [IllegalArgumentException], with a message for people, if it isn't a pairing link. */
         fun parse(text: String): Pairing {
             val notOurs = "That's not a Knura pairing code. On knurd's computer, run: knurctl admin pair-phone <name>," +
-                " or pair a phone on your Knura Cloud account page"
+                " or pair a phone on your hosted account's page"
             val uri = try {
                 URI(text.trim())
             } catch (e: URISyntaxException) {
@@ -51,10 +51,10 @@ data class Pairing(val url: String, val fingerprint: String, val token: String) 
             require(TOKEN.matches(token)) { "The code has no valid login token" }
             val fingerprint = params["fp"]
             if (fingerprint == null) {
-                // Knura Cloud: a public host name with a certificate the phone already trusts.
+                // A hosted account: a public host name with a certificate the phone already trusts.
                 require(parsed.scheme == "https" && parsed.host != null && !IP_ADDRESS.matches(parsed.host) &&
-                    parsed.port == -1 && CLOUD_PATH.matches(parsed.rawPath ?: "") && parsed.rawQuery == null) {
-                    "The code's Knura Cloud address must look like https://<host>/o/<owner ID>, not $url"
+                    parsed.port == -1 && HOSTED_PATH.matches(parsed.rawPath ?: "") && parsed.rawQuery == null) {
+                    "The code's hosted account address must look like https://<host>/o/<owner ID>, not $url"
                 }
                 return Pairing(url, "", token)
             }

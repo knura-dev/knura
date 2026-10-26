@@ -17,8 +17,9 @@ import org.json.JSONObject
  * code carried, as knurctl does with --creds. knurd's certificate is self-signed and names no
  * host, so the pin replaces the usual certificate authority and host name checks.
  *
- * Knura Cloud answers the same requests at its account address, with a public certificate, so for
- * a cloud pairing the phone's usual certificate authority and host name checks apply instead.
+ * A hosted Knura server answers the same requests at an account address, with a public
+ * certificate, so for a hosted pairing the phone's usual certificate authority and host name
+ * checks apply instead.
  */
 class KnurdClient(private val pairing: Pairing) {
     /** An answer from knurd: the HTTP status and its JSON body. */
@@ -26,7 +27,7 @@ class KnurdClient(private val pairing: Pairing) {
 
     val url: String get() = pairing.url
 
-    private val tls: SSLContext? = if (pairing.cloud) null else SSLContext.getInstance("TLS").apply {
+    private val tls: SSLContext? = if (pairing.hosted) null else SSLContext.getInstance("TLS").apply {
         init(null, arrayOf(PinnedTrustManager(pairing.fingerprint)), null)
     }
 
