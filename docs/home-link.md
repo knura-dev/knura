@@ -18,6 +18,9 @@ phone tap -> tap.knura.io -> hosted account (checks the tap) ==wss==> knura-link
 - Java 21 on a computer that stays on at home, on the same network as Home Assistant
   (a Fedora box, a Raspberry Pi 4 or 5, a NAS).
 - A hosted Knura account on a plan that includes the home link.
+- knura-link itself: unzip `knura-link-<version>.zip` from a Knura release, or build it from
+  source with `./gradlew :knura-link:installDist` (it lands in
+  `knura-link/build/install/knura-link/bin/`). Rebuild after pulling new code.
 - Your knurgN rules in `knurgn.properties`, written exactly as for knurd (see the README's
   knurgn section and [home-assistant.md](home-assistant.md)).
 
