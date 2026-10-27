@@ -109,13 +109,27 @@ dashboard.connectors=none
 The home link checks every choice against this list, so the account can never run a connector
 you didn't offer. It prints the list when it starts: `the dashboard can choose living-room`.
 
+## Tag names from the dashboard
+
+When a tag has a name on the dashboard, each tap brings it home, and every action gets it as
+`"name"` in the event, next to `"knot"`:
+
+```json
+"data":{"id":"04356B02936980:12","knot":"04356B02936980","name":"Front door","uid":"04356B02936980",...}
+```
+
+In a Home Assistant automation that's `{{ trigger.json.data.name }}`, handy for a
+notification. `"knot"` doesn't change: it is still the knot rule's name, or the UID if the tag
+has no rule, so renaming a tag on the dashboard never breaks an automation that matches on it.
+The name is only a label; the home link drops control characters and cuts it to 40 characters.
+
 ## How it stays safe
 
 - The home link only connects out, to a `wss://` address, and logs in with a token in the
   `Authorization` header. The token lives in `link-secrets.properties`, which it refuses to read
   if other users can, and it is never logged.
-- Each message names a tag UID, its counter and the tap time, and the connector ids chosen on
-  the dashboard, if any. The account can only pick among the connectors you offer
+- Each message names a tag UID, its counter and the tap time, and the tag's dashboard name and
+  the connector ids chosen on the dashboard, if any. The account can only pick among the connectors you offer
   (`dashboard.connectors`); it can't add one, change where one goes or see its secret. Your
   connector secrets (Home Assistant webhook ids, webhook keys) never leave home.
 - A tap that arrives twice runs once, and a tap that arrives more than 30 seconds late runs

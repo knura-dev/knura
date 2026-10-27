@@ -21,6 +21,9 @@ import java.util.regex.Pattern;
  *          "tappedAt":"2026-10-06T21:14:03.120Z","action":"desk-webhook"}}
  * }</pre>
  *
+ * <p>A tap passed on by a hosted Knura account also carries {@code "name"} after {@code "knot"}:
+ * the name its owner gave the tag on the dashboard, such as {@code "Front door"}.
+ *
  * <p>Headers {@code webhook-id} (the tap id, the same on every retry), {@code webhook-timestamp}
  * and {@code webhook-signature} follow Standard Webhooks; see {@link WebhookSignature}. Receivers
  * should check the signature, refuse timestamps more than a few minutes off, and ignore ids they
@@ -107,15 +110,35 @@ public final class WebhookConnector implements Connector {
         return Delivery.refused(detail);
     }
 
-    /** The JSON body. Knot names and connector ids are limited to safe characters by the config. */
+    /** The JSON body. The dashboard name is free text, so names are escaped. */
     static String body(TapEvent event, String connectorId, Clock clock) {
         return "{\"type\":\"tap.verified\",\"timestamp\":\"" + clock.instant() + "\",\"data\":{"
                 + "\"id\":\"" + event.id() + "\","
-                + "\"knot\":\"" + event.knot() + "\","
+                + "\"knot\":" + quote(event.knot()) + ","
+                + (event.name() == null ? "" : "\"name\":" + quote(event.name()) + ",")
                 + "\"uid\":\"" + event.uid() + "\","
                 + "\"counter\":" + event.counter() + ","
                 + "\"tappedAt\":\"" + event.tappedAt() + "\","
                 + "\"action\":\"" + connectorId + "\"}}";
+    }
+
+    /** {@code s} as a JSON string, quotes included. */
+    static String quote(String s) {
+        StringBuilder out = new StringBuilder("\"");
+        for (char ch : s.toCharArray()) {
+            switch (ch) {
+                case '"' -> out.append("\\\"");
+                case '\\' -> out.append("\\\\");
+                default -> {
+                    if (ch < 0x20) {
+                        out.append(String.format("\\u%04x", (int) ch));
+                    } else {
+                        out.append(ch);
+                    }
+                }
+            }
+        }
+        return out.append('"').toString();
     }
 
     static void checkUrl(String id, URI url) {

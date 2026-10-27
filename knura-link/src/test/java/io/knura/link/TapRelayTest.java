@@ -8,11 +8,15 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class TapRelayTest {
-    record Call(String uid, int counter, Instant tappedAt) {}
+    record Call(String uid, int counter, Instant tappedAt, String name) {
+        Call(String uid, int counter, Instant tappedAt) {
+            this(uid, counter, tappedAt, null);
+        }
+    }
 
     private final List<Call> calls = new ArrayList<>();
-    private final TapRelay relay = new TapRelay((uid, counter, at) -> {
-        calls.add(new Call(uid, counter, at));
+    private final TapRelay relay = new TapRelay((uid, counter, at, name) -> {
+        calls.add(new Call(uid, counter, at, name));
         return 1;
     });
 
@@ -38,10 +42,10 @@ class TapRelayTest {
     @Test
     void runsActionsChosenOnTheDashboardButOnlyOfferedOnes() {
         List<String> chosen = new ArrayList<>();
-        TapRelay offering = new TapRelay((uid, counter, at) -> {
-            calls.add(new Call(uid, counter, at));
+        TapRelay offering = new TapRelay((uid, counter, at, name) -> {
+            calls.add(new Call(uid, counter, at, name));
             return 1;
-        }, (uid, counter, at, ids) -> {
+        }, (uid, counter, at, ids, name) -> {
             chosen.addAll(ids);
             return ids.size();
         }, java.util.Set.of("living-room", "porch"));
@@ -65,5 +69,33 @@ class TapRelayTest {
         assertEquals(0, relay.onMessage(
                 "{\"type\":\"tap\",\"uid\":\"042D6B02936980\",\"counter\":4,\"tappedAt\":\"2026-10-26T22:51:11Z\",\"actions\":\"porch\"}"));
         assertEquals(List.of(), calls);
+    }
+
+    @Test
+    void passesTheDashboardNameOnAsASafeLabel() {
+        List<String> names = new ArrayList<>();
+        TapRelay offering = new TapRelay((uid, counter, at, name) -> {
+            calls.add(new Call(uid, counter, at, name));
+            return 1;
+        }, (uid, counter, at, ids, name) -> {
+            names.add(name);
+            return ids.size();
+        }, java.util.Set.of("porch"));
+        String base = "{\"type\":\"tap\",\"uid\":\"042D6B02936980\",\"tappedAt\":\"2026-10-26T22:51:11Z\",";
+
+        assertEquals(1, offering.onMessage(base + "\"counter\":1,\"name\":\"Front door\"}"));
+        assertEquals("Front door", calls.get(0).name());
+        assertEquals(1, offering.onMessage(base + "\"counter\":2,\"name\":\"Porch \\u2600\",\"actions\":\"porch\"}"));
+        assertEquals(List.of("Porch \u2600"), names);
+        assertEquals(1, offering.onMessage(base + "\"counter\":3,\"name\":\"  \"}"));
+        assertEquals(null, calls.get(1).name(), "a blank name is no name");
+    }
+
+    @Test
+    void cleansNames() {
+        assertEquals("Frontdoor", TapRelay.label("Front\ndoor\u0000\u202e"));
+        assertEquals("x".repeat(40), TapRelay.label("x".repeat(60)));
+        assertEquals("\uD83D\uDEAA".repeat(40), TapRelay.label("\uD83D\uDEAA".repeat(41)), "never splits a character");
+        assertEquals(null, TapRelay.label("\t"));
     }
 }

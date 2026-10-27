@@ -81,7 +81,7 @@ class LinkClientTest {
     void logsInWithTheTokenAndPassesTapsOn() throws Exception {
         BlockingQueue<String> taps = new LinkedBlockingQueue<>();
         try (Server server = new Server(0, TAP)) {
-            LinkClient client = new LinkClient(server.config(), new TapRelay((uid, counter, at) -> {
+            LinkClient client = new LinkClient(server.config(), new TapRelay((uid, counter, at, name) -> {
                 taps.add(uid + ":" + counter + "@" + at);
                 return 1;
             }));
@@ -103,7 +103,7 @@ class LinkClientTest {
     @Test
     void stopsWhenTheTokenIsRefused() throws Exception {
         try (Server server = new Server(403, null)) {
-            LinkClient client = new LinkClient(server.config(), new TapRelay((uid, counter, at) -> 0));
+            LinkClient client = new LinkClient(server.config(), new TapRelay((uid, counter, at, name) -> 0));
             LinkClient.RefusedException e = assertThrows(LinkClient.RefusedException.class, client::run);
             assertTrue(e.getMessage().contains("knura-link pair"));
         }

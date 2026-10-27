@@ -31,16 +31,20 @@ import java.util.regex.Pattern;
  * ({@code dashboard.connectors} in link.properties): the hosted account can pick among them, never
  * reach anything else. A message seen twice is run once, and knurgN drops taps older than its
  * 30-second expiry, so a link that reconnects late never runs old taps.
+ *
+ * <p>If the tag has a name on the dashboard, the message carries it as {@code "name"} (such as
+ * {@code "Front door"}), and knurgN passes it on with each action. It is only a label: control
+ * characters are dropped and it is cut to 40 characters.
  */
 final class TapRelay {
-    /** knurgN's entry point, {@code Knurgn::onVerifiedTap}. */
+    /** knurgN's entry point, {@code Knurgn::onVerifiedTap}; {@code name} may be null. */
     interface Actions {
-        int onVerifiedTap(String uid, int counter, Instant tappedAt);
+        int onVerifiedTap(String uid, int counter, Instant tappedAt, String name);
     }
 
-    /** knurgN's entry point for actions chosen on the dashboard. */
+    /** knurgN's entry point for actions chosen on the dashboard; {@code name} may be null. */
     interface Chosen {
-        int onVerifiedTap(String uid, int counter, Instant tappedAt, List<String> connectorIds);
+        int onVerifiedTap(String uid, int counter, Instant tappedAt, List<String> connectorIds, String name);
     }
 
     private static final System.Logger LOG = System.getLogger("knura-link");
@@ -49,6 +53,7 @@ final class TapRelay {
     /** NTAG 424 DNA read counters are 24 bits. */
     private static final long MAX_COUNTER = 0xFFFFFF;
     private static final int REMEMBERED = 1000;
+    static final int MAX_NAME = 40;
 
     private final Actions actions;
     private final Chosen chosen;
@@ -62,7 +67,7 @@ final class TapRelay {
 
     /** Runs only the knot rules; offers the dashboard nothing. */
     TapRelay(Actions actions) {
-        this(actions, (uid, counter, at, ids) -> 0, Set.of());
+        this(actions, (uid, counter, at, ids, name) -> 0, Set.of());
     }
 
     TapRelay(Actions actions, Chosen chosen, Set<String> offered) {
@@ -108,6 +113,7 @@ final class TapRelay {
             LOG.log(Level.INFO, "tap {0} came twice; ran it once", id);
             return -1;
         }
+        String label = message.get("name") instanceof String given ? label(given) : null;
         if (message.get("actions") instanceof String names && !names.isBlank()) {
             List<String> picked = new ArrayList<>();
             for (String name : names.split(",")) {
@@ -119,12 +125,23 @@ final class TapRelay {
                     LOG.log(Level.WARNING, "tap {0}: the dashboard chose a connector this home link doesn''t offer; skipped it", id);
                 }
             }
-            int started = picked.isEmpty() ? 0 : chosen.onVerifiedTap(uid, counter.intValue(), tappedAt, picked);
+            int started = picked.isEmpty() ? 0 : chosen.onVerifiedTap(uid, counter.intValue(), tappedAt, picked, label);
             LOG.log(Level.INFO, "tap {0} from the hosted account: {1} action(s) chosen on the dashboard started", id, started);
             return started;
         }
-        int started = actions.onVerifiedTap(uid, counter.intValue(), tappedAt);
+        int started = actions.onVerifiedTap(uid, counter.intValue(), tappedAt, label);
         LOG.log(Level.INFO, "tap {0} from the hosted account: {1} action(s) started", id, started);
         return started;
+    }
+
+    /** The dashboard name as a safe label: no control characters, at most 40 characters, or null. */
+    static String label(String text) {
+        StringBuilder out = new StringBuilder();
+        text.codePoints()
+                .filter(cp -> !Character.isISOControl(cp) && Character.getType(cp) != Character.FORMAT)
+                .limit(MAX_NAME)
+                .forEach(out::appendCodePoint);
+        String name = out.toString().strip();
+        return name.isEmpty() ? null : name;
     }
 }

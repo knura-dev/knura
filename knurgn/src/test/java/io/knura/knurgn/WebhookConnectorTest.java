@@ -43,6 +43,17 @@ class WebhookConnectorTest {
     }
 
     @Test
+    void escapesTheDashboardName() {
+        TapEvent named = TapEvent.of("042D6B02936980", 62, "042D6B02936980", CLOCK.instant(), "Mum's \"blue\" door \\ \u2600\n");
+        assertEquals(
+                "{\"type\":\"tap.verified\",\"timestamp\":\"2026-10-06T21:14:03.120Z\",\"data\":{"
+                        + "\"id\":\"042D6B02936980:62\",\"knot\":\"042D6B02936980\","
+                        + "\"name\":\"Mum's \\\"blue\\\" door \\\\ \u2600\\u000a\",\"uid\":\"042D6B02936980\","
+                        + "\"counter\":62,\"tappedAt\":\"2026-10-06T21:14:03.120Z\",\"action\":\"desk\"}}",
+                WebhookConnector.body(named, "desk", CLOCK));
+    }
+
+    @Test
     void sortsResponsesIntoRetryOrRefuse() throws Exception {
         assertEquals(Delivery.Status.FAILED, statusFor(500));
         assertEquals(Delivery.Status.FAILED, statusFor(503));

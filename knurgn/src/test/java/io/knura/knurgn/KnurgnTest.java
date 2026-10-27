@@ -176,4 +176,23 @@ class KnurgnTest {
             assertEquals("04406B02936980", reports.poll(5, TimeUnit.SECONDS).event().knot());
         }
     }
+
+    @Test
+    void dashboardNamesRideAlongButNeverRenameTheKnot() throws Exception {
+        Scripted rule = new Scripted(Delivery.delivered("HTTP 200"));
+        Scripted porch = named("porch", Delivery.delivered("HTTP 200"));
+        Knot knot = new Knot(UID, "desk-candle", List.of(rule));
+        try (Knurgn knurgn = new Knurgn(List.of(knot), List.of(porch), Clock.systemUTC(), Duration.ofSeconds(5),
+                Duration.ofMillis(20), reports::add)) {
+            assertEquals(1, knurgn.onVerifiedTap(UID, 10, Instant.now(), "Desk candle"));
+            TapEvent ruled = reports.poll(5, TimeUnit.SECONDS).event();
+            assertEquals("desk-candle", ruled.knot());
+            assertEquals("Desk candle", ruled.name());
+
+            assertEquals(1, knurgn.onVerifiedTap("04406B02936980", 4, Instant.now(), List.of("porch"), "Front door"));
+            TapEvent chosen = reports.poll(5, TimeUnit.SECONDS).event();
+            assertEquals("04406B02936980", chosen.knot());
+            assertEquals("Front door", chosen.name());
+        }
+    }
 }
