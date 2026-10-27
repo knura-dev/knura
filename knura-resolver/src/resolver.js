@@ -13,6 +13,10 @@
 //   GET  /<owner>?e=..&c=..           302 to the owner's knurd
 //   GET  /api/v1/owners/<owner>       the owner's signed record, as JSON (public)
 //   PUT  /api/v1/owners/<owner>       register or move: {server, seq, publicKey, signature}
+//
+// The operator can suspend an owner ID that is used to dress up phishing links by setting a
+// "suspended" reason on its record by hand: its taps then get a page instead of a redirect, and it
+// can't be moved. New registrations are limited per address (REGISTRATIONS_PER_HOUR).
 
 import { OWNER_ID, checkUpdateShape, verifySignature } from "./record.js";
 import { confirmOwner } from "./server-check.js";
@@ -22,6 +26,9 @@ const MAX_BODY_BYTES = 2048;
 const OWNER_API = /^\/api\/v1\/owners\/([^/]+)$/;
 const PICC = /^[0-9A-Fa-f]{32}$/;
 const MAC = /^[0-9A-Fa-f]{16}$/;
+/** New owner IDs one address may register in an hour, per function instance. Moves don't count. */
+export const REGISTRATIONS_PER_HOUR = 5;
+const HOUR_MS = 60 * 60 * 1000;
 
 const SECURITY_HEADERS = {
     "cache-control": "no-store",
@@ -51,6 +58,9 @@ export function createHandler({
     allowLoopbackHttp = false,
     log = line => console.log(line),
 }) {
+    /** Recent new registrations by source address: address -> times (ms). */
+    const registrations = new Map();
+
     return async event => {
         const method = event.requestContext?.http?.method ?? "GET";
         const path = event.rawPath ?? "/";
@@ -58,7 +68,7 @@ export function createHandler({
             const api = OWNER_API.exec(path);
             if (api) {
                 if (method === "GET" || method === "HEAD") return await getRecord(api[1]);
-                if (method === "PUT") return await putRecord(api[1], event);
+                if (method === "PUT") return await putRecord(api[1], event, event.requestContext?.http?.sourceIp ?? "");
                 return json(405, { error: "use GET or PUT" }, { allow: "GET, PUT" });
             }
             if (method !== "GET" && method !== "HEAD") {
@@ -84,6 +94,10 @@ export function createHandler({
             log(`tap owner=${owner} unknown`);
             return page(404, "Tag not connected", "This tag's owner hasn't connected it to a server, so the tap can't be checked.");
         }
+        if (record.suspended) {
+            log(`tap owner=${owner} suspended`);
+            return page(410, "Link suspended", "tap.knura.io no longer passes on taps for this link, because it was reported as misused.");
+        }
         log(`tap owner=${owner} forwarded`);
         return redirect(`${record.server}/tap?e=${tap.e}&c=${tap.c}`);
     }
@@ -94,7 +108,20 @@ export function createHandler({
         return record ? json(200, record) : json(404, { error: "no such owner" });
     }
 
-    async function putRecord(owner, event) {
+    /** Whether address may register one more new owner ID now, and if so counts it. */
+    function mayRegister(address) {
+        const cutoff = now().getTime() - HOUR_MS;
+        if (registrations.size > 10000) {
+            for (const [a, times] of registrations) if (times.every(t => t <= cutoff)) registrations.delete(a);
+        }
+        const recent = (registrations.get(address) ?? []).filter(t => t > cutoff);
+        if (recent.length >= REGISTRATIONS_PER_HOUR) return false;
+        recent.push(now().getTime());
+        registrations.set(address, recent);
+        return true;
+    }
+
+    async function putRecord(owner, event, address) {
         if (!OWNER_ID.test(owner)) return json(400, { error: "owner must be 10 characters from a-z and 2-9, without l or o" });
         const raw = event.isBase64Encoded ? Buffer.from(event.body ?? "", "base64").toString("utf8") : (event.body ?? "");
         if (Buffer.byteLength(raw) > MAX_BODY_BYTES) return json(413, { error: "body too large" });
@@ -108,6 +135,7 @@ export function createHandler({
         if (problem) return json(400, { error: problem });
 
         const old = await store.get(owner);
+        if (old?.suspended) return json(403, { error: "this owner ID is suspended" });
         if (old && old.publicKey !== update.publicKey) {
             return json(403, { error: "this owner ID belongs to another key" });
         }
@@ -116,6 +144,10 @@ export function createHandler({
         }
         if (!verifySignature(owner, update)) return json(403, { error: "bad signature" });
 
+        if (!old && !mayRegister(address)) {
+            log(`owner=${owner} registration refused: too many from one address`);
+            return json(429, { error: "too many new owner IDs from this address; try again in an hour" }, { "retry-after": "3600" });
+        }
         const refused = await confirm(update.server, owner);
         if (refused) return json(422, { error: refused });
 

@@ -26,6 +26,8 @@ export class DynamoStore {
             publicKey: Item.publicKey.S,
             signature: Item.signature.S,
             updatedAt: Item.updatedAt.S,
+            // Set by hand by the operator; see resolver.js.
+            ...(Item.suspended?.S ? { suspended: Item.suspended.S } : {}),
         };
     }
 
