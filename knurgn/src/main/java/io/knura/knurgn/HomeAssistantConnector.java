@@ -34,6 +34,13 @@ public final class HomeAssistantConnector implements Connector {
 
     public HomeAssistantConnector(String id, URI url, Secret webhookId, Clock clock) {
         checkUrl(id, url);
+        if (url.getScheme().equalsIgnoreCase("http") && !isThisComputer(url.getHost())) {
+            // The webhook id is the only key, and plain http shows it to anyone who can see this
+            // network's traffic (threat S10).
+            System.getLogger("knurgn").log(System.Logger.Level.WARNING, "homeassistant.{0}.url is plain http, so anyone"
+                    + " on your network who can see its traffic can read the webhook id and start the automation;"
+                    + " use Home Assistant''s https address if it has one", id);
+        }
         String base = url.toString().replaceAll("/+$", "");
         this.id = id;
         this.hook = URI.create(base + "/api/webhook/" + new String(webhookId.value(), StandardCharsets.US_ASCII));
@@ -71,6 +78,11 @@ public final class HomeAssistantConnector implements Connector {
                     + MIN_WEBHOOK_ID + " to 128 letters, digits, '_' or '-'; make one with: openssl rand -hex 24");
         }
         return new Secret(connectorId, trimmed.getBytes(StandardCharsets.US_ASCII));
+    }
+
+    private static boolean isThisComputer(String host) {
+        String h = host.toLowerCase(Locale.ROOT);
+        return h.equals("localhost") || h.startsWith("127.") || h.equals("[::1]") || h.equals("::1");
     }
 
     static void checkUrl(String id, URI url) {
