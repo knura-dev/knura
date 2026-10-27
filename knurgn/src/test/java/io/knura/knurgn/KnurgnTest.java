@@ -138,4 +138,42 @@ class KnurgnTest {
             assertEquals(0, c.seen.size());
         }
     }
+
+    /** A second connector, with its own id. */
+    static Scripted named(String id, Delivery... answers) {
+        return new Scripted(answers) {
+            @Override
+            public String id() {
+                return id;
+            }
+        };
+    }
+
+    @Test
+    void chosenActionsRunInsteadOfTheKnotRule() throws Exception {
+        Scripted rule = new Scripted(Delivery.delivered("HTTP 200"));
+        Scripted porch = named("porch", Delivery.delivered("HTTP 200"));
+        Knot knot = new Knot(UID, "desk-candle", List.of(rule));
+        try (Knurgn knurgn = new Knurgn(List.of(knot), List.of(porch), Clock.systemUTC(), Duration.ofSeconds(5),
+                Duration.ofMillis(20), reports::add)) {
+            assertEquals(List.of("porch", "scripted"), List.copyOf(knurgn.connectorIds()));
+            assertEquals(1, knurgn.onVerifiedTap(UID, 9, Instant.now(), List.of("porch", "gone", "porch")));
+            Knurgn.Report r = reports.poll(5, TimeUnit.SECONDS);
+            assertEquals("porch", r.connectorId());
+            assertEquals("desk-candle", r.event().knot());
+            assertEquals(0, rule.seen.size());
+            assertNull(reports.poll(200, TimeUnit.MILLISECONDS), "runs once, and never the rule");
+        }
+    }
+
+    @Test
+    void chosenActionsWorkForATagWithNoKnotRule() throws Exception {
+        Scripted porch = named("porch", Delivery.delivered("HTTP 200"));
+        try (Knurgn knurgn = new Knurgn(List.of(), List.of(porch), Clock.systemUTC(), Duration.ofSeconds(5),
+                Duration.ofMillis(20), reports::add)) {
+            assertEquals(0, knurgn.onVerifiedTap("04406B02936980", 3));
+            assertEquals(1, knurgn.onVerifiedTap("04406B02936980", 4, Instant.now(), List.of("porch")));
+            assertEquals("04406B02936980", reports.poll(5, TimeUnit.SECONDS).event().knot());
+        }
+    }
 }

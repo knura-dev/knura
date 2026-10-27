@@ -16,6 +16,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.util.EnumSet;
 import java.util.Properties;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * The home link's settings, written by {@code knura-link pair}:
@@ -26,6 +27,8 @@ import java.util.Set;
  * owner=ab3cd4ef5g
  * secrets.file=link-secrets.properties
  * actions.file=knurgn.properties
+ * # optional: which connectors the dashboard may choose for a tag (default: all; none: off)
+ * dashboard.connectors=living-room
  *
  * # link-secrets.properties (chmod 600)
  * token=knlink_...
@@ -34,11 +37,16 @@ import java.util.Set;
  * {@code actions.file} is the same knurgN config knurd uses: knot rules and connectors. Relative
  * paths are read from the folder that holds {@code link.properties}. Unknown settings are errors.
  */
-record LinkConfig(URI url, String owner, String token, Path actionsFile) {
+record LinkConfig(URI url, String owner, String token, Path actionsFile, Set<String> dashboardConnectors) {
+    /** {@code dashboardConnectors} is null for all of knurgN's connectors. */
+    LinkConfig(URI url, String owner, String token, Path actionsFile) {
+        this(url, owner, token, actionsFile, null);
+    }
+
     static final String DEFAULT_SECRETS_FILE = "link-secrets.properties";
     static final String DEFAULT_ACTIONS_FILE = "knurgn.properties";
 
-    private static final Set<String> SETTINGS = Set.of("url", "owner", "secrets.file", "actions.file");
+    private static final Set<String> SETTINGS = Set.of("url", "owner", "secrets.file", "actions.file", "dashboard.connectors");
     private static final Set<PosixFilePermission> NOT_OWNER = EnumSet.of(
             PosixFilePermission.GROUP_READ, PosixFilePermission.GROUP_WRITE, PosixFilePermission.GROUP_EXECUTE,
             PosixFilePermission.OTHERS_READ, PosixFilePermission.OTHERS_WRITE, PosixFilePermission.OTHERS_EXECUTE);
@@ -71,7 +79,25 @@ record LinkConfig(URI url, String owner, String token, Path actionsFile) {
             throw new IllegalArgumentException(secretsFile.getFileName() + " needs a line token=knlink_...; run knura-link pair");
         }
         Path actions = dir.resolve(settings.getProperty("actions.file", DEFAULT_ACTIONS_FILE).trim());
-        return new LinkConfig(url, owner, token, actions);
+        return new LinkConfig(url, owner, token, actions, dashboardConnectors(settings.getProperty("dashboard.connectors")));
+    }
+
+    private static Set<String> dashboardConnectors(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        if (value.strip().equals("none")) {
+            return Set.of();
+        }
+        Set<String> ids = new TreeSet<>();
+        for (String id : value.split(",")) {
+            if (!TapRelay.CONNECTOR.matcher(id.strip()).matches()) {
+                throw new IllegalArgumentException("dashboard.connectors: list connector ids from knurgn.properties,"
+                        + " separated by commas, or none");
+            }
+            ids.add(id.strip());
+        }
+        return ids;
     }
 
     /**
@@ -137,6 +163,7 @@ record LinkConfig(URI url, String owner, String token, Path actionsFile) {
     @Override
     public String toString() {
         // Keep the token out of logs and stack traces.
-        return "LinkConfig[url=" + url + ", owner=" + owner + ", actionsFile=" + actionsFile + "]";
+        return "LinkConfig[url=" + url + ", owner=" + owner + ", actionsFile=" + actionsFile
+                + ", dashboardConnectors=" + (dashboardConnectors == null ? "all" : dashboardConnectors) + "]";
     }
 }

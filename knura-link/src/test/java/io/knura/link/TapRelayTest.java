@@ -34,4 +34,36 @@ class TapRelayTest {
         assertEquals(-1, relay.onMessage("{\"type\":\"tap\",\"uid\":\"042D6B02936980\",\"counter\":1,\"tappedAt\":\"yesterday\"}"));
         assertEquals(List.of(), calls);
     }
+
+    @Test
+    void runsActionsChosenOnTheDashboardButOnlyOfferedOnes() {
+        List<String> chosen = new ArrayList<>();
+        TapRelay offering = new TapRelay((uid, counter, at) -> {
+            calls.add(new Call(uid, counter, at));
+            return 1;
+        }, (uid, counter, at, ids) -> {
+            chosen.addAll(ids);
+            return ids.size();
+        }, java.util.Set.of("living-room", "porch"));
+        assertEquals("{\"action\":\"hello\",\"connectors\":\"living-room,porch\"}", offering.hello());
+
+        String base = "{\"type\":\"tap\",\"uid\":\"042D6B02936980\",\"tappedAt\":\"2026-10-26T22:51:11Z\",";
+        assertEquals(1, offering.onMessage(base + "\"counter\":1,\"actions\":\"porch, front-door\"}"));
+        assertEquals(List.of("porch"), chosen);
+        assertEquals(List.of(), calls, "the knot rule doesn't run as well");
+
+        assertEquals(0, offering.onMessage(base + "\"counter\":2,\"actions\":\"front-door\"}"));
+        assertEquals(List.of("porch"), chosen, "never a connector this home doesn't offer");
+
+        assertEquals(1, offering.onMessage(base + "\"counter\":3,\"actions\":\"\"}"));
+        assertEquals(1, calls.size(), "no choice means the knot rule");
+    }
+
+    @Test
+    void offersNothingByDefault() {
+        assertEquals("{\"action\":\"hello\",\"connectors\":\"\"}", relay.hello());
+        assertEquals(0, relay.onMessage(
+                "{\"type\":\"tap\",\"uid\":\"042D6B02936980\",\"counter\":4,\"tappedAt\":\"2026-10-26T22:51:11Z\",\"actions\":\"porch\"}"));
+        assertEquals(List.of(), calls);
+    }
 }

@@ -89,14 +89,35 @@ loginctl enable-linger "$USER"   # keep it running when you're logged out
 journalctl --user -u knura-link -f
 ```
 
+## Choose actions on the dashboard
+
+Instead of writing a knot rule for every tag, you can pick what a tag does on the account's
+dashboard: open the tag and choose from the connectors your home link offers. When it
+connects, the home link tells the account the **ids** of the connectors in your
+`knurgn.properties` (like `living-room`), never their addresses or secrets. A tag with a
+choice runs those connectors instead of its knot rule; a tag with none keeps using its rule.
+
+To offer only some connectors, or none, add this to `link.properties` and restart knura-link:
+
+```properties
+# only these may be chosen on the dashboard
+dashboard.connectors=living-room
+# or turn dashboard choices off
+dashboard.connectors=none
+```
+
+The home link checks every choice against this list, so the account can never run a connector
+you didn't offer. It prints the list when it starts: `the dashboard can choose living-room`.
+
 ## How it stays safe
 
 - The home link only connects out, to a `wss://` address, and logs in with a token in the
   `Authorization` header. The token lives in `link-secrets.properties`, which it refuses to read
   if other users can, and it is never logged.
-- Each message names a tag UID, its counter and the tap time, nothing else. What a tag does is
-  decided by your local `knurgn.properties`; the hosted account can't choose or change an
-  action, and your connector secrets (Home Assistant webhook ids, webhook keys) never leave home.
+- Each message names a tag UID, its counter and the tap time, and the connector ids chosen on
+  the dashboard, if any. The account can only pick among the connectors you offer
+  (`dashboard.connectors`); it can't add one, change where one goes or see its secret. Your
+  connector secrets (Home Assistant webhook ids, webhook keys) never leave home.
 - A tap that arrives twice runs once, and a tap that arrives more than 30 seconds late runs
   nothing, so a link that reconnects after an outage doesn't replay old taps.
 - Removing the home link on the dashboard cuts it off at once; `knura-link` then stops with a

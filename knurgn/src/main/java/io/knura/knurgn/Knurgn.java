@@ -4,10 +4,14 @@ import java.lang.System.Logger.Level;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -49,6 +53,8 @@ public final class Knurgn implements AutoCloseable {
     }
 
     private final Map<String, Knot> knots = new HashMap<>();
+    /** Every connector in the config, by id, whether or not a knot rule uses it. */
+    private final TreeMap<String, Connector> connectors = new TreeMap<>();
     private final Clock clock;
     private final Duration expiry;
     private final Duration firstRetry;
@@ -57,15 +63,27 @@ public final class Knurgn implements AutoCloseable {
     private final ExecutorService workers = Executors.newVirtualThreadPerTaskExecutor();
 
     public Knurgn(List<Knot> knots, Clock clock) {
-        this(knots, clock, DEFAULT_EXPIRY, DEFAULT_FIRST_RETRY, Knurgn::log);
+        this(knots, List.of(), clock);
+    }
+
+    /** {@code connectors} may include ones no knot uses, for {@link #onVerifiedTap(String, int, Instant, List)}. */
+    public Knurgn(List<Knot> knots, List<Connector> connectors, Clock clock) {
+        this(knots, connectors, clock, DEFAULT_EXPIRY, DEFAULT_FIRST_RETRY, Knurgn::log);
     }
 
     Knurgn(List<Knot> knots, Clock clock, Duration expiry, Duration firstRetry, Consumer<Report> reports) {
+        this(knots, List.of(), clock, expiry, firstRetry, reports);
+    }
+
+    Knurgn(List<Knot> knots, List<Connector> connectors, Clock clock, Duration expiry, Duration firstRetry,
+            Consumer<Report> reports) {
         for (Knot knot : knots) {
             if (this.knots.put(knot.uid(), knot) != null) {
                 throw new IllegalArgumentException("knot " + knot.uid() + " is defined twice");
             }
+            knot.actions().forEach(c -> this.connectors.put(c.id(), c));
         }
+        connectors.forEach(c -> this.connectors.put(c.id(), c));
         this.clock = clock;
         this.expiry = expiry;
         this.firstRetry = firstRetry;
@@ -79,6 +97,11 @@ public final class Knurgn implements AutoCloseable {
 
     public int knotCount() {
         return knots.size();
+    }
+
+    /** The ids of every connector in the config, sorted. */
+    public Set<String> connectorIds() {
+        return Collections.unmodifiableSet(connectors.navigableKeySet());
     }
 
     /**
@@ -109,6 +132,28 @@ public final class Knurgn implements AutoCloseable {
             submit(event, connector, 1, deadline, firstRetry);
         }
         return knot.actions().size();
+    }
+
+    /**
+     * Like {@link #onVerifiedTap(String, int, Instant)}, but runs the connectors named in {@code
+     * connectorIds} instead of the tag's knot rule: the actions its owner chose for it elsewhere,
+     * such as on a hosted Knura account's dashboard. Ids that aren't in the config are skipped.
+     */
+    public int onVerifiedTap(String uid, int counter, Instant tappedAt, List<String> connectorIds) {
+        Knot knot = knots.get(uid);
+        TapEvent event = TapEvent.of(uid, counter, knot == null ? uid : knot.name(), tappedAt);
+        Instant deadline = tappedAt.plus(expiry);
+        int started = 0;
+        for (String id : new LinkedHashSet<>(connectorIds)) {
+            Connector connector = connectors.get(id);
+            if (connector == null) {
+                LOG.log(Level.WARNING, "tap {0}:{1}: no connector named {2} here, skipped it", uid, counter, id);
+                continue;
+            }
+            submit(event, connector, 1, deadline, firstRetry);
+            started++;
+        }
+        return started;
     }
 
     private void submit(TapEvent event, Connector connector, int attempt, Instant deadline, Duration nextGap) {
