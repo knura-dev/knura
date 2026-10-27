@@ -1,0 +1,61 @@
+# Dependabot opens a pull request when a dependency has a security fix, and once a week bundles
+# routine updates into one pull request per folder, so there are few to review. Security
+# alerts also show under the repository's Security tab.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      all:
+        patterns: ["*"]
+  - package-ecosystem: gradle
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      all:
+        patterns: ["*"]
+  - package-ecosystem: gradle
+    directory: "/android"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      all:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: "/knura-resolver"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      all:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: "/knurgn-matter"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      all:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directory: "/knurd"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      all:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directory: "/knurgn-matter"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      all:
+        patterns: ["*"]
