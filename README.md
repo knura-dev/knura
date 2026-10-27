@@ -51,7 +51,12 @@ Next steps: [tap with a phone](#tapping-with-a-phone), send each tap to a
 [signed webhook](#knurgn) or the [Matter bridge](knurgn-matter/README.md), or run it all on
 [Kubernetes](deploy/README.md).
 
-Keep `master.key` secret and backed up: it is the only way to verify or rewrite your tags.
+Keep `master.key` secret and backed up: it is the only way to verify or rewrite your tags. Back
+up `knurd.properties` only somewhere encrypted (a password manager, an encrypted USB stick or an
+encrypted backup), never a plain cloud folder: anyone with the file can make tags yours accept.
+Never restore `knurd-counters.properties` from an older backup: lower counters let tap links that
+were already used work again. If you lose it, start knurd with an empty one and tap each tag once,
+so its counter catches up before anyone can reuse an old link.
 
 The knura.io website lives in [`site/`](site/README.md), with steps to host it on AWS.
 
@@ -219,7 +224,9 @@ only reads.
 - **plaintext**: no login. `knurctl admin ...` works without `--creds`. knurd then only listens
   on 127.0.0.1, so it is for knurd's own computer.
 - **token** (the default): every request logs in with a token that knurctl reads from a
-  `--creds` file. Needed for other computers, together with TLS.
+  `--creds` file. Needed for other computers, together with TLS. Use it also when other people
+  or programs you don't trust have accounts on knurd's computer: in plaintext mode any of them
+  can read your tags and tap history.
 
 ```sh
 # Plaintext: add admin.security=plaintext to knurd.properties, restart knurd, then:
@@ -247,8 +254,9 @@ unless it is this computer. knurd keeps only each token's SHA-256.
 The Knura app in [android/](android/) sets tags up, checks them and resets them with the phone's
 NFC instead of a USB reader. The phone only relays: knurd works out the tag's keys from
 `master.key`, sends each command through the admin API and checks each reply, so keys never
-reach the phone. `knurctl admin pair-phone fold7` makes a token for it (named in
-`admin.provision.tokens`) and shows a QR code for the app to scan. See
+reach the phone. `knurctl admin pair-phone fold7` names a token for it in
+`admin.provision.tokens` and shows a QR code with a one-time pairing code, which the app swaps
+for the token. See
 [docs/android-app.md](docs/android-app.md).
 
 ## knurgn

@@ -70,6 +70,55 @@ final class TokenStore {
         return new TreeMap<>(tokens).keySet().stream().toList();
     }
 
+    /** A phone that just paired: its token's name and the token, to send it once. */
+    record Paired(String name, String token) {}
+
+    /**
+     * Swaps a pairing code from {@code knurctl admin pair-phone} for a new token: adds the token's
+     * hash to the tokens file and removes the code from the pairing file ({@link
+     * AdminTokens#PAIRING_FILE}, next to it), so the code works once. Empty if the code is wrong,
+     * used or expired.
+     */
+    synchronized Optional<Paired> pair(String code, java.time.Instant now) throws IOException {
+        reloadIfChanged();
+        if (problem != null || !AdminTokens.isWellFormedPairCode(code)) {
+            return Optional.empty();
+        }
+        Path pairingFile = file.resolveSibling(AdminTokens.PAIRING_FILE);
+        if (!Files.exists(pairingFile)) {
+            return Optional.empty();
+        }
+        String unsafe = PrivateFiles.problem(pairingFile);
+        if (unsafe != null) {
+            throw new IOException(unsafe);
+        }
+        Properties p = new Properties();
+        try (Reader in = Files.newBufferedReader(pairingFile, StandardCharsets.UTF_8)) {
+            p.load(in);
+        }
+        Map<String, AdminTokens.Pairing> waiting = new TreeMap<>(AdminTokens.parsePairing(p));
+        String hash = AdminTokens.hash(code);
+        String name = null;
+        for (Map.Entry<String, AdminTokens.Pairing> e : waiting.entrySet()) {
+            if (AdminTokens.sameHash(hash, e.getValue().codeHash()) && now.isBefore(e.getValue().expires()) && name == null) {
+                name = e.getKey();
+            }
+        }
+        if (name == null || tokens.containsKey(name)) {
+            return Optional.empty();
+        }
+        String token = AdminTokens.generate(new java.security.SecureRandom());
+        Map<String, String> more = new TreeMap<>(tokens);
+        more.put(name, AdminTokens.hash(token));
+        // Code first: if writing the token fails after this, the phone pairs again with a new code,
+        // rather than a code that could be used twice.
+        waiting.remove(name);
+        PrivateFiles.replace(pairingFile, AdminTokens.formatPairing(waiting));
+        PrivateFiles.replace(file, AdminTokens.format(more));
+        reloadIfChanged();
+        return Optional.of(new Paired(name, token));
+    }
+
     /**
      * Removes a token from the file, like {@code knurctl admin token remove}. Returns false if
      * there is no such token. Throws if the file can't be read or written, for example when it is

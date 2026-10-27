@@ -54,14 +54,33 @@ your own copy of this one. Also, the redirect means the resolver sees each tap's
 it could use a tap before the phone does, which counts as that tap (knurd's counter lets each
 tap through once), but it can never make new ones.
 
-**Abuse limits.** API Gateway throttles requests (registration much harder than taps), request
-bodies are capped at 2 KB, a server check times out after 5 seconds and reads at most 1 KB, and
-the function logs only the owner ID and outcome of each request, never `e=` or `c=`.
+**Abuse limits.** API Gateway throttles requests (registration much harder than taps), one
+address can register at most 5 new owner IDs an hour (moves don't count), request bodies are
+capped at 2 KB, a server check times out after 5 seconds and reads at most 1 KB, and the function
+logs only the owner ID and outcome of each request, never `e=` or `c=`. Logs are kept 14 days.
+
+**Suspending a misused owner ID.** If someone uses tap.knura.io links to dress up a phishing
+site, the operator opens the owner's item in DynamoDB (**Explore items**) and adds a String
+attribute `suspended` with a short reason, like `phishing, reported 2026-10-27`. Its taps then
+get a "Link suspended" page instead of a redirect, and the record can't be moved. Deleting the
+attribute lifts it. Reports go through [SECURITY.md](../SECURITY.md).
 
 **If a resolver.key is lost or stolen.** The resolver has no account recovery: there is no email
-or password to reset. The operator (for tap.knura.io, the Knura project) can fix a record by hand
-in DynamoDB: put the owner's new public key in `publicKey`, or delete the item so the owner can
-register again. Keep a backup of `knurd.properties`.
+or password to reset. Keep an encrypted backup of `knurd.properties`. If the key is gone or
+someone else has it:
+
+1. Make a new key: in an empty folder, `touch new.properties` and run
+   `knurctl resolver register --config new.properties`. It writes a new `resolver.publicKey` and
+   `resolver.key` (and a new owner ID you won't use) to `new.properties`.
+2. In `knurd.properties`, replace the old `resolver.publicKey` and `resolver.key` lines with the
+   new ones, keeping your `resolver.owner`. Delete `new.properties`.
+3. Ask the operator through [SECURITY.md](../SECURITY.md) for the owner ID to move to your new
+   public key. They confirm it's you another way, then in DynamoDB set the item's `publicKey` to
+   the new key.
+4. Restart knurd and run `knurctl resolver register`. It signs with the new key and a higher `seq`.
+
+If someone moved your taps with a stolen key, knurd warns about it at its next check (within 6
+hours); suspend the owner ID first (above) so no taps go to their server meanwhile.
 
 ## API
 
@@ -186,6 +205,18 @@ us-east-1**, and stay in it.
 
 At home-project volume, close to nothing: Lambda's free tier is a million requests a month,
 HTTP APIs cost about $1 per million requests, an on-demand DynamoDB table with a few records costs
-cents, and the certificate is free. Logs go to CloudWatch; set their retention to a month
+cents, and the certificate is free. Logs go to CloudWatch. Set their retention to 14 days
 (**CloudWatch**, **Log groups**, `/aws/lambda/knura-resolver`, **Actions**, **Edit retention
-setting**) so they don't pile up.
+setting**): they show when an owner's tags were tapped, so keep them no longer than needed.
+
+### Alarms
+
+So you hear when the resolver breaks (every resolver tag stops working with it):
+
+1. **CloudWatch**, **Alarms**, **Create alarm**, **Select metric**: **Lambda**, **By Function
+   Name**, `knura-resolver` **Errors**. Statistic **Sum**, period **5 minutes**, threshold
+   **Greater than 0**. Notification: create an SNS topic with your email, and confirm the email
+   AWS sends. Name it `knura-resolver-errors`.
+2. The same for **ApiGateway**, the `knura-resolver` API's **5xx**, named `knura-resolver-5xx`.
+3. **Billing and Cost Management**, **Budgets**, **Create budget**, a monthly cost budget (for
+   example $10) that emails you at 80%.

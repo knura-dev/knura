@@ -82,15 +82,17 @@ uninstall the old app first (then pair again).
 knurctl admin pair-phone fold7
 ```
 
-Use any name for the phone. This makes a login token that may set tags up, adds it to
-`admin.provision.tokens` in `knurd.properties`, and shows a QR code. Then:
+Use any name for the phone. This adds the name to `admin.provision.tokens` in
+`knurd.properties` and shows a QR code holding a one-time pairing code. Then:
 
 1. Restart knurd (it reads `admin.provision.tokens` when it starts). Its first lines should say
    `Phones may set tags up with these admin tokens: fold7`.
-2. In the app, tap **Scan pairing code**, scan the code, and unlock with your fingerprint or
-   screen lock.
+2. Within 15 minutes, in the app, tap **Scan pairing code**, scan the code, and unlock with your
+   fingerprint or screen lock. The app swaps the code for the phone's own login token (app 0.5.0
+   or newer), which never appears on screen.
 
-The code holds the token, so don't photograph or share it. If the phone is lost:
+The code works once and only for 15 minutes, so a photo of it is useless afterwards. If it ran
+out, run `pair-phone` again with the same name. If the phone is lost:
 `knurctl admin token remove fold7`. knurd refuses it straight away.
 
 ## 4. Use it

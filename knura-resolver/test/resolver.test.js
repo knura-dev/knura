@@ -181,3 +181,30 @@ test("two racing updates can't both win", async () => {
     assert.equal(await store.put(update), false);
     assert.equal(await store.put({ ...update, seq: SEQ + 1, publicKey: "00".repeat(32) }), false);
 });
+
+test("a suspended owner's taps get a page, and the owner can't move", async () => {
+    const { handle, store } = setup();
+    assert.equal((await handle(put(OWNER, signedUpdate(OWNER, SERVER, SEQ)))).statusCode, 200);
+    store.records.get(OWNER).suspended = "phishing, reported 2026-10-27";
+
+    const tap = await handle(get(`/${OWNER}`, `e=${E}&c=${C}`));
+    assert.equal(tap.statusCode, 410);
+    assert.equal(tap.headers.location, undefined);
+    assert.equal((await handle(put(OWNER, signedUpdate(OWNER, SERVER, SEQ + 1)))).statusCode, 403);
+});
+
+test("one address can register only a few new owner IDs an hour", async () => {
+    const { handle } = setup();
+    const from = (owner, ip) => ({
+        ...put(owner, signedUpdate(owner, SERVER, SEQ)),
+        requestContext: { http: { method: "PUT", sourceIp: ip } },
+    });
+    const owners = ["aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc", "dddddddddd", "eeeeeeeeee", "ffffffffff"];
+    const answers = [];
+    for (const owner of owners) answers.push((await handle(from(owner, "203.0.113.9"))).statusCode);
+    assert.deepEqual(answers, [200, 200, 200, 200, 200, 429]);
+    assert.equal((await handle(from("ffffffffff", "198.51.100.4"))).statusCode, 200, "another address");
+    // Moving an owner ID it already has isn't a new registration.
+    assert.equal((await handle({ ...put("aaaaaaaaaa", signedUpdate("aaaaaaaaaa", SERVER, SEQ + 1)),
+        requestContext: { http: { method: "PUT", sourceIp: "203.0.113.9" } } })).statusCode, 200);
+});

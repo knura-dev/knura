@@ -16,7 +16,9 @@ The card shows three things:
 - a QR code holding `knura://claim?uid=<UID>&code=<code>`
 
 Keep the card until the tag is claimed. If the seal over the code was already broken when the
-card arrived, don't claim that tag: someone may have read the code first.
+card arrived, don't claim that tag: someone may have read the code first. If a claim says the
+code doesn't open a tag you've never claimed, someone else may have claimed it already: stop,
+keep the card and the tag, and contact the seller with the tag's UID.
 
 ### Pack cards
 

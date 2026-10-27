@@ -43,6 +43,7 @@ public final class KnurdServer implements AutoCloseable {
     private final HttpServer server;
     private final TapVerifier verifier;
     private final TapListener listener;
+    private final TapThrottle throttle;
     private volatile RecentTaps recentTaps;
 
     /** Hears about taps that verified and were seen for the first time. */
@@ -67,6 +68,12 @@ public final class KnurdServer implements AutoCloseable {
     /** @param resolverOwner this knurd's owner ID at a tap resolver, or null for none */
     public KnurdServer(String host, int port, TapVerifier verifier, TapListener listener, String resolverOwner)
             throws IOException {
+        this(host, port, verifier, listener, resolverOwner, java.time.Clock.systemUTC());
+    }
+
+    KnurdServer(String host, int port, TapVerifier verifier, TapListener listener, String resolverOwner,
+            java.time.Clock clock) throws IOException {
+        this.throttle = new TapThrottle(clock);
         this.verifier = verifier;
         this.listener = listener;
         this.server = HttpServer.create(new InetSocketAddress(host, port), 0);
@@ -113,6 +120,14 @@ public final class KnurdServer implements AutoCloseable {
             return;
         }
         boolean html = wantsHtml(exchange);
+        java.net.InetAddress remote = exchange.getRemoteAddress().getAddress();
+        String address = remote.getHostAddress();
+        boolean local = remote.isLoopbackAddress();
+        if (!throttle.allows(address, local)) {
+            exchange.getResponseHeaders().set("Retry-After", Long.toString(TapThrottle.WINDOW.toSeconds()));
+            sendJson(exchange, 429, "{\"status\":\"too_many_requests\"}");
+            return;
+        }
         TapResult result;
         Map<String, String> params = parseQuery(exchange.getRequestURI().getRawQuery());
         if (params == null) {
@@ -130,12 +145,18 @@ public final class KnurdServer implements AutoCloseable {
                 return;
             }
         }
-        LOG.log(
-                Level.INFO,
-                "tap {0} uid={1} counter={2}",
-                result.status().jsonName(),
-                result.uid() == null ? "-" : result.uid(),
-                result.counter());
+        boolean ok = result.status() == TapResult.Status.OK;
+        if (!ok) {
+            throttle.failed(address, local);
+        }
+        if (ok || throttle.logFailure(n -> LOG.log(Level.WARNING, "{0} more failed taps in the last minute weren''t logged", n))) {
+            LOG.log(
+                    Level.INFO,
+                    "tap {0} uid={1} counter={2}",
+                    result.status().jsonName(),
+                    result.uid() == null ? "-" : result.uid(),
+                    result.counter());
+        }
         int actionsStarted = 0;
         if (result.status() == TapResult.Status.OK) {
             try {

@@ -24,6 +24,12 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # A new major Android Gradle plugin needs a newer Gradle and code changes, so it is done by hand.
+    ignore:
+      - dependency-name: "com.android.application"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "com.android.tools.build:gradle"
+        update-types: ["version-update:semver-major"]
     groups:
       all:
         patterns: ["*"]
