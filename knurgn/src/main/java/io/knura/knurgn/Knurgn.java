@@ -121,12 +121,21 @@ public final class Knurgn implements AutoCloseable {
      * 30-second expiry counts from {@code tappedAt}, so a tap that arrives late runs no action.
      */
     public int onVerifiedTap(String uid, int counter, Instant tappedAt) {
+        return onVerifiedTap(uid, counter, tappedAt, (String) null);
+    }
+
+    /**
+     * Like {@link #onVerifiedTap(String, int, Instant)}, and each event also carries {@code name},
+     * the name the owner gave the tag on a hosted Knura account's dashboard (null for none). It is
+     * a label only: the knot rule still decides what runs, and {@code knot} keeps its config name.
+     */
+    public int onVerifiedTap(String uid, int counter, Instant tappedAt, String name) {
         Knot knot = knots.get(uid);
         if (knot == null) {
             LOG.log(Level.INFO, "tap {0}:{1}: no knot rule for this tag, nothing to do", uid, counter);
             return 0;
         }
-        TapEvent event = TapEvent.of(uid, counter, knot.name(), tappedAt);
+        TapEvent event = TapEvent.of(uid, counter, knot.name(), tappedAt, name);
         Instant deadline = tappedAt.plus(expiry);
         for (Connector connector : knot.actions()) {
             submit(event, connector, 1, deadline, firstRetry);
@@ -140,8 +149,17 @@ public final class Knurgn implements AutoCloseable {
      * such as on a hosted Knura account's dashboard. Ids that aren't in the config are skipped.
      */
     public int onVerifiedTap(String uid, int counter, Instant tappedAt, List<String> connectorIds) {
+        return onVerifiedTap(uid, counter, tappedAt, connectorIds, null);
+    }
+
+    /**
+     * Like {@link #onVerifiedTap(String, int, Instant, List)}, and each event also carries the
+     * tag's dashboard {@code name} (null for none), as in {@link #onVerifiedTap(String, int,
+     * Instant, String)}.
+     */
+    public int onVerifiedTap(String uid, int counter, Instant tappedAt, List<String> connectorIds, String name) {
         Knot knot = knots.get(uid);
-        TapEvent event = TapEvent.of(uid, counter, knot == null ? uid : knot.name(), tappedAt);
+        TapEvent event = TapEvent.of(uid, counter, knot == null ? uid : knot.name(), tappedAt, name);
         Instant deadline = tappedAt.plus(expiry);
         int started = 0;
         for (String id : new LinkedHashSet<>(connectorIds)) {

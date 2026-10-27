@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Home link: a tap message may carry the tag's dashboard name in `"name"`, and every action's
+  event then has it too (`"name":"Front door"` after `"knot"`). `"knot"` is unchanged, so
+  renaming a tag never breaks an automation. knura-link drops control characters and cuts the
+  name to 40 characters. Webhook and Home Assistant bodies now JSON-escape the knot and name.
+  `TapEvent` gains `name()`, and knurgN gains `onVerifiedTap` overloads that take it.
 - Home link: actions chosen on the hosted account's dashboard. knura-link tells the account the
   ids of its connectors (`dashboard.connectors` in link.properties picks which, or `none`), and
   a tap message may name chosen connectors in `"actions"`; those run instead of the tag's knot

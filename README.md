@@ -273,6 +273,9 @@ Signatures follow [Standard Webhooks](https://www.standardwebhooks.com): headers
 the signature, refuse old timestamps and ignore ids they have already seen.
 `examples/webhook-receiver/WebhookReceiver.java` does all three in one file.
 
+A tap that comes through the [home link](docs/home-link.md) also has `"name"` after `"knot"`
+when the tag has a name on the account's dashboard, like `"name":"Front door"`.
+
 Set it up next to `knurd.properties`:
 
 ```sh
