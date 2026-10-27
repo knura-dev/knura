@@ -5,7 +5,7 @@ import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Keeps counters in memory only. Restarting knurd forgets them, so use it for tests and trials. */
+/** Keeps counters in memory only, for tests. */
 public final class MemoryCounterStore implements CounterStore {
     private final Map<String, Integer> counters = new ConcurrentHashMap<>();
 
