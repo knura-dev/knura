@@ -26,6 +26,25 @@ class PairingTest {
     }
 
     @Test
+    fun readsAOneTimeCodeAndSwapsItForAToken() {
+        val code = "knurp_" + "B".repeat(43)
+        val p = Pairing.parse("knura://pair?url=https%3A%2F%2Fapp.knura.io%2Fo%2Fwjuyhuiznh&code=$code")
+        assertEquals(Pairing("https://app.knura.io/o/wjuyhuiznh", "", "", code), p)
+        assertTrue(p.needsToken)
+        val paired = p.withToken(token)
+        assertEquals(Pairing("https://app.knura.io/o/wjuyhuiznh", "", token), paired)
+        assertFalse(paired.needsToken)
+        assertThrows(IllegalArgumentException::class.java) { p.withToken("nope") }
+        // A token and a code together, or a code that's really a token, is refused.
+        for (bad in listOf(
+            "knura://pair?url=https%3A%2F%2Fapp.knura.io%2Fo%2Fwjuyhuiznh&code=$code&token=$token",
+            "knura://pair?url=https%3A%2F%2Fapp.knura.io%2Fo%2Fwjuyhuiznh&code=$token",
+        )) {
+            assertThrows(bad, IllegalArgumentException::class.java) { Pairing.parse(bad) }
+        }
+    }
+
+    @Test
     fun refusesAnythingElse() {
         for (bad in listOf(
             "",

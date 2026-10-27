@@ -439,22 +439,47 @@ class MainActivity : Activity() {
         val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
         GmsBarcodeScanning.getClient(this, options).startScan()
             .addOnSuccessListener { barcode ->
-                val pairing = try {
+                val scanned = try {
                     Pairing.parse(barcode.rawValue ?: "")
                 } catch (e: IllegalArgumentException) {
                     showHome(e.message, bad = true)
                     return@addOnSuccessListener
                 }
-                unlock("Unlock to save the pairing") {
-                    try {
-                        vault.save(pairing)
-                        showHome("Paired. Pick what to do, then tap Start.")
-                    } catch (e: Exception) {
-                        showHome("Couldn't save the pairing: ${e.message}. Does this phone have a screen lock?", bad = true)
+                if (!scanned.needsToken) {
+                    savePairing(scanned)
+                    return@addOnSuccessListener
+                }
+                // A one-time code: swap it for the token first, then save that.
+                showHome("Pairing...")
+                worker.execute {
+                    val pairing = try {
+                        KnurdClient(scanned).pair()
+                    } catch (e: IOException) {
+                        ui { showHome("Couldn't pair: ${e.message}. Make a new pairing code and scan it.", bad = true) }
+                        return@execute
+                    } catch (e: IllegalArgumentException) {
+                        ui { showHome("Couldn't pair: ${e.message}", bad = true) }
+                        return@execute
+                    } catch (e: org.json.JSONException) {
+                        ui { showHome("Couldn't pair: the server's answer didn't make sense", bad = true) }
+                        return@execute
                     }
+                    ui { savePairing(pairing) }
                 }
             }
             .addOnFailureListener { e -> showHome("Couldn't scan: ${e.message}", bad = true) }
+    }
+
+    /** Unlocks and keeps [pairing], whose token is ready. */
+    private fun savePairing(pairing: Pairing) {
+        unlock("Unlock to save the pairing") {
+            try {
+                vault.save(pairing)
+                showHome("Paired. Pick what to do, then tap Start.")
+            } catch (e: Exception) {
+                showHome("Couldn't save the pairing: ${e.message}. Does this phone have a screen lock?", bad = true)
+            }
+        }
     }
 
     private fun confirmForget() {

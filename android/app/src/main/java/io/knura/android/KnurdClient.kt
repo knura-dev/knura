@@ -37,6 +37,15 @@ class KnurdClient(private val pairing: Pairing) {
 
     fun delete(path: String): Reply = send("DELETE", path, null)
 
+    /** Swaps the pairing's one-time code for its token, which only works once. */
+    fun pair(): Pairing {
+        val reply = post("/v1/pair", JSONObject().put("code", pairing.code))
+        if (reply.code != 200) {
+            throw IOException(reply.json.optString("detail", "the server answered ${reply.code}"))
+        }
+        return pairing.withToken(reply.json.optString("token"))
+    }
+
     private fun send(method: String, path: String, body: JSONObject?): Reply {
         val connection = URL(pairing.url + path).openConnection() as HttpsURLConnection
         try {
@@ -48,7 +57,9 @@ class KnurdClient(private val pairing: Pairing) {
             connection.connectTimeout = 5000
             // knurd waits up to 20 seconds for the tag's next step before answering.
             connection.readTimeout = 30000
-            connection.setRequestProperty("Authorization", "Bearer " + pairing.token)
+            if (pairing.token.isNotEmpty()) {
+                connection.setRequestProperty("Authorization", "Bearer " + pairing.token)
+            }
             connection.requestMethod = method
             if (body != null) {
                 connection.doOutput = true
