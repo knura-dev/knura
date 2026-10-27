@@ -51,6 +51,9 @@ import javax.net.ssl.SSLParameters;
  * through a phone and removing tokens, it only reads:
  *
  * <ul>
+ *   <li>{@code POST /v1/pair} with {@code {"code":"knurp_..."}}, the only request without a token:
+ *       swaps a one-time pairing code from {@code knurctl admin pair-phone} for the phone's token
+ *       ({@link TokenStore#pair}). Wrong codes count as bad tokens for {@link LoginThrottle}.
  *   <li>{@code GET /v1/whoami}: {@code {"token":"laptop"}}, the name of the token used.
  *   <li>{@code GET /v1/status}: uptime, key mode, public URL, resolver owner, knot and tag counts.
  *   <li>{@code GET /v1/tags}: every tag seen so far and its last accepted counter.
@@ -173,6 +176,20 @@ final class AdminServer implements AutoCloseable {
             if (answer.detail() == null) {
                 answer = new Answer(answer.status(), answer.json(), "plaintext: no login");
             }
+        } else if ("/v1/pair".equals(path)) {
+            Duration wait = throttle.waitFor(remoteText);
+            if (!"POST".equals(method)) {
+                exchange.getResponseHeaders().set("Allow", "POST");
+                answer = new Answer(405, error("method_not_allowed", null), null);
+            } else if (!wait.isZero()) {
+                exchange.getResponseHeaders().set("Retry-After", String.valueOf(Math.max(1, wait.toSeconds())));
+                answer = new Answer(429, error("too_many_attempts", "too many bad codes; try again later"), "locked out");
+            } else {
+                answer = pair(requestBody, remoteText);
+                if (answer.status() == 200) {
+                    tokenName = answer.detail().substring("paired ".length());
+                }
+            }
         } else {
             Optional<String> name = tokens.nameOf(bearer(exchange.getRequestHeaders()));
             Duration wait = throttle.waitFor(remoteText);
@@ -202,6 +219,30 @@ final class AdminServer implements AutoCloseable {
             answer = new Answer(500, error("error", "the audit log can't be written"), null);
         }
         send(exchange, answer.status(), answer.json());
+    }
+
+    private Answer pair(byte[] body, String remote) {
+        Object code;
+        try {
+            code = FlatJson.parse(new String(body, StandardCharsets.UTF_8)).get("code");
+        } catch (IllegalArgumentException e) {
+            code = null;
+        }
+        Optional<TokenStore.Paired> paired;
+        try {
+            paired = tokens.pair(code instanceof String s ? s : null, clock.instant());
+        } catch (IOException e) {
+            LOG.log(Level.ERROR, "could not pair a phone", e);
+            return new Answer(500, error("error", "knurd couldn't save the phone's token"), "pairing failed");
+        }
+        if (paired.isEmpty()) {
+            throttle.failed(remote);
+            return new Answer(401, error("unauthorized", "that pairing code is wrong, used or more than "
+                    + AdminTokens.PAIR_TIME.toMinutes() + " minutes old; make a new one with knurctl admin pair-phone"),
+                    "bad pairing code");
+        }
+        return new Answer(200, "{\"name\":" + Json.quote(paired.get().name()) + ",\"token\":"
+                + Json.quote(paired.get().token()) + "}", "paired " + paired.get().name());
     }
 
     private Answer route(String method, String path, String query, String tokenName, byte[] body,

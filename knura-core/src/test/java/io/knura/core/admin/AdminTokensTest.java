@@ -37,6 +37,25 @@ class AdminTokensTest {
     }
 
     @Test
+    void pairingCodesAndTheirFileRoundTrip() {
+        String code = AdminTokens.generatePairCode(new SecureRandom());
+        assertTrue(AdminTokens.isWellFormedPairCode(code), code);
+        assertFalse(AdminTokens.isWellFormed(code), "a code is never a token");
+        assertFalse(AdminTokens.isWellFormedPairCode(AdminTokens.generate(new SecureRandom())));
+        java.util.Map<String, AdminTokens.Pairing> waiting = java.util.Map.of(
+                "fold7", new AdminTokens.Pairing(AdminTokens.hash(code), java.time.Instant.ofEpochSecond(1761571200)));
+        java.util.Properties p = new java.util.Properties();
+        try {
+            p.load(new java.io.StringReader(AdminTokens.formatPairing(waiting)));
+        } catch (java.io.IOException e) {
+            throw new AssertionError(e);
+        }
+        assertEquals(waiting, AdminTokens.parsePairing(p));
+        p.setProperty("pixel", "sha256:nope 1");
+        assertThrows(IllegalArgumentException.class, () -> AdminTokens.parsePairing(p));
+    }
+
+    @Test
     void tokensFileRoundTrips() throws Exception {
         Map<String, String> tokens = Map.of("laptop", AdminTokens.hash("a"), "loomstudio", AdminTokens.hash("b"));
         Properties p = new Properties();

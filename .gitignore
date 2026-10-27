@@ -12,6 +12,7 @@ knurd.properties
 knurd-counters.properties
 # knurd admin API: token hashes, TLS key, audit log, and knurctl creds files (hold tokens).
 knurd-admin-tokens.properties
+knurd-admin-pairing.properties
 knurd-admin.p12
 knurd-admin.p12.password
 knurd-admin-audit.log

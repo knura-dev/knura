@@ -16,12 +16,26 @@ import java.util.regex.Pattern;
  * so it cannot be guessed and needs no slow password hash. knurd keeps only each token's SHA-256
  * in its tokens file ({@code <name>=sha256:<hex>} per line); the token itself lives only in the
  * knurctl command config made for it.
+ *
+ * <p>A phone is paired with a one-time pairing code ({@code knurp_...}) instead: knurctl keeps its
+ * SHA-256 and an expiry time in the pairing file ({@link #PAIRING_FILE}, {@code <name>=sha256:<hex>
+ * <expiry in epoch seconds>}), and the Knura app swaps the code for a new token at knurd's {@code
+ * POST /v1/pair}, which ends the code. So the QR code knurctl shows is useless once used or expired.
  */
 public final class AdminTokens {
     public static final String PREFIX = "knurd_";
     private static final Pattern TOKEN = Pattern.compile("knurd_[A-Za-z0-9_-]{43}");
     private static final Pattern NAME = Pattern.compile("[a-z0-9][a-z0-9_-]{0,31}");
     private static final Pattern HASH = Pattern.compile("sha256:[0-9a-f]{64}");
+    private static final Pattern PAIR_CODE = Pattern.compile("knurp_[A-Za-z0-9_-]{43}");
+    private static final Pattern PAIRING = Pattern.compile("(sha256:[0-9a-f]{64}) ([0-9]{1,12})");
+    /** The pairing file's name, next to the tokens file. */
+    public static final String PAIRING_FILE = "knurd-admin-pairing.properties";
+    /** How long a pairing code works: time to restart knurd and scan it. */
+    public static final java.time.Duration PAIR_TIME = java.time.Duration.ofMinutes(15);
+
+    /** A waiting pairing code: its hash and when it stops working. */
+    public record Pairing(String codeHash, java.time.Instant expires) {}
 
     private AdminTokens() {}
 
@@ -29,6 +43,37 @@ public final class AdminTokens {
         byte[] bytes = new byte[32];
         random.nextBytes(bytes);
         return PREFIX + Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    public static String generatePairCode(SecureRandom random) {
+        return "knurp_" + generate(random).substring(PREFIX.length());
+    }
+
+    public static boolean isWellFormedPairCode(String code) {
+        return code != null && PAIR_CODE.matcher(code).matches();
+    }
+
+    /** Reads a pairing file's entries, name to pairing; throws for a damaged one. */
+    public static Map<String, Pairing> parsePairing(Properties p) {
+        Map<String, Pairing> pairing = new TreeMap<>();
+        for (String name : p.stringPropertyNames()) {
+            java.util.regex.Matcher m = PAIRING.matcher(p.getProperty(name).trim());
+            if (!isValidName(name) || !m.matches()) {
+                throw new IllegalArgumentException("bad pairing entry: " + name);
+            }
+            pairing.put(name, new Pairing(m.group(1), java.time.Instant.ofEpochSecond(Long.parseLong(m.group(2)))));
+        }
+        return pairing;
+    }
+
+    /** The pairing file text for {@code pairing}. */
+    public static String formatPairing(Map<String, Pairing> pairing) {
+        StringBuilder out = new StringBuilder(
+                "# Phones waiting to pair with knurd: name=sha256 of the pairing code, then when it expires\n"
+                        + "# (epoch seconds). Made by 'knurctl admin pair-phone'; knurd removes each one when it's used.\n");
+        new TreeMap<>(pairing).forEach((name, p) ->
+                out.append(name).append('=').append(p.codeHash()).append(' ').append(p.expires().getEpochSecond()).append('\n'));
+        return out.toString();
     }
 
     public static boolean isWellFormed(String token) {

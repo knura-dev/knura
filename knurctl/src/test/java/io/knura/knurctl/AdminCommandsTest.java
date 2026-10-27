@@ -338,28 +338,32 @@ class AdminCommandsTest {
     }
 
     @Test
-    void pairPhoneMakesAProvisionTokenAndAScannableCode() throws Exception {
+    void pairPhoneMakesAProvisionTokenNameAndAOneTimeCode() throws Exception {
         readyForPhones();
         assertEquals(0, run("admin", "pair-phone", "fold7", "--config", config().toString()), err());
         Properties settings = load(config());
         assertEquals("fold7", settings.getProperty("admin.provision.tokens"));
         assertEquals("knurd-admin-tokens.properties", settings.getProperty("admin.tokens.file"));
-        assertTrue(out().contains("restart knurd"), out());
+        assertTrue(out().contains("Restart knurd"), out());
 
         String link = scan(out());
         String fingerprint = AdminKeystore.load(dir.resolve("knurd-admin.p12"), dir.resolve("knurd-admin.p12.password"))
                 .fingerprint();
-        assertTrue(link.startsWith("knura://pair?url=https%3A%2F%2F192.168.1.20%3A8425&fp=" + fingerprint + "&token=knurd_"),
+        assertTrue(link.startsWith("knura://pair?url=https%3A%2F%2F192.168.1.20%3A8425&fp=" + fingerprint + "&code=knurp_"),
                 link);
-        String token = link.substring(link.indexOf("&token=") + 7);
-        Properties tokens = load(dir.resolve("knurd-admin-tokens.properties"));
-        assertEquals(AdminTokens.hash(token), tokens.getProperty("fold7"));
+        String code = link.substring(link.indexOf("&code=") + 6);
+        assertTrue(load(dir.resolve("knurd-admin-tokens.properties")).isEmpty(), "no token until the app pairs");
+        AdminTokens.Pairing waiting = AdminTokens.parsePairing(load(dir.resolve(AdminTokens.PAIRING_FILE))).get("fold7");
+        assertEquals(AdminTokens.hash(code), waiting.codeHash());
+        assertTrue(waiting.expires().isAfter(java.time.Instant.now().plus(AdminTokens.PAIR_TIME).minusSeconds(60)));
         assertFalse(Files.list(dir).anyMatch(f -> f.getFileName().toString().equals(Creds.DEFAULT_FILE)),
                 "the token goes only to the phone");
 
         assertEquals(0, run("admin", "pair-phone", "pixel", "--config", config().toString()), err());
         assertEquals("fold7,pixel", load(config()).getProperty("admin.provision.tokens"));
         assertEquals(1, Files.readString(config()).split("admin.provision.tokens=", -1).length - 1, "edits the line");
+        assertEquals(2, AdminTokens.parsePairing(load(dir.resolve(AdminTokens.PAIRING_FILE))).size());
+        Files.writeString(dir.resolve("knurd-admin-tokens.properties"), "pixel=" + AdminTokens.hash(TOKEN) + "\n");
         assertEquals(2, run("admin", "pair-phone", "pixel", "--config", config().toString()), "names are unique");
     }
 

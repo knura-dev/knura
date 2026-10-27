@@ -97,6 +97,32 @@ class AdminServerTest {
     }
 
     @Test
+    void aPairingCodeIsSwappedForATokenOnceAndOnlyInTime() throws Exception {
+        String code = AdminTokens.generatePairCode(random);
+        String late = AdminTokens.generatePairCode(random);
+        PrivateFiles.create(dir.resolve(AdminTokens.PAIRING_FILE), AdminTokens.formatPairing(Map.of(
+                "fold7", new AdminTokens.Pairing(AdminTokens.hash(code), clock.instant().plus(AdminTokens.PAIR_TIME)),
+                "pixel", new AdminTokens.Pairing(AdminTokens.hash(late), clock.instant().minusSeconds(1)))));
+        assertEquals(401, get("/v1/whoami", code).statusCode(), "a code isn't a login");
+
+        HttpResponse<String> paired = pair(code);
+        assertEquals(200, paired.statusCode(), paired.body());
+        String phoneToken = paired.body().replaceAll(".*\"token\":\"([^\"]+)\".*", "$1");
+        assertTrue(paired.body().startsWith("{\"name\":\"fold7\""), paired.body());
+        assertEquals("{\"token\":\"fold7\",\"security\":\"token\"}", get("/v1/whoami", phoneToken).body());
+        assertEquals(401, pair(code).statusCode(), "once");
+        assertEquals(401, pair(late).statusCode(), "expired");
+        assertEquals(405, get("/v1/pair", null).statusCode());
+        assertTrue(Files.readString(auditFile).contains("paired fold7"));
+        assertFalse(Files.readString(auditFile).contains(code) || Files.readString(auditFile).contains(phoneToken));
+    }
+
+    private HttpResponse<String> pair(String code) throws Exception {
+        return http.send(request("/v1/pair", null).POST(HttpRequest.BodyPublishers.ofString("{\"code\":\"" + code + "\"}")).build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
+    @Test
     void unknownPathsAndMethods() throws Exception {
         assertEquals(404, get("/v1/nothing", token).statusCode());
         assertEquals(401, get("/v1/nothing", null).statusCode(), "nothing is revealed before logging in");

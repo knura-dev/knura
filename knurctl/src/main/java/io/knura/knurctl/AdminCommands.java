@@ -249,10 +249,11 @@ final class AdminCommands {
     }
 
     /**
-     * Pairs a phone running the Knura app: makes a token that may set tags up through the phone
+     * Pairs a phone running the Knura app: names a token that may set tags up through the phone
      * (admin.provision.tokens) and shows a QR code for the app to scan, holding knurd's admin
-     * address, its certificate fingerprint and the token. No creds file is written: the token only
-     * goes to the phone.
+     * address, its certificate fingerprint and a one-time pairing code. The app swaps the code for
+     * the token at knurd (see {@link AdminTokens}), so the token only ever goes to the phone and a
+     * photo of the QR code is useless once it's used or {@link AdminTokens#PAIR_TIME} has passed.
      */
     private void pairPhone(String name) throws IOException, UsageException {
         if (!AdminTokens.isValidName(name)) {
@@ -293,9 +294,24 @@ final class AdminCommands {
                     + " (knurctl admin token remove " + name + ") or pick another name");
         }
 
-        String token = AdminTokens.generate(new SecureRandom());
-        tokens.put(name, AdminTokens.hash(token));
-        PrivateFiles.replace(tokensFile, AdminTokens.format(tokens));
+        String code = AdminTokens.generatePairCode(new SecureRandom());
+        Path pairingFile = tokensFile.resolveSibling(AdminTokens.PAIRING_FILE);
+        Map<String, AdminTokens.Pairing> waiting = new java.util.TreeMap<>();
+        if (Files.exists(pairingFile)) {
+            Properties p = new Properties();
+            try (var in = Files.newBufferedReader(pairingFile, StandardCharsets.UTF_8)) {
+                p.load(in);
+            }
+            waiting.putAll(AdminTokens.parsePairing(p));
+        }
+        java.time.Instant now = java.time.Instant.now();
+        waiting.values().removeIf(w -> !now.isBefore(w.expires()));
+        waiting.put(name, new AdminTokens.Pairing(AdminTokens.hash(code), now.plus(AdminTokens.PAIR_TIME)));
+        PrivateFiles.replace(pairingFile, AdminTokens.formatPairing(waiting));
+        if (!Files.exists(tokensFile)) {
+            // knurd adds the phone's token here when the app pairs.
+            PrivateFiles.replace(tokensFile, AdminTokens.format(tokens));
+        }
         if (enabling) {
             appendSettings("""
                     # knurd admin API (knurctl admin pair-phone). Its own port, never the tap port: keep it off
@@ -305,24 +321,25 @@ final class AdminCommands {
         }
         addProvisionToken(config, name);
 
-        out.println("Made token \"" + name + "\" for your phone; knurd keeps only its hash, in "
-                + tokensFile.toAbsolutePath() + ".");
-        out.println("Added it to admin.provision.tokens in " + configPath.toAbsolutePath() + ".");
+        out.println("Made a pairing code for \"" + name + "\"; when the app uses it, knurd makes the phone's token and"
+                + " keeps only its hash, in " + tokensFile.toAbsolutePath() + ".");
+        out.println("Added " + name + " to admin.provision.tokens in " + configPath.toAbsolutePath() + ".");
         out.println();
-        out.println("In the Knura app, tap Pair and scan this code. It holds the token: don't share or photograph it.");
+        out.println("Restart knurd so it reads admin.provision.tokens. Then, within " + AdminTokens.PAIR_TIME.toMinutes()
+                + " minutes, tap Pair in the Knura app and scan this code. It works once.");
         out.println();
-        out.print(TerminalQr.render(pairingLink(url, fingerprint, token)));
+        out.print(TerminalQr.render(pairingLink(url, fingerprint, code)));
         out.println();
-        out.println("Then restart knurd so it reads admin.provision.tokens. The phone must be on the same network as");
+        out.println("The phone must be on the same network as");
         out.println(url.getHost() + ", and the firewall must let port " + url.getPort() + " in. On Fedora:");
         out.println("  sudo firewall-cmd --add-port=" + url.getPort() + "/tcp --permanent && sudo firewall-cmd --reload");
         out.println("If the phone is lost: knurctl admin token remove " + name);
     }
 
-    /** What the app scans: {@code knura://pair?url=...&fp=...&token=...}. */
-    static String pairingLink(URI adminUrl, String fingerprint, String token) {
+    /** What the app scans: {@code knura://pair?url=...&fp=...&code=knurp_...}. */
+    static String pairingLink(URI adminUrl, String fingerprint, String code) {
         return "knura://pair?url=" + URLEncoder.encode(adminUrl.toString(), StandardCharsets.UTF_8)
-                + "&fp=" + fingerprint + "&token=" + token;
+                + "&fp=" + fingerprint + "&code=" + code;
     }
 
     /** Adds {@code name} to admin.provision.tokens, editing the line if there is one. */
