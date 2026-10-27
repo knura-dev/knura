@@ -62,11 +62,19 @@ public final class KnurgnConfig {
         Path dir = file.toAbsolutePath().getParent();
         Path secretsFile = dir.resolve(rules.getProperty("secrets.file", DEFAULT_SECRETS_FILE).trim());
         Properties secrets = Files.exists(secretsFile) ? readSecrets(secretsFile) : new Properties();
-        return new Knurgn(knots(rules, secrets, secretsFile.getFileName().toString(), clock), clock);
+        Parsed parsed = parse(rules, secrets, secretsFile.getFileName().toString(), clock);
+        return new Knurgn(parsed.knots(), parsed.connectors(), clock);
     }
+
+    /** The knot rules, and every connector, including ones no rule uses. */
+    record Parsed(List<Knot> knots, List<Connector> connectors) {}
 
     /** Builds the knots; {@code secretsName} is only used in error messages. */
     static List<Knot> knots(Properties rules, Properties secrets, String secretsName, Clock clock) {
+        return parse(rules, secrets, secretsName, clock).knots();
+    }
+
+    static Parsed parse(Properties rules, Properties secrets, String secretsName, Clock clock) {
         for (String id : secrets.stringPropertyNames()) {
             // Never echo a bad line: it may be a bare secret pasted without its id.
             if (!NAME.matcher(id).matches() || secrets.getProperty(id).isBlank()) {
@@ -145,7 +153,7 @@ public final class KnurgnConfig {
             }
             knots.add(new Knot(uid, name, actions));
         }
-        return knots;
+        return new Parsed(knots, List.copyOf(connectors.values()));
     }
 
     private static String uid(String text) {

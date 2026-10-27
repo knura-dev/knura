@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.util.Set;
 
 /**
  * The home link: {@code knura-link [config-file]} runs it, {@code knura-link pair [config-file]}
@@ -84,13 +85,23 @@ public final class Main {
             return 1;
         }
         System.out.printf("knura-link: %d knot(s) with actions, from %s%n", knurgn.knotCount(), config.actionsFile());
+        Set<String> offered = config.dashboardConnectors() == null ? knurgn.connectorIds() : config.dashboardConnectors();
+        for (String id : offered) {
+            if (!knurgn.connectorIds().contains(id)) {
+                System.err.println("knura-link: bad config: dashboard.connectors names " + id + ", which isn't in "
+                        + config.actionsFile().getFileName());
+                knurgn.close();
+                return 1;
+            }
+        }
+        System.out.println("knura-link: the dashboard can choose " + (offered.isEmpty() ? "no connectors" : String.join(", ", offered)));
         Thread main = Thread.currentThread();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             main.interrupt();
             knurgn.close();
         }));
         try {
-            new LinkClient(config, new TapRelay(knurgn::onVerifiedTap)).run();
+            new LinkClient(config, new TapRelay(knurgn::onVerifiedTap, knurgn::onVerifiedTap, offered)).run();
         } catch (LinkClient.RefusedException e) {
             System.err.println("knura-link: " + e.getMessage());
             return 1;

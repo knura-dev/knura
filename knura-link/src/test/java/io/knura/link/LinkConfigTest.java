@@ -31,6 +31,27 @@ class LinkConfigTest {
     }
 
     @Test
+    void aBareHostGetsAPathBeforeTheOwner() {
+        LinkConfig config = new LinkConfig(java.net.URI.create("wss://link.example.com"), PairingCodeTest.OWNER,
+                PairingCodeTest.TOKEN, dir.resolve("knurgn.properties"));
+        assertEquals("wss://link.example.com/?owner=" + PairingCodeTest.OWNER, LinkClient.address(config).toString());
+    }
+
+    @Test
+    void readsWhichConnectorsTheDashboardMayChoose() throws Exception {
+        Path file = dir.resolve("link.properties");
+        LinkConfig.save(file, PairingCode.parse(PairingCodeTest.code("wss://abc.example.com/link", PairingCodeTest.OWNER, PairingCodeTest.TOKEN)));
+        assertEquals(null, LinkConfig.load(file).dashboardConnectors(), "all of them unless it says otherwise");
+        String paired = Files.readString(file);
+        Files.writeString(file, paired + "dashboard.connectors=living-room, porch\n");
+        assertEquals(java.util.Set.of("living-room", "porch"), LinkConfig.load(file).dashboardConnectors());
+        Files.writeString(file, paired + "dashboard.connectors=none\n");
+        assertEquals(java.util.Set.of(), LinkConfig.load(file).dashboardConnectors());
+        Files.writeString(file, paired + "dashboard.connectors=living room\n");
+        assertThrows(IllegalArgumentException.class, () -> LinkConfig.load(file));
+    }
+
+    @Test
     void wontPairOverAnExistingPairing() throws Exception {
         Path file = dir.resolve("link.properties");
         PairingCode code = PairingCode.parse(PairingCodeTest.code("wss://abc.example.com/link", PairingCodeTest.OWNER, PairingCodeTest.TOKEN));

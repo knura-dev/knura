@@ -54,6 +54,16 @@ class KnurgnConfigTest {
     }
 
     @Test
+    void keepsConnectorsNoKnotUses() {
+        Properties rules = rules();
+        rules.setProperty("webhook.spare.url", "https://example.com/spare");
+        Properties secrets = secrets();
+        secrets.setProperty("spare", SECRET);
+        KnurgnConfig.Parsed parsed = KnurgnConfig.parse(rules, secrets, "s", Clock.systemUTC());
+        assertEquals(List.of("a", "spare"), parsed.connectors().stream().map(Connector::id).sorted().toList());
+    }
+
+    @Test
     void buildsMatterConnector() {
         Properties rules = rules();
         rules.setProperty("knot.042D6B02936980.actions", "a,home");

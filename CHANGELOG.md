@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Home link: actions chosen on the hosted account's dashboard. knura-link tells the account the
+  ids of its connectors (`dashboard.connectors` in link.properties picks which, or `none`), and
+  a tap message may name chosen connectors in `"actions"`; those run instead of the tag's knot
+  rule, and only if offered. knurgN gains `connectorIds()` and
+  `onVerifiedTap(uid, counter, tappedAt, connectorIds)`, and keeps connectors no knot uses.
+  A home link address with no path (`wss://link.example.com`) now works.
 - Home link (`knura-link`): runs your knurgN rules at home for taps a hosted Knura account has
   checked. It connects out over `wss://` with a token from the account's dashboard
   (`knura-link pair`), so no ports need opening; each message carries only the tag UID, counter

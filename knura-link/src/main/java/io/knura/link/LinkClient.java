@@ -52,7 +52,10 @@ final class LinkClient {
 
     /** The address with the owner ID added; the token is sent separately. */
     static URI address(LinkConfig config) {
-        return URI.create(config.url() + "?owner=" + URLEncoder.encode(config.owner(), StandardCharsets.UTF_8));
+        String url = config.url().toString();
+        // A bare host, like wss://link.example.com, still needs a path in front of the query.
+        String path = config.url().getRawPath() == null || config.url().getRawPath().isEmpty() ? "/" : "";
+        return URI.create(url + path + "?owner=" + URLEncoder.encode(config.owner(), StandardCharsets.UTF_8));
     }
 
     /** Connects and stays connected until the thread is interrupted or the server refuses the token. */
@@ -93,6 +96,7 @@ final class LinkClient {
                 .buildAsync(address(config), listener)
                 .get();
         LOG.log(Level.INFO, "connected to {0}; waiting for taps", config.url().getHost());
+        socket.sendText(relay.hello(), true).get();
         try {
             while (true) {
                 try {
