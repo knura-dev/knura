@@ -20,9 +20,27 @@ android {
         buildConfig = true
     }
 
+    // Release builds are signed with Knura's own key when the release workflow provides it
+    // (from the ANDROID_KEYSTORE secrets), so every release can update the one before it. Without
+    // it, assembleRelease gives an unsigned APK and CI uses the debug build instead.
+    val keystore = System.getenv("KNURA_KEYSTORE")?.let { file(it) }?.takeIf { it.exists() }
+    signingConfigs {
+        if (keystore != null) {
+            create("knura") {
+                storeFile = keystore
+                storePassword = System.getenv("KNURA_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KNURA_KEY_ALIAS")
+                keyPassword = System.getenv("KNURA_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (keystore != null) {
+                signingConfig = signingConfigs.getByName("knura")
+            }
         }
     }
 

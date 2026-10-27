@@ -69,8 +69,12 @@ needs TLS.
 3. Allow **Install unknown apps** for your browser when Android asks. If Play Protect warns
    about an unknown developer, choose **Install anyway**.
 
-Each build is signed with a fresh test key, so to install a newer one, uninstall the old app
-first (then pair again).
+Only install the app from that link or a Knura release page. To check a download, compare its
+SHA-256 with `knura.apk.sha256` on the same page (`sha256sum knura.apk` on Linux).
+
+Builds signed with the Knura release key install over the previous one. Older test builds were
+signed with a fresh test key each time, so the first time you move to a release-signed build,
+uninstall the old app first (then pair again).
 
 ## 3. Pair the phone
 

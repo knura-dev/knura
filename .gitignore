@@ -27,3 +27,4 @@ knurgn-matter-storage/
 node_modules/
 # knura-resolver: the Lambda upload, built by npm run package.
 knura-resolver.zip
+*.jks
