@@ -1,6 +1,6 @@
 # Knura
 
-Open-source NFC trust and actions platform for NTAG 424 DNA tags(made with Claude): verify that a tap came from a
+Open-source NFC trust and actions platform for NTAG 424 DNA tags: verify that a tap came from a
 genuine tag, then trigger actions from it.
 
 | Module | What it is | Status |
@@ -58,8 +58,6 @@ Never restore `knurd-counters.properties` from an older backup: lower counters l
 were already used work again. If you lose it, start knurd with an empty one and tap each tag once,
 so its counter catches up before anyone can reuse an old link.
 
-The knura.io website lives in [`site/`](site/README.md), with steps to host it on AWS.
-
 To run knurd and the Matter bridge on Kubernetes, use the Helm chart and container images in
 [`deploy/`](deploy/README.md). `deploy/kind/test.sh` tries it all on a throwaway local cluster.
 
@@ -70,6 +68,9 @@ Requires JDK 21.
 ```sh
 ./gradlew build
 ```
+
+New to the code? [docs/architecture.md](docs/architecture.md) shows how a tap flows through the
+modules and where the keys live. To make a change, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## knura-core
 
@@ -328,9 +329,14 @@ Rules:
 
 ## Who builds Knura
 
-Knura is built by one person working with AI coding tools. Every change is reviewed by hand, runs
-250+ automated tests (the tag crypto against NXP's published examples), and is tried on real tags,
-readers and phones before release. The code is all here, so you can check it yourself.
+Knura is built by one person, Zack, working with AI coding tools (mostly Claude). Every change
+goes through a pull request, is reviewed by hand, runs 300+ automated tests in CI (the tag crypto
+against NXP's published examples), and is tried on real tags, readers and phones before release.
+In October 2026 it had a threat model and a security audit, with the fixes merged through normal
+pull requests. [How Knura is built and checked](docs/how-we-review.md) has the details. The code
+is all here, so you can check it yourself.
+
+Contributions are welcome, AI-assisted ones included: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Community
 
