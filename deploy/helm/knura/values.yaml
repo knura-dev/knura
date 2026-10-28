@@ -18,6 +18,10 @@ image:
 #   knurgn-matter-secret       the Matter bridge's whsec_ secret on its own, when matter.enabled
 existingSecret: knura-keys
 
+# How much knurd logs (kubectl logs): error, warn, info, debug or trace. Empty keeps knurd's
+# default, info. Keys, tokens and tap link MACs are never logged. See docs/logs.md.
+logLevel: ""
+
 # The HTTPS address phones use to reach knurd, without /tap (knurd's public.url). knurctl writes
 # <publicUrl>/tap onto tags. Empty: knurd still verifies taps but says phones can't reach it.
 publicUrl: ""

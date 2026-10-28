@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Logging: knurd and knura-link take `log.level` (error, warn, info, debug, trace) and
+  `log.file` in their config, and `KNURA_LOG_LEVEL` overrides the level for one run. Lines are
+  now one per message with a time and level (no time under systemd, whose journal adds it). The
+  log file keeps its name and rolls over at 10 MB, keeping 4 old files. Every line passes a
+  filter that hides keys, tokens, claim codes and tap link MACs. Tap lines now say why a tap
+  failed, where it came from and how long it took, and debug shows every action attempt.
+  Startup messages go to the log too. See docs/logs.md. No new dependencies: this is the JDK's
+  own logging, set up by `io.knura.core.log.Logs`.
 - Home link: a tap message may carry the tag's dashboard name in `"name"`, and every action's
   event then has it too (`"name":"Front door"` after `"knot"`). `"knot"` is unchanged, so
   renaming a tag never breaks an automation. knura-link drops control characters and cuts the

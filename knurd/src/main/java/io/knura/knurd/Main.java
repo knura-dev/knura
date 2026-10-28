@@ -1,10 +1,12 @@
 package io.knura.knurd;
 
 import io.knura.core.admin.AdminKeystore;
+import io.knura.core.log.Logs;
 import io.knura.core.resolver.ResolverClient;
 import io.knura.knurgn.Knurgn;
 import io.knura.knurgn.KnurgnConfig;
 import java.io.IOException;
+import java.lang.System.Logger.Level;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
@@ -16,6 +18,8 @@ import javax.net.ssl.SSLContext;
 
 /** Starts knurd: {@code knurd [config-file]}, default {@code knurd.properties}. */
 public final class Main {
+    private static final System.Logger LOG = System.getLogger("knurd");
+
     private Main() {}
 
     public static void main(String[] args) throws IOException {
@@ -27,6 +31,9 @@ public final class Main {
         if (!Files.exists(configFile)) {
             System.err.println("knurd: config file not found: " + configFile.toAbsolutePath());
             System.err.println("Copy knurd/knurd.example.properties to knurd.properties and set your keys.");
+            System.exit(1);
+        }
+        if (!Logs.setUp("knurd", configFile)) {
             System.exit(1);
         }
         KnurdConfig config;
@@ -71,26 +78,26 @@ public final class Main {
             }
         }
         server.start();
-        System.out.printf(
-                "knurd listening on http://%s:%d (counters in %s)%n",
+        info(
+                "knurd listening on http://%s:%d (counters in %s)",
                 config.host(), server.port(), config.countersFile());
         if (config.publicUrl() != null) {
-            System.out.printf("Phones reach knurd at %s/tap%n", config.publicUrl());
+            info("Phones reach knurd at %s/tap", config.publicUrl());
         } else {
-            System.out.println("public.url is not set, so phones can't reach knurd yet"
+            info("public.url is not set, so phones can't reach knurd yet"
                     + " (see knurd.example.properties).");
         }
         ResolverWatch watch = null;
         if (resolver != null) {
-            System.out.printf("Tags with %s/%s links reach this knurd through the resolver"
-                    + " (checked now and every %d hours)%n",
+            info("Tags with %s/%s links reach this knurd through the resolver"
+                    + " (checked now and every %d hours)",
                     resolver.url(), resolver.owner(), ResolverWatch.EVERY.toHours());
             ResolverClient client = new ResolverClient(resolver.url());
             watch = new ResolverWatch(resolver, config.publicUrl(), client::fetch);
             watch.start();
         }
         if (knurgn != null) {
-            System.out.printf("knurgN: %d knot(s) with actions, from %s%n", knurgn.knotCount(), config.actionsFile());
+            info("knurgN: %d knot(s) with actions, from %s", knurgn.knotCount(), config.actionsFile());
         }
         Knurgn actions = knurgn;
         ResolverWatch resolverWatch = watch;
@@ -144,22 +151,28 @@ public final class Main {
         AdminServer admin = new AdminServer(
                 a.host(), a.port(), tls, tokens, audit, counters, taps, info, Clock.systemUTC(), nfc);
         admin.start();
-        System.out.printf("knurd admin API on %s://%s:%d, for knurctl only: never put this port on the internet%n",
+        info("knurd admin API on %s://%s:%d, for knurctl only: never put this port on the internet",
                 a.tls() ? "https" : "http", a.host(), admin.port());
         if (fingerprint != null) {
-            System.out.println("Admin API certificate fingerprint (SHA-256): " + fingerprint);
+            // In pairs, as knurctl accepts it: a long unbroken hex run would be hidden as if it were a key.
+            info("Admin API certificate fingerprint (SHA-256): " + String.join(":", fingerprint.split("(?<=\\G..)")));
         }
         if (nfc != null) {
-            System.out.println("Phones may set tags up with these admin tokens: "
+            info("Phones may set tags up with these admin tokens: "
                     + String.join(", ", a.provisionTokens().stream().sorted().toList()));
         }
         if (tokens == null) {
-            System.out.printf("Admin API is in plaintext mode: no login, this computer only. Every request is"
-                    + " logged to %s%n", a.auditFile());
+            info("Admin API is in plaintext mode: no login, this computer only. Every request is"
+                    + " logged to %s", a.auditFile());
         } else {
-            System.out.printf("Admin tokens: %d in %s; every request is logged to %s%n",
+            info("Admin tokens: %d in %s; every request is logged to %s",
                     tokens.count(), a.tokensFile(), a.auditFile());
         }
         return admin;
+    }
+
+    /** Startup messages go through the logger too, so they land in log.file as well. */
+    private static void info(String format, Object... args) {
+        LOG.log(Level.INFO, args.length == 0 ? format : String.format(format, args));
     }
 }

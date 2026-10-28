@@ -128,6 +128,7 @@ public final class KnurdServer implements AutoCloseable {
             sendJson(exchange, 429, "{\"status\":\"too_many_requests\"}");
             return;
         }
+        long started = System.nanoTime();
         TapResult result;
         Map<String, String> params = parseQuery(exchange.getRequestURI().getRawQuery());
         if (params == null) {
@@ -150,17 +151,23 @@ public final class KnurdServer implements AutoCloseable {
             throttle.failed(address, local);
         }
         if (ok || throttle.logFailure(n -> LOG.log(Level.WARNING, "{0} more failed taps in the last minute weren''t logged", n))) {
+            // detail says why a tap failed ("MAC does not match", "unknown tag"); it never quotes the link.
             LOG.log(
                     Level.INFO,
-                    "tap {0} uid={1} counter={2}",
+                    "tap {0} uid={1} counter={2} from {3} ({4} ms){5}",
                     result.status().jsonName(),
                     result.uid() == null ? "-" : result.uid(),
-                    result.counter());
+                    result.uid() == null ? "-" : Integer.toString(result.counter()),
+                    local ? "this computer" : address,
+                    Long.toString((System.nanoTime() - started) / 1_000_000),
+                    result.detail() == null ? "" : ": " + result.detail());
         }
         int actionsStarted = 0;
         if (result.status() == TapResult.Status.OK) {
             try {
                 actionsStarted = listener.onVerifiedTap(result.uid(), result.counter());
+                LOG.log(Level.DEBUG, "tap {0}:{1} started {2} action(s)",
+                        result.uid(), Integer.toString(result.counter()), actionsStarted);
             } catch (RuntimeException e) {
                 // The tap itself is fine and its counter is already used; only the actions failed.
                 LOG.log(Level.ERROR, "could not start actions for tap " + result.uid() + ":" + result.counter(), e);
