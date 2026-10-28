@@ -1,11 +1,13 @@
 package io.knura.link;
 
+import io.knura.core.log.Logs;
 import io.knura.knurgn.Knurgn;
 import io.knura.knurgn.KnurgnConfig;
 import java.io.BufferedReader;
 import java.io.Console;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.lang.System.Logger.Level;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,6 +20,7 @@ import java.util.Set;
  * link.properties} in the current folder.
  */
 public final class Main {
+    private static final System.Logger LOG = System.getLogger("knura-link");
     static final String DEFAULT_CONFIG = "link.properties";
 
     private Main() {}
@@ -71,6 +74,9 @@ public final class Main {
             System.err.println("Add a home link on your account's dashboard, then run: knura-link pair");
             return 1;
         }
+        if (!Logs.setUp("knura-link", configFile)) {
+            return 1;
+        }
         LinkConfig config;
         Knurgn knurgn;
         try {
@@ -84,7 +90,7 @@ public final class Main {
             System.err.println("knura-link: bad config: " + e.getMessage());
             return 1;
         }
-        System.out.printf("knura-link: %d knot(s) with actions, from %s%n", knurgn.knotCount(), config.actionsFile());
+        LOG.log(Level.INFO, String.format("%d knot(s) with actions, from %s", knurgn.knotCount(), config.actionsFile()));
         Set<String> offered = config.dashboardConnectors() == null ? knurgn.connectorIds() : config.dashboardConnectors();
         for (String id : offered) {
             if (!knurgn.connectorIds().contains(id)) {
@@ -94,7 +100,7 @@ public final class Main {
                 return 1;
             }
         }
-        System.out.println("knura-link: the dashboard can choose " + (offered.isEmpty() ? "no connectors" : String.join(", ", offered)));
+        LOG.log(Level.INFO, "the dashboard can choose " + (offered.isEmpty() ? "no connectors" : String.join(", ", offered)));
         Thread main = Thread.currentThread();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             main.interrupt();

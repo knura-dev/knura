@@ -89,6 +89,9 @@ loginctl enable-linger "$USER"   # keep it running when you're logged out
 journalctl --user -u knura-link -f
 ```
 
+To see more, such as every action attempt and how long it took, add `log.level=debug` to
+`link.properties` and restart it. [Troubleshooting with logs](logs.md) has the details.
+
 ## Choose actions on the dashboard
 
 Instead of writing a knot rule for every tag, you can pick what a tag does on the account's

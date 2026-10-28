@@ -132,7 +132,7 @@ public final class Knurgn implements AutoCloseable {
     public int onVerifiedTap(String uid, int counter, Instant tappedAt, String name) {
         Knot knot = knots.get(uid);
         if (knot == null) {
-            LOG.log(Level.INFO, "tap {0}:{1}: no knot rule for this tag, nothing to do", uid, counter);
+            LOG.log(Level.INFO, "tap {0}:{1}: no knot rule for this tag, nothing to do", uid, Integer.toString(counter));
             return 0;
         }
         TapEvent event = TapEvent.of(uid, counter, knot.name(), tappedAt, name);
@@ -165,7 +165,7 @@ public final class Knurgn implements AutoCloseable {
         for (String id : new LinkedHashSet<>(connectorIds)) {
             Connector connector = connectors.get(id);
             if (connector == null) {
-                LOG.log(Level.WARNING, "tap {0}:{1}: no connector named {2} here, skipped it", uid, counter, id);
+                LOG.log(Level.WARNING, "tap {0}:{1}: no connector named {2} here, skipped it", uid, Integer.toString(counter), id);
                 continue;
             }
             submit(event, connector, 1, deadline, firstRetry);
@@ -189,12 +189,16 @@ public final class Knurgn implements AutoCloseable {
             return;
         }
         Delivery delivery;
+        long started = System.nanoTime();
         try {
             delivery = connector.deliver(event, left.compareTo(MAX_ATTEMPT) < 0 ? left : MAX_ATTEMPT);
         } catch (RuntimeException e) {
             LOG.log(Level.ERROR, "connector " + connector.id() + " failed unexpectedly", e);
             delivery = Delivery.refused("connector error");
         }
+        LOG.log(Level.DEBUG, "tap {0} action={1} ({2}) attempt {3}: {4} ({5}) in {6} ms",
+                event.id(), connector.id(), connector.type(), attempt, delivery.status(), delivery.detail(),
+                Long.toString((System.nanoTime() - started) / 1_000_000));
         switch (delivery.status()) {
             case DELIVERED -> report(event, connector, Outcome.DELIVERED, attempt, delivery.detail());
             case REFUSED -> report(event, connector, Outcome.REFUSED, attempt, delivery.detail());

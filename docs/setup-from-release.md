@@ -241,5 +241,8 @@ carry over, and tags keep working.
 | Phone shows a blank page | A new Funnel address can take up to 15 minutes to appear. Check `curl https://<your address>/health` from another network. |
 | Phone says "Link already used" on the first tap | Something opened the link before you did, such as a link preview. Tap again. |
 
+For anything else, turn on debug logging and look at what knurd says about the tap: see
+[Troubleshooting with logs](logs.md).
+
 Found a bug? Open an issue. Found a security problem? Please report it privately, as described in
 [SECURITY.md](../SECURITY.md).

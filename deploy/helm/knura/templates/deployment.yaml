@@ -74,6 +74,10 @@ spec:
           image: "{{ .Values.image.knurd.repository }}:{{ .Values.image.knurd.tag }}"
           imagePullPolicy: {{ .Values.image.knurd.pullPolicy }}
           args: ["/etc/knura/knurd.properties"]
+          {{- with .Values.logLevel }}
+          env:
+            - {name: KNURA_LOG_LEVEL, value: {{ . | quote }}}
+          {{- end }}
           ports:
             - name: http
               containerPort: 8424

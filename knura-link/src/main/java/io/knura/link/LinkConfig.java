@@ -1,5 +1,6 @@
 package io.knura.link;
 
+import io.knura.core.log.Logs;
 import io.knura.core.resolver.OwnerIds;
 import java.io.IOException;
 import java.io.Reader;
@@ -29,6 +30,9 @@ import java.util.TreeSet;
  * actions.file=knurgn.properties
  * # optional: which connectors the dashboard may choose for a tag (default: all; none: off)
  * dashboard.connectors=living-room
+ * # optional: how much to log, and a log file besides standard error (see Logs)
+ * log.level=debug
+ * log.file=logs/knura-link.log
  *
  * # link-secrets.properties (chmod 600)
  * token=knlink_...
@@ -46,7 +50,8 @@ record LinkConfig(URI url, String owner, String token, Path actionsFile, Set<Str
     static final String DEFAULT_SECRETS_FILE = "link-secrets.properties";
     static final String DEFAULT_ACTIONS_FILE = "knurgn.properties";
 
-    private static final Set<String> SETTINGS = Set.of("url", "owner", "secrets.file", "actions.file", "dashboard.connectors");
+    private static final Set<String> SETTINGS = Set.of("url", "owner", "secrets.file", "actions.file", "dashboard.connectors",
+            Logs.LEVEL_SETTING, Logs.FILE_SETTING);
     private static final Set<PosixFilePermission> NOT_OWNER = EnumSet.of(
             PosixFilePermission.GROUP_READ, PosixFilePermission.GROUP_WRITE, PosixFilePermission.GROUP_EXECUTE,
             PosixFilePermission.OTHERS_READ, PosixFilePermission.OTHERS_WRITE, PosixFilePermission.OTHERS_EXECUTE);
