@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/widget_check_description"
+    android:initialLayout="@layout/widget_check"
+    android:minWidth="80dp"
+    android:minHeight="80dp"
+    android:previewLayout="@layout/widget_check"
+    android:resizeMode="none"
+    android:targetCellWidth="1"
+    android:targetCellHeight="1"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen" />

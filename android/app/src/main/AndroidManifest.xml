@@ -33,5 +33,52 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Check a tap from the Quick Settings pull-down. -->
+        <service
+            android:name=".CheckTapTile"
+            android:exported="true"
+            android:icon="@drawable/ic_ui_tap"
+            android:label="@string/check_a_tap"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- Home screen widgets. They show what the app last read; only the app can unlock the token. -->
+        <receiver
+            android:name=".LastTapWidget"
+            android:exported="true"
+            android:label="@string/widget_last_tap_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_last_tap" />
+        </receiver>
+        <receiver
+            android:name=".CheckTapWidget"
+            android:exported="true"
+            android:label="@string/widget_check_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_check" />
+        </receiver>
+        <receiver
+            android:name=".TodayWidget"
+            android:exported="true"
+            android:label="@string/widget_today_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_today" />
+        </receiver>
     </application>
 </manifest>

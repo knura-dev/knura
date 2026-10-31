@@ -144,6 +144,13 @@ On the **Server** tab, **Remove** next to a token removes it, like
 Only phone tokens (the ones in `admin.provision.tokens`) may do this. If you remove this phone's
 own token, the app forgets knurd and you pair again.
 
+**Quick Settings tile and widgets.** Edit your Quick Settings and drag in **Check a tap** to
+start a check from the pull-down. On the home screen, long-press, choose Widgets and find Knura:
+**Last tap** (the newest tap and whether the server answered), **Check a tap** (one touch) and
+**Today** (today's taps, rejected ones and the 7-day chart). Widgets show what the app last
+read, because only the app can unlock the token with your fingerprint; they update every time
+the app checks your server.
+
 The app follows the phone's light or dark mode. On a foldable, the home screen shows the actions
 and your tags side by side when the phone is open, and folding it mid-session keeps going.
 

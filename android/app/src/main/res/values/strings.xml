@@ -21,4 +21,13 @@
     <string name="what_knurd_did">What knurd did</string>
     <string name="copy_details">Copy details</string>
     <string name="try_again">Try again</string>
+    <string name="check_a_tap">Check a tap</string>
+    <string name="widget_last_tap_label">LAST TAP</string>
+    <string name="widget_today_label">TODAY</string>
+    <string name="widget_last_tap_name">Knura last tap</string>
+    <string name="widget_last_tap_description">Your newest tap and whether it was verified</string>
+    <string name="widget_check_name">Knura check a tap</string>
+    <string name="widget_check_description">One touch to check a tag</string>
+    <string name="widget_today_name">Knura today</string>
+    <string name="widget_today_description">Today\'s taps and the last 7 days</string>
 </resources>

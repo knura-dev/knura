@@ -113,6 +113,8 @@ class MainActivity : Activity() {
     private var walking = false
     /** Set by pairing, so the first load can offer the walkthrough when there are no tags. */
     private var offerWalk = false
+    /** Opened from the Quick Settings tile or the Check a tap widget. */
+    private var pendingTap = false
 
     // Pairing screen.
     private var pairStep = 1
@@ -161,6 +163,7 @@ class MainActivity : Activity() {
         nfc = NfcAdapter.getDefaultAdapter(this)
         snapshot = Snapshot.fromJson(prefs.getString("snapshot", null))
         notes = Note.listFromJson(prefs.getString("notes", null))
+        pendingTap = intent?.action == Widgets.ACTION_CHECK_TAP && savedInstanceState == null
 
         // Draw behind the status and navigation bars, so the orange glow reaches the top of the screen.
         window.setDecorFitsSystemWindows(false)
@@ -196,6 +199,17 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         listenForTags()
+        if (pendingTap) {
+            // From the Quick Settings tile or the widget: go straight to Check a tap.
+            pendingTap = false
+            root.post { if (vault.isPaired() && running == null) start(Action.TAP) }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.action == Widgets.ACTION_CHECK_TAP) pendingTap = true
     }
 
     override fun onPause() {
@@ -1490,6 +1504,7 @@ class MainActivity : Activity() {
                 val name = input.text.toString().trim()
                 if (name.isEmpty()) names.remove(uid) else names.put(uid, name.take(40))
                 prefs.edit().putString("tagNames", names.toString()).apply()
+                Widgets.refresh(this)
                 render()
             }
             .setNegativeButton(R.string.cancel, null)
@@ -1636,9 +1651,10 @@ class MainActivity : Activity() {
         session = null
         snapshot = null
         notes = emptyList()
-        prefs.edit().remove("notes").apply()
+        prefs.edit().remove("notes").remove("link").apply()
         link = Link.UNKNOWN
         prefs.edit().remove("snapshot").apply()
+        Widgets.refresh(this)
         showHome(null)
     }
 
@@ -1734,13 +1750,14 @@ class MainActivity : Activity() {
                     snapshot = fresh
                     link = Link.ONLINE
                     linkError = null
+                    prefs.edit().putString("snapshot", fresh.toJson().toString()).putString("link", link.name).apply()
+                    Widgets.refresh(this)
                     if (offerWalk && fresh.tags.isEmpty() && !prefs.getBoolean("walked", false) && screen == Screen.HOME) {
                         offerWalk = false
                         startWalk()
                         return@ui
                     }
                     offerWalk = false
-                    prefs.edit().putString("snapshot", fresh.toJson().toString()).apply()
                 } else if (offline) {
                     if (link != Link.OFFLINE) {
                         val now = Instant.now()
@@ -1750,6 +1767,8 @@ class MainActivity : Activity() {
                     }
                     link = Link.OFFLINE
                     linkError = error
+                    prefs.edit().putString("link", link.name).apply()
+                    Widgets.refresh(this)
                 } else if (error != null && screen in TABS) {
                     notice = error
                     noticeBad = true

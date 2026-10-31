@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Android app 0.8.0: a Check a tap tile for Quick Settings, and three home screen widgets: Last
+  tap, Check a tap and Today (with the 7-day chart). Widgets show what the app last read and
+  update whenever it checks the server.
 - Android app 0.7.0: a tag screen (taps this week, tap counter, rejected taps, what the last tap
   ran, recent taps, rename and reset), notifications made by the app when it checks the server
   (rejected and replayed taps, new tags, tokens added or removed, server offline and back), and
