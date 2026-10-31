@@ -123,6 +123,19 @@ unlock that lasts while the app stays open:
 - **Server**: taps today, tags, uptime, the tap link, keys, certificate and resolver, and the
   admin tokens.
 
+Tap a tag on Home or Tags to open it: its taps this week, its tap counter, rejected taps, what
+its last tap ran, and its recent taps, with **Rename** and **Reset tag**. What a tag does when
+tapped is set on the server (knurgN's settings, or your hosted account's dashboard).
+
+The bell on Home opens notifications: rejected or replayed taps, new tags, added or removed
+tokens, and the server going offline and coming back. The app makes them when it checks your
+server, so they appear while the app is open; alerts while it is closed need a later server
+update.
+
+With no tags yet, Home offers **Set up your first tag**, a five-step walkthrough that sets up
+the tag, says where to choose its action, and ends with a test tap. It also opens after pairing
+a server with no tags, and from the empty Tags tab.
+
 The phone keeps the last answer, so the tabs still show something before you unlock. If the
 server doesn't answer, Home says so and offers **Try again**.
 

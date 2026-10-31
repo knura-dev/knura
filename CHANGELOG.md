@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Android app 0.7.0: a tag screen (taps this week, tap counter, rejected taps, what the last tap
+  ran, recent taps, rename and reset), notifications made by the app when it checks the server
+  (rejected and replayed taps, new tags, tokens added or removed, server offline and back), and
+  an animated five-step walkthrough for setting up a first tag.
 - Android app 0.6.0: a new look. A bottom menu with Home, Tags, Taps and Server, and an orange
   button that starts Check a tap from any tab. Home greets you by time of day and shows the
   server with today's taps and a 7-day chart, the actions, and your tags with their last tap.
