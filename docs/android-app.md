@@ -97,11 +97,12 @@ out, run `pair-phone` again with the same name. If the phone is lost:
 
 ## 4. Use it
 
-Tap one of the five tiles, tap **Start, then hold the tag**, unlock, and hold the tag flat
-against the back of the phone until the result screen comes up. That takes a few seconds. The
-result screen shows the tag's UID and what changed; **What knurd did** has knurd's full log and
-**Copy details** copies it all. If nothing happens, slide the tag
-around the back slowly: phones read tags at one spot only.
+The home screen greets you, shows your server with today's taps and a 7-day chart, and has a
+tile for each action. Tap a tile, unlock, and hold the tag flat against the back of the phone
+until the result screen comes up. That takes a few seconds. The orange button in the bottom menu
+starts **Check a tap** from any tab. The result screen shows the tag's UID and what changed;
+**What knurd did** has knurd's full log and **Copy details** copies it all. If nothing happens,
+slide the tag around the back slowly: phones read tags at one spot only.
 
 | Action | What it does |
 | --- | --- |
@@ -111,18 +112,27 @@ around the back slowly: phones read tags at one spot only.
 | Reset tag | All keys back to zero, no link. Turn the switch off for a tag that still has factory keys. |
 | Claim a tag | For a ready-to-use tag that came with a claim card. Scan the card's QR code or type its code, then hold the tag: knurd swaps the card's keys for your own and the card stops working (like `--from claim:CODE`). With a pack card (one card for several tags), **Claim next tag** claims the next tag without scanning the card again. |
 
-Under **knurd**, three rows show what `knurctl admin` shows on the computer:
-**Status** (uptime, keys, public URL, resolver, knots), **Tags** (every tag knurd has accepted,
-with its last counter) and **Recent taps** (the latest 20 in your phone's time, each marked
-Genuine, Replay, Rejected or Malformed). They only read.
+The bottom menu has four tabs. They read what `knurctl admin` shows on the computer, after one
+unlock that lasts while the app stays open:
 
-**Remove a token** lists knurd's admin tokens and removes the one you pick, like
+- **Home**: your server card (tap it to refresh), the actions, and your tags with their last tap.
+- **Tags**: every tag knurd has accepted, with its last counter and last tap. Tap a tag to give
+  it a name; names stay on the phone.
+- **Taps**: the latest 200 taps in your phone's time, grouped by day, filtered by Verified or
+  Rejected.
+- **Server**: taps today, tags, uptime, the tap link, keys, certificate and resolver, and the
+  admin tokens.
+
+The phone keeps the last answer, so the tabs still show something before you unlock. If the
+server doesn't answer, Home says so and offers **Try again**.
+
+On the **Server** tab, **Remove** next to a token removes it, like
 `knurctl admin token remove`. Use it to lock out a lost laptop or another phone straight away.
 Only phone tokens (the ones in `admin.provision.tokens`) may do this. If you remove this phone's
 own token, the app forgets knurd and you pair again.
 
-The app follows the phone's light or dark mode. On a foldable, the home screen shows the tag
-actions and knurd side by side when the phone is open, and folding it mid-session keeps going.
+The app follows the phone's light or dark mode. On a foldable, the home screen shows the actions
+and your tags side by side when the phone is open, and folding it mid-session keeps going.
 
 Setting up keys, TLS, new tokens and the resolver stays on the computer, so a lost phone can't
 open up your setup.

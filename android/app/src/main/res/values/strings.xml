@@ -1,31 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Knura</string>
-    <string name="paired_pill">Paired</string>
-    <string name="not_paired_pill">Not paired</string>
-    <string name="pair_title">Pair this phone with your knurd</string>
-    <string name="pair_lead">Your keys stay on knurd. The phone only passes messages between knurd and the tag.</string>
-    <string name="pair_step_1">On knurd\'s computer, run:</string>
-    <string name="pair_command">knurctl admin pair-phone &lt;name&gt;</string>
-    <string name="pair_step_2">Tap Scan and point the camera at the QR code.</string>
-    <string name="pair">Scan pairing code</string>
-    <string name="your_knurd">Your knurd</string>
-    <string name="knurd_security">Pinned TLS · unlocks with your fingerprint</string>
-    <string name="your_hosted">Your hosted account</string>
-    <string name="hosted_security">Keys stay on the server · unlocks with your fingerprint</string>
-    <string name="pair_hosted">Using a hosted account? Pair a phone on its account page and scan that code instead.</string>
-    <string name="forget">Forget</string>
-    <string name="what_to_do">What do you want to do with a tag?</string>
-    <string name="action_provision">Set up a tag</string>
-    <string name="action_provision_hint">Give it Knura keys</string>
-    <string name="action_info">Tag info</string>
-    <string name="action_info_hint">UID, keys, link</string>
-    <string name="action_tap">Check a tap</string>
-    <string name="action_tap_hint">Is this tag genuine?</string>
-    <string name="action_reset">Reset tag</string>
-    <string name="action_reset_hint">Back to factory keys</string>
-    <string name="action_claim">Claim a tag</string>
-    <string name="action_claim_hint">It came with a claim card</string>
     <string name="claim_title">Claim a tag</string>
     <string name="claim_how">Scan the QR code on the claim card, or type the code under its seal.</string>
     <string name="claim_scan">Scan card</string>
@@ -38,24 +13,11 @@
         <item quantity="other">Pack card: %d tags claimed</item>
     </plurals>
     <string name="knura_keys">Tag already has Knura keys</string>
-    <string name="start">Start, then hold the tag</string>
     <string name="cancel">Cancel</string>
-    <string name="knurd">knurd</string>
-    <string name="knurd_status">Status</string>
-    <string name="knurd_status_hint">Uptime, keys, public URL</string>
-    <string name="knurd_tags">Tags</string>
-    <string name="knurd_tags_hint">Tags knurd has seen</string>
-    <string name="knurd_taps">Recent taps</string>
-    <string name="knurd_taps_hint">The latest 20 taps</string>
-    <string name="knurd_tokens">Remove a token</string>
-    <string name="knurd_tokens_hint">Lock out a phone or creds file</string>
     <string name="hold_title">Hold a tag to the back</string>
     <string name="hold_hint">Keep it still until you see the result.</string>
     <string name="step_unlocked">Unlocked</string>
-    <string name="step_waiting">Waiting for a tag</string>
-    <string name="step_found">Tag found</string>
     <string name="close">Close</string>
-    <string name="back">Back</string>
     <string name="what_knurd_did">What knurd did</string>
     <string name="copy_details">Copy details</string>
     <string name="try_again">Try again</string>

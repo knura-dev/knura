@@ -1,41 +1,49 @@
 package io.knura.android
 
-import android.animation.ObjectAnimator
-import android.animation.PropertyValuesHolder
-import android.animation.ValueAnimator
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.content.SharedPreferences
+import android.content.res.ColorStateList
 import android.content.res.Configuration
-import android.graphics.Typeface
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.hardware.biometrics.BiometricManager.Authenticators
 import android.hardware.biometrics.BiometricPrompt
+import android.net.Uri
 import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.nfc.tech.IsoDep
 import android.os.Bundle
 import android.os.CancellationSignal
 import android.text.InputType
-import android.text.SpannableString
-import android.text.Spanned
-import android.text.style.ImageSpan
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.View
-import android.widget.Button
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.widget.EditText
 import android.widget.FrameLayout
-import android.widget.ImageView
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import io.knura.android.Ui.Companion.MATCH
+import io.knura.android.Ui.Companion.WRAP
 import java.io.IOException
+import java.time.Instant
+import java.time.LocalTime
+import java.time.ZoneId
 import java.util.concurrent.Executors
 import org.json.JSONArray
 import org.json.JSONObject
@@ -43,43 +51,68 @@ import org.json.JSONObject
 /**
  * Pair with knurd, pick what to do, unlock, hold a tag to the phone. The phone only relays: knurd
  * sends each command for the tag and checks every reply, and the tag's keys never reach the phone.
- * The screens all live in activity_main.xml and this activity shows one at a time.
+ *
+ * The screens are built in code ([Ui]) and redrawn from the activity's state by [render]. Home,
+ * Tags, Taps and Server share the bottom menu; welcome, pairing and the scan screen sit on the
+ * moving orange background ([GlowView]) with the animated mark ([MarkView]).
  */
 class MainActivity : Activity() {
     /** What the app can do, with knurd's name for each and the words the screens use for it. */
-    private enum class Action(val api: String, val label: String, val doing: String, val again: String) {
-        PROVISION("provision", "Set up a tag", "knurd writes the keys", "Set up another"),
-        INFO("info", "Tag info", "knurd reads the tag", "Read another"),
-        TAP("tap", "Check a tap", "knurd checks the signature", "Check another"),
-        RESET("reset", "Reset tag", "knurd resets the keys", "Reset another"),
+    private enum class Action(val api: String, val label: String, val doing: String, val short: String, val again: String) {
+        PROVISION("provision", "Set up a tag", "knurd writes the keys", "Writing keys", "Set up another"),
+        INFO("info", "Tag info", "knurd reads the tag", "Reading", "Read another"),
+        TAP("tap", "Check a tap", "knurd checks the signature", "Checking", "Check another"),
+        RESET("reset", "Reset tag", "knurd resets the keys", "Resetting", "Reset another"),
         /** A provision from the claim keys on a ready-to-use tag's claim card. */
-        CLAIM("provision", "Claim a tag", "knurd swaps in your keys", "Claim another"),
+        CLAIM("provision", "Claim a tag", "knurd swaps in your keys", "Claiming", "Claim another"),
     }
+
+    private enum class Screen { WELCOME, PAIRING, HOME, TAGS, TAPS, SERVER, HOLD, RESULT }
 
     private enum class Step { PENDING, ACTIVE, DONE }
 
+    /** What the app knows about reaching the server. */
+    private enum class Link { UNKNOWN, ONLINE, OFFLINE }
+
+    private data class Shown(val label: String, val result: TagResults.Result, val log: String, val again: String?)
+
+    private lateinit var ui: Ui
     private lateinit var vault: TokenVault
-    private lateinit var scroll: ScrollView
-    private lateinit var content: LinearLayout
-    private lateinit var screens: List<View>
-    private lateinit var screenUnpaired: View
-    private lateinit var screenHome: View
-    private lateinit var screenWorking: View
-    private lateinit var screenResult: View
-    private lateinit var screenKnurd: View
-    private lateinit var tiles: Map<Action, View>
-    private lateinit var knuraKeys: Switch
-    private lateinit var startButton: Button
-    private lateinit var log: TextView
+    private lateinit var prefs: SharedPreferences
+    private lateinit var root: FrameLayout
 
     private val worker = Executors.newSingleThreadExecutor()
     private var nfc: NfcAdapter? = null
+    private var screen = Screen.HOME
+    private var topInset = 0
+    private var bottomInset = 0
+    private var notice: String? = null
+    private var noticeBad = false
+
+    /** What the server last told the app, kept on the phone between visits. */
+    private var snapshot: Snapshot? = null
+    private var link = Link.UNKNOWN
+    private var linkError: String? = null
+    @Volatile private var loading = false
+    /**
+     * The server, unlocked, for reading status, tags and taps without asking for a fingerprint each
+     * time. Kept only while the app is on screen. Tag sessions still ask to unlock every time.
+     */
+    @Volatile private var session: KnurdClient? = null
+    private var tapFilter = 0
+
+    // Pairing screen.
+    private var pairStep = 1
+    private var pairHosted = false
+    private var pairUrl = ""
+
+    // Tag sessions.
     private var action = Action.PROVISION
     /** Set while waiting for a tag or relaying to one. */
     @Volatile private var client: KnurdClient? = null
     @Volatile private var running: Action? = null
     /** The keys the tag has now, as knurd names them, or null when the action doesn't need it. */
-    private var from: String? = null
+    @Volatile private var from: String? = null
     /** The claim card's code while claiming a tag. */
     @Volatile private var claim: ClaimCodes.Claim? = null
     /**
@@ -89,80 +122,61 @@ class MainActivity : Activity() {
      */
     private var packCard: ClaimCodes.Claim? = null
     private var packClaimed = 0
-    private var pulse: ValueAnimator? = null
+
+    // The scan screen's changing parts, kept so a fold or unfold redraws it as it was.
+    private var holdTitle = ""
+    private var holdHint = ""
+    private var holdHintBad = false
+    private var holdFound = false
+    private val holdSteps = arrayOf(Step.DONE, Step.ACTIVE, Step.PENDING)
+    private var holdTitleView: TextView? = null
+    private var holdHintView: TextView? = null
+    private var holdStepsView: LinearLayout? = null
+
+    private var shown: Shown? = null
+    private var resultFelt = false
+    private var logOpen = false
     /** The last result, as text for Copy details. */
     private var details = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         CrashLog.install(this)
-        setContentView(R.layout.activity_main)
+        ui = Ui(this)
         vault = TokenVault(this)
+        prefs = getSharedPreferences("app", Context.MODE_PRIVATE)
         nfc = NfcAdapter.getDefaultAdapter(this)
-        scroll = findViewById<ScrollView>(R.id.scroll)
-        content = findViewById<LinearLayout>(R.id.content)
-        screenUnpaired = findViewById<View>(R.id.screenUnpaired)
-        screenHome = findViewById<View>(R.id.screenHome)
-        screenWorking = findViewById<View>(R.id.screenWorking)
-        screenResult = findViewById<View>(R.id.screenResult)
-        screenKnurd = findViewById<View>(R.id.screenKnurd)
-        screens = listOf(screenUnpaired, screenHome, screenWorking, screenResult, screenKnurd)
-        tiles = mapOf(
-            Action.PROVISION to findViewById<View>(R.id.tileProvision),
-            Action.INFO to findViewById<View>(R.id.tileInfo),
-            Action.TAP to findViewById<View>(R.id.tileTap),
-            Action.RESET to findViewById<View>(R.id.tileReset),
-            Action.CLAIM to findViewById<View>(R.id.tileClaim),
-        )
-        knuraKeys = findViewById<Switch>(R.id.knuraKeys)
-        startButton = findViewById<Button>(R.id.start)
-        log = findViewById<TextView>(R.id.log)
+        snapshot = Snapshot.fromJson(prefs.getString("snapshot", null))
 
-        withIcon(findViewById<Button>(R.id.pair), R.drawable.ic_scan)
-        withIcon(startButton, R.drawable.ic_nfc_on_accent)
-        findViewById<View>(R.id.knurdMenu).clipToOutline = true
-        findViewById<View>(R.id.knurdRows).clipToOutline = true
+        // Draw behind the status and navigation bars, so the orange glow reaches the top of the screen.
+        window.setDecorFitsSystemWindows(false)
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        root = FrameLayout(this)
+        setContentView(root)
+        root.setOnApplyWindowInsetsListener { _, insets ->
+            val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+            if (bars.top != topInset || bars.bottom != bottomInset) {
+                topInset = bars.top
+                bottomInset = bars.bottom
+                render()
+            }
+            insets
+        }
 
-        findViewById<View>(R.id.pair).setOnClickListener { scanPairingCode() }
-        findViewById<View>(R.id.forget).setOnClickListener { confirmForget() }
-        for ((a, tile) in tiles) {
-            tile.setOnClickListener { pick(a) }
-        }
-        pick(Action.PROVISION)
-        startButton.setOnClickListener { start() }
-        findViewById<View>(R.id.cancel).setOnClickListener { stop(); showHome("Cancelled.") }
-        findViewById<View>(R.id.resultClose).setOnClickListener { forgetPackCard(); showHome(null) }
-        findViewById<View>(R.id.again).setOnClickListener {
-            val pack = packCard
-            if (action == Action.CLAIM && pack != null && running == null) begin(Action.CLAIM, pack) else start()
-        }
-        findViewById<View>(R.id.copy).setOnClickListener { copyDetails() }
-        findViewById<View>(R.id.logToggle).setOnClickListener {
-            log.visibility = if (log.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-        }
-        findViewById<View>(R.id.knurdBack).setOnClickListener { showHome(null) }
-        findViewById<View>(R.id.knurdStatus).setOnClickListener {
-            ask("/v1/status", getString(R.string.knurd_status), pairs = true, KnurdViews::status)
-        }
-        findViewById<View>(R.id.knurdTags).setOnClickListener {
-            ask("/v1/tags", getString(R.string.knurd_tags), pairs = false, KnurdViews::tags)
-        }
-        findViewById<View>(R.id.knurdTaps).setOnClickListener {
-            ask("/v1/taps?limit=20", getString(R.string.knurd_taps), pairs = false) { KnurdViews.taps(it) }
-        }
-        findViewById<View>(R.id.knurdTokens).setOnClickListener { pickTokenToRemove() }
-        fitWidth()
-        showHome(null)
+        screen = if (vault.isPaired()) Screen.HOME else Screen.WELCOME
+        render()
         CrashLog.takeLast(this)?.let {
             showResult("Knura", TagResults.Result(false, "The app crashed last time",
-                "Please send this to the Knura developers. Copy details copies it.", emptyList()), it, againLabel = null)
+                "Please send this to the Knura developers. Copy details copies it.", emptyList()), it, again = null)
         }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        // Folding or unfolding the phone: the manifest keeps the activity, so only the layout changes.
-        fitWidth()
+        // Folding or unfolding the phone, or a light/dark switch: the manifest keeps the activity, so redraw.
+        ui = Ui(this)
+        render()
     }
 
     override fun onResume() {
@@ -179,6 +193,12 @@ class MainActivity : Activity() {
         }
     }
 
+    override fun onStop() {
+        super.onStop()
+        // Out of sight: the next look at the server asks for the fingerprint again.
+        session = null
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         worker.shutdownNow()
@@ -186,251 +206,1035 @@ class MainActivity : Activity() {
 
     @Deprecated("Still the simplest way to handle Back on Android 11 and 12.")
     override fun onBackPressed() {
-        when {
-            running != null -> {
-                stop()
-                showHome("Cancelled.")
-            }
-            screenResult.visibility == View.VISIBLE || screenKnurd.visibility == View.VISIBLE -> showHome(null)
+        when (screen) {
+            Screen.HOLD -> { stop(); showHome("Cancelled.") }
+            Screen.RESULT -> { forgetPackCard(); showHome(null) }
+            Screen.PAIRING -> showHome(null)
+            Screen.TAGS, Screen.TAPS, Screen.SERVER -> go(Screen.HOME)
             else -> @Suppress("DEPRECATION") super.onBackPressed()
         }
     }
 
-    /**
-     * Narrow screens (the Fold's cover screen) get one column. Wide ones (unfolded) put the tag
-     * actions and knurd side by side on the home screen, and keep the other screens a readable width.
-     */
-    private fun fitWidth() {
-        val widthDp = resources.configuration.screenWidthDp
-        val wide = widthDp >= 600
-        val columns = findViewById<LinearLayout>(R.id.homeColumns)
-        val tagColumn = findViewById<View>(R.id.homeTagColumn)
-        val knurdColumn = findViewById<View>(R.id.homeKnurdColumn)
-        columns.orientation = if (wide) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
-        tagColumn.layoutParams = LinearLayout.LayoutParams(
-            if (wide) 0 else LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT, if (wide) 1f else 0f)
-        knurdColumn.layoutParams = LinearLayout.LayoutParams(
-            if (wide) 0 else LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT, if (wide) 1f else 0f
-        ).apply {
-            if (wide) marginStart = dp(24) else topMargin = dp(22)
-        }
-        val side = if (wide) dp(24) else dp(20)
-        content.setPadding(side, content.paddingTop, side, content.paddingBottom)
-        // Single-column screens stay at most 560dp wide, centered.
-        val inner = if (wide) maxOf(0, (dp(widthDp) - 2 * side - dp(560)) / 2) else 0
-        for (screen in listOf(screenUnpaired, screenWorking, screenResult, screenKnurd)) {
-            screen.setPadding(inner, 0, inner, 0)
-        }
+    // ---------------------------------------------------------------- drawing
+
+    private val wide: Boolean get() = resources.configuration.screenWidthDp >= 600
+    private val night: Boolean
+        get() = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+    private val zone: ZoneId get() = ZoneId.systemDefault()
+    private val hosted: Boolean get() = vault.url?.contains("/o/") == true
+
+    private fun go(to: Screen) {
+        if (to != screen) notice = null
+        screen = to
+        render()
     }
 
-    // ---------------------------------------------------------------- screens
-
-    private fun show(screen: View) {
-        for (s in screens) {
-            s.visibility = if (s === screen) View.VISIBLE else View.GONE
+    /** Rebuilds the current screen from the state above. */
+    private fun render() {
+        if (!::root.isInitialized) return
+        holdTitleView = null
+        holdHintView = null
+        holdStepsView = null
+        root.removeAllViews()
+        val page = when (screen) {
+            Screen.WELCOME -> welcome()
+            Screen.PAIRING -> pairing()
+            Screen.HOME -> home()
+            Screen.TAGS -> tags()
+            Screen.TAPS -> taps()
+            Screen.SERVER -> server()
+            Screen.HOLD -> hold()
+            Screen.RESULT -> result()
         }
-        scroll.scrollTo(0, 0)
+        root.addView(page, FrameLayout.LayoutParams(MATCH, MATCH))
+        if (screen in TABS) {
+            root.addView(View(this).apply {
+                background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                    intArrayOf(Color.TRANSPARENT, ui.color(R.color.bg) and 0x00FFFFFF or 0xEB000000.toInt()))
+            }, FrameLayout.LayoutParams(MATCH, ui.dp(110) + bottomInset, Gravity.BOTTOM))
+            root.addView(navBar(), FrameLayout.LayoutParams(if (wide) ui.dp(420) else MATCH, WRAP,
+                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+                bottomMargin = bottomInset + ui.dp(20)
+                leftMargin = ui.dp(16)
+                rightMargin = ui.dp(16)
+            })
+        }
+        val darkPage = screen == Screen.WELCOME || screen == Screen.PAIRING || screen == Screen.HOLD
+        val lightBars = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+        window.insetsController?.setSystemBarsAppearance(if (darkPage || night) 0 else lightBars, lightBars)
     }
 
-    /** The home screen when paired, the pairing screen when not, with an optional [notice] under Start. */
-    private fun showHome(notice: String?, bad: Boolean = false) {
-        val isPaired = vault.isPaired()
-        val noNfc = if (nfc == null) "This phone has no NFC, so it can't talk to tags." else null
-        if (isPaired) {
-            findViewById<TextView>(R.id.knurdUrl).text = vault.url?.removePrefix("https://") ?: ""
-            // A hosted pairing points at an account address, https://<host>/o/<owner>.
-            val hosted = vault.url?.contains("/o/") == true
-            findViewById<TextView>(R.id.serverLabel).setText(if (hosted) R.string.your_hosted else R.string.your_knurd)
-            findViewById<TextView>(R.id.serverSecurity).setText(if (hosted) R.string.hosted_security else R.string.knurd_security)
-            startButton.isEnabled = nfc != null
-            say(R.id.homeNotice, noNfc ?: notice, bad || noNfc != null)
-            show(screenHome)
+    /** A tab's page: the background with a faint orange glow at the top, and a scrolling column. */
+    private fun tabPage(glow: Int = R.color.glow, fill: (LinearLayout) -> Unit): View {
+        val page = FrameLayout(this)
+        page.background = LayerDrawable(arrayOf(ColorDrawable(ui.color(R.color.bg)), GradientDrawable().apply {
+            gradientType = GradientDrawable.RADIAL_GRADIENT
+            colors = intArrayOf(ui.color(glow), Color.TRANSPARENT)
+            gradientRadius = resources.displayMetrics.widthPixels * if (wide) 0.45f else 0.85f
+            setGradientCenter(if (wide) 0.25f else 0.5f, 0f)
+        }))
+        val scroll = ScrollView(this).apply { isFillViewport = true; clipToPadding = false }
+        val column = ui.vertical()
+        val side = if (wide) ui.dp(32) else ui.dp(20)
+        column.setPadding(side, topInset + ui.dp(12), side, bottomInset + ui.dp(if (screen in TABS) 120 else 28))
+        fill(column)
+        scroll.addView(column, FrameLayout.LayoutParams(MATCH, WRAP))
+        page.addView(scroll, FrameLayout.LayoutParams(MATCH, MATCH))
+        return page
+    }
+
+    /** The dark page with the moving orange glow, for welcome, pairing and the scan screen. */
+    private fun glowPage(fill: (LinearLayout) -> Unit): View {
+        val page = FrameLayout(this)
+        page.addView(GlowView(this), FrameLayout.LayoutParams(MATCH, MATCH))
+        val scroll = ScrollView(this).apply { isFillViewport = true }
+        val column = ui.vertical()
+        column.setPadding(ui.dp(20), topInset + ui.dp(12), ui.dp(20), bottomInset + ui.dp(24))
+        fill(column)
+        val holder = FrameLayout(this)
+        holder.addView(column, FrameLayout.LayoutParams(if (wide) ui.dp(560) else MATCH, MATCH, Gravity.CENTER_HORIZONTAL))
+        scroll.addView(holder, FrameLayout.LayoutParams(MATCH, MATCH))
+        page.addView(scroll, FrameLayout.LayoutParams(MATCH, MATCH))
+        return page
+    }
+
+    /** Narrow content in the middle of a wide screen, for the tabs that are a single list. */
+    private fun centered(column: LinearLayout): LinearLayout {
+        if (!wide) return column
+        val inner = ui.vertical()
+        column.addView(inner, ui.lp(width = ui.dp(560), gravity = Gravity.CENTER_HORIZONTAL))
+        return inner
+    }
+
+    private fun navBar(): View {
+        val bar = ui.horizontal(10)
+        val pill = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(ui.dp(8), 0, ui.dp(8), 0)
+            background = ui.rounded(ui.color(R.color.nav_bg), 32f, ui.color(R.color.glass_line))
+            elevation = ui.dp(6).toFloat()
+        }
+        val items = listOf(
+            Triple(Screen.HOME, R.drawable.ic_ui_home, "Home"),
+            Triple(Screen.TAGS, R.drawable.ic_ui_grid, "Tags"),
+            Triple(Screen.TAPS, R.drawable.ic_ui_activity, "Taps"),
+            Triple(Screen.SERVER, R.drawable.ic_ui_server, "Server"),
+        )
+        items.forEachIndexed { i, (target, icon, label) ->
+            if (i > 0) pill.addView(ui.space(weight = 1f), LinearLayout.LayoutParams(0, 1, 1f))
+            val active = target == screen
+            val button = ui.circleButton(icon, label, 48,
+                fill = if (active) ui.color(R.color.fg) else Color.TRANSPARENT,
+                tint = if (active) ui.color(R.color.bg) else ui.color(R.color.muted), stroke = null) { go(target) }
+            button.isSelected = active
+            if (active) button.stateDescription = "Selected"
+            pill.addView(button)
+        }
+        bar.addView(pill, LinearLayout.LayoutParams(0, ui.dp(64), 1f))
+        val fab = ui.circleButton(R.drawable.ic_ui_tap, "Check a tap", 64, fill = ui.color(R.color.accent),
+            tint = ui.color(R.color.on_accent), stroke = null) { start(Action.TAP) }
+        fab.elevation = ui.dp(8).toFloat()
+        bar.addView(fab)
+        return bar
+    }
+
+    // ---------------------------------------------------------------- welcome and pairing
+
+    private fun welcome(): View = glowPage { col ->
+        val top = ui.horizontal()
+        top.addView(darkPill().apply {
+            addView(MarkView(this@MainActivity, MarkView.Mode.STILL, showTile = false), LinearLayout.LayoutParams(ui.dp(26), ui.dp(26)))
+            addView(ui.text("Knura", 18f, ON_DARK, 700).apply { letterSpacing = -0.02f }, ui.lp(WRAP, WRAP, start = 8))
+            setPadding(ui.dp(6), ui.dp(6), ui.dp(14), ui.dp(6))
+        })
+        top.addView(ui.space(weight = 1f), LinearLayout.LayoutParams(0, 1, 1f))
+        top.addView(darkPill().apply {
+            addView(View(this@MainActivity).apply { background = ui.oval(ON_DARK_MUTED) }, LinearLayout.LayoutParams(ui.dp(7), ui.dp(7)))
+            addView(ui.text("Not paired", 13f, ON_DARK, 600), ui.lp(WRAP, WRAP, start = 6))
+            setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(8))
+        })
+        col.addView(top, ui.lp(height = ui.dp(48)))
+        col.addView(ui.space(weight = 1f), LinearLayout.LayoutParams(1, 0, 1f).apply { height = 0 })
+        col.addView(MarkView(this, MarkView.Mode.STILL), ui.lp(ui.dp(210), ui.dp(210), gravity = Gravity.CENTER_HORIZONTAL))
+        col.addView(ui.space(weight = 1f), LinearLayout.LayoutParams(1, 0, 1f))
+        col.addView(kicker("Welcome"))
+        col.addView(ui.text("Pair this phone with your server", 32f, ON_DARK, 800).apply { letterSpacing = -0.025f }, ui.lp(top = 10))
+        col.addView(ui.text("Your keys stay on knurd. The phone only passes messages between it and the tag.", 15.5f, ON_DARK_SOFT)
+            .apply { setLineSpacing(0f, 1.25f) }, ui.lp(top = 10))
+
+        val card = ui.vertical(14).apply {
+            background = darkGlass()
+            setPadding(ui.dp(16), ui.dp(16), ui.dp(16), ui.dp(16))
+        }
+        val first = ui.horizontal(12).apply { gravity = Gravity.TOP }
+        first.addView(stepNumber(1))
+        val firstText = ui.vertical(8)
+        firstText.addView(ui.text("On the server's computer, run", 14f, ON_DARK))
+        firstText.addView(ui.text("$ knurctl admin pair-phone <name>", 12.5f, Color.parseColor("#D5DDE6"), mono = true).apply {
+            background = ui.rounded(Color.parseColor("#070A0E"), 12f)
+            setPadding(ui.dp(12), ui.dp(10), ui.dp(12), ui.dp(10))
+            setTextIsSelectable(true)
+        }, ui.lp())
+        first.addView(firstText, LinearLayout.LayoutParams(0, WRAP, 1f))
+        card.addView(first)
+        val second = ui.horizontal(12)
+        second.addView(stepNumber(2))
+        second.addView(ui.text("Scan the QR code it shows", 14f, ON_DARK))
+        card.addView(second)
+        col.addView(card, ui.lp(top = 20))
+
+        col.addView(ui.button("Scan pairing code", Ui.Kind.ORANGE) { scanPairingCode() }.apply {
+            setCompoundDrawablesRelativeWithIntrinsicBounds(tinted(R.drawable.ic_ui_qr, Color.parseColor("#160B02")), null, null, null)
+            compoundDrawablePadding = ui.dp(8)
+        }, ui.lp(top = 16))
+        col.addView(ui.text("Using a hosted account? Pair a phone on its account page and scan that code instead.", 13f, ON_DARK_MUTED)
+            .apply { gravity = Gravity.CENTER }, ui.lp(top = 12))
+        noticeLine(col, onDark = true)
+    }
+
+    private fun pairing(): View = glowPage { col ->
+        val top = ui.horizontal()
+        top.addView(ui.circleButton(R.drawable.ic_ui_back, "Cancel pairing", 44, fill = DARK_PILL, tint = ON_DARK, stroke = null) {
+            showHome(null)
+        })
+        top.addView(ui.space(weight = 1f), LinearLayout.LayoutParams(0, 1, 1f))
+        top.addView(darkPill().apply {
+            addView(ui.text("Pairing", 14f, ON_DARK, 600))
+            setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(8))
+        })
+        top.addView(ui.space(weight = 1f), LinearLayout.LayoutParams(0, 1, 1f))
+        top.addView(ui.space(), LinearLayout.LayoutParams(ui.dp(44), 1))
+        col.addView(top, ui.lp(height = ui.dp(48)))
+        col.addView(ui.space(weight = 1f), LinearLayout.LayoutParams(1, 0, 1f))
+        col.addView(MarkView(this, MarkView.Mode.CONNECTING), ui.lp(ui.dp(260), ui.dp(260), gravity = Gravity.CENTER_HORIZONTAL))
+        col.addView(ui.text(if (pairHosted) "Connecting to your account" else "Connecting to your server", 28f, ON_DARK, 800).apply {
+            gravity = Gravity.CENTER
+            letterSpacing = -0.025f
+        }, ui.lp(top = 8))
+        col.addView(ui.singleLine(ui.text(pairUrl.removePrefix("https://"), 13.5f, ON_DARK_ACCENT, mono = true), middle = true).apply {
+            gravity = Gravity.CENTER
+        }, ui.lp(top = 8))
+        col.addView(ui.space(weight = 1f), LinearLayout.LayoutParams(1, 0, 1f))
+        val steps = ui.vertical().apply {
+            background = darkGlass()
+            setPadding(ui.dp(16), ui.dp(4), ui.dp(16), ui.dp(4))
+        }
+        val names = listOf("Code scanned", if (pairHosted) "Account answered" else "Server certificate pinned", "Lock the token to your fingerprint")
+        names.forEachIndexed { i, name ->
+            val state = when {
+                i < pairStep -> Step.DONE
+                i == pairStep -> Step.ACTIVE
+                else -> Step.PENDING
+            }
+            val row = ui.horizontal(12)
+            row.minimumHeight = ui.dp(52)
+            row.addView(stepIcon(state, onDark = true))
+            row.addView(ui.text(name, 14.5f, if (state == Step.PENDING) ON_DARK_MUTED else ON_DARK, if (state == Step.ACTIVE) 600 else 400),
+                LinearLayout.LayoutParams(0, WRAP, 1f))
+            row.addView(ui.text(when (state) { Step.DONE -> "Done"; Step.ACTIVE -> "Now"; Step.PENDING -> "" }, 13f,
+                if (state == Step.ACTIVE) ON_DARK_ACCENT else ON_DARK_MUTED))
+            steps.addView(row)
+            if (i < names.size - 1) steps.addView(View(this).apply { setBackgroundColor(Color.argb(20, 255, 255, 255)) }, ui.lp(height = 1))
+        }
+        col.addView(steps)
+        col.addView(ui.button(getString(R.string.cancel), Ui.Kind.ON_DARK) { showHome(null) }, ui.lp(top = 16))
+        noticeLine(col, onDark = true)
+    }
+
+    // ---------------------------------------------------------------- home
+
+    private fun home(): View = tabPage { col ->
+        if (wide) {
+            val row = ui.horizontal().apply { gravity = Gravity.TOP }
+            val left = ui.vertical()
+            homeHeader(left)
+            homeMain(left)
+            row.addView(left, LinearLayout.LayoutParams(ui.dp(380), WRAP))
+            row.addView(View(this).apply { setBackgroundColor(ui.color(R.color.line)) }, LinearLayout.LayoutParams(1, MATCH).apply {
+                marginStart = ui.dp(28)
+                marginEnd = ui.dp(28)
+            })
+            val right = ui.vertical()
+            right.addView(sectionHead("Your tags", "See all") { go(Screen.TAGS) }, ui.lp(top = 14))
+            tagGrid(right)
+            if (snapshot?.taps?.isNotEmpty() == true) {
+                right.addView(sectionHead("Recent taps", "See all") { go(Screen.TAPS) }, ui.lp(top = 24))
+                right.addView(tapCard(snapshot!!.taps.take(5)), ui.lp(top = 8))
+            }
+            row.addView(right, LinearLayout.LayoutParams(0, WRAP, 1f))
+            col.addView(row)
         } else {
-            say(R.id.unpairedNotice, noNfc ?: notice, bad || noNfc != null)
-            show(screenUnpaired)
+            homeHeader(col)
+            homeMain(col)
+            if (link != Link.OFFLINE) {
+                col.addView(sectionHead("Your tags", "See all") { go(Screen.TAGS) }, ui.lp(top = 22))
+                tagStrip(col)
+            }
         }
     }
 
-    private fun say(id: Int, text: String?, bad: Boolean) {
-        val view = findViewById<TextView>(id)
-        view.text = text ?: ""
-        view.visibility = if (text.isNullOrEmpty()) View.GONE else View.VISIBLE
-        view.setTextColor(getColor(if (bad) R.color.bad_text else R.color.muted))
+    private fun homeHeader(col: LinearLayout) {
+        val row = ui.horizontal(12)
+        val tile = FrameLayout(this).apply { background = ui.glass(16f) }
+        tile.addView(MarkView(this, MarkView.Mode.STILL, showTile = false), FrameLayout.LayoutParams(ui.dp(26), ui.dp(26), Gravity.CENTER))
+        row.addView(tile, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
+        val words = ui.vertical(2)
+        words.addView(ui.text(Words.greeting(LocalTime.now(zone).hour), 13.5f, ui.color(R.color.soft)))
+        val name = prefs.getString("name", null)
+        words.addView(ui.text(name ?: "Welcome back", 22f, ui.color(R.color.fg), 700).apply {
+            letterSpacing = -0.02f
+            contentDescription = (name ?: "Welcome back") + ". Double tap to change your name."
+            setOnClickListener { editName() }
+        })
+        row.addView(words, LinearLayout.LayoutParams(0, WRAP, 1f))
+        col.addView(row, ui.lp(height = ui.dp(52)).apply { height = WRAP })
+        noticeLine(col, onDark = false)
     }
 
-    private fun pick(picked: Action) {
-        forgetPackCard()
-        action = picked
-        for ((a, tile) in tiles) {
-            tile.isSelected = a == picked
+    /** The server card, then the actions, or the offline message when the server didn't answer. */
+    private fun homeMain(col: LinearLayout) {
+        col.addView(serverCard(), ui.lp(top = 18))
+        if (link == Link.OFFLINE) {
+            offline(col)
+            return
         }
-        // A new tag has factory keys; a tag being reset was most likely set up by Knura.
-        knuraKeys.visibility = if (picked == Action.PROVISION || picked == Action.RESET) View.VISIBLE else View.GONE
-        knuraKeys.isChecked = picked == Action.RESET
+        col.addView(sectionTitle("What do you want to do?"), ui.lp(top = 24))
+        val grid = ui.vertical(10)
+        val first = ui.horizontal(10)
+        first.addView(tile(R.drawable.ic_ui_key, "Set up a tag", "Give it Knura keys") { start(Action.PROVISION) }, LinearLayout.LayoutParams(0, WRAP, 1f))
+        first.addView(tile(R.drawable.ic_ui_shield, "Check a tap", "Is this tag genuine?") { start(Action.TAP) }, LinearLayout.LayoutParams(0, WRAP, 1f))
+        val second = ui.horizontal(10)
+        second.addView(tile(R.drawable.ic_ui_tag, "Tag info", "UID, keys, link") { start(Action.INFO) }, LinearLayout.LayoutParams(0, WRAP, 1f))
+        second.addView(tile(R.drawable.ic_ui_card, "Claim a tag", "It came with a claim card") { start(Action.CLAIM) }, LinearLayout.LayoutParams(0, WRAP, 1f))
+        grid.addView(first)
+        grid.addView(second)
+        col.addView(grid, ui.lp(top = 12))
+        col.addView(listRow(R.drawable.ic_ui_reset, "Reset a tag", "Back to factory keys") { start(Action.RESET) }, ui.lp(top = 10))
     }
 
-    private fun showWorking(a: Action) {
-        findViewById<TextView>(R.id.workAction).text = a.label
-        findViewById<TextView>(R.id.workTitle).setText(R.string.hold_title)
-        hint(getString(R.string.hold_hint), bad = false)
-        step(1, Step.DONE)
-        findViewById<TextView>(R.id.step2Text).setText(R.string.step_waiting)
-        step(2, Step.ACTIVE)
-        findViewById<TextView>(R.id.step3Text).text = a.doing
-        step(3, Step.PENDING)
-        show(screenWorking)
-        val target = findViewById<FrameLayout>(R.id.target)
-        pulse = ObjectAnimator.ofPropertyValuesHolder(target,
-            PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.05f),
-            PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.05f)).apply {
-            duration = 900
-            repeatMode = ValueAnimator.REVERSE
-            repeatCount = ValueAnimator.INFINITE
-            start()
+    private fun serverCard(): View {
+        val card = ui.vertical(10).apply { setPadding(ui.dp(16), ui.dp(14), ui.dp(16), ui.dp(14)) }
+        ui.pressable(card, ui.glass(22f)) { refresh() }
+        card.contentDescription = null
+        val row = ui.horizontal(12)
+        row.addView(ui.iconBox(R.drawable.ic_ui_server, 44, 22, ui.color(R.color.accent_stroke), ui.color(R.color.accent_tint), 14f),
+            LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)))
+        val words = ui.vertical(3)
+        val title = ui.horizontal(8)
+        title.addView(ui.text(if (hosted) "Your hosted account" else "Your server", 14.5f, ui.color(R.color.fg), 600))
+        title.addView(linkWord())
+        words.addView(title)
+        words.addView(ui.singleLine(ui.text(vault.url?.removePrefix("https://") ?: "", 12.5f, ui.color(R.color.muted), mono = true), middle = true))
+        row.addView(words, LinearLayout.LayoutParams(0, WRAP, 1f))
+        val s = snapshot
+        if (s != null && link != Link.OFFLINE) {
+            row.addView(BarsView(this).apply { setValues(s.lastSevenDays(zone)) }, LinearLayout.LayoutParams(ui.dp(53), ui.dp(30)))
+            val count = ui.vertical(1).apply { gravity = Gravity.END }
+            count.addView(ui.text(s.tapsToday(zone).toString(), 20f, ui.color(R.color.fg), 700).apply { gravity = Gravity.END })
+            count.addView(ui.text("today", 11.5f, ui.color(R.color.muted)).apply { gravity = Gravity.END })
+            row.addView(count, ui.lp(WRAP, WRAP, start = 10))
+        }
+        card.addView(row)
+        val updated = when {
+            loading -> "Checking..."
+            s != null -> "Updated ${Words.ago(s.at, zone).replaceFirstChar { it.lowercase() }} · tap to refresh"
+            else -> "Tap to unlock and load your taps"
+        }
+        card.addView(ui.text(updated, 12f, ui.color(R.color.muted)))
+        return card
+    }
+
+    /** "Online", "Offline" or nothing yet, next to the server's name. */
+    private fun linkWord(): View = when (link) {
+        Link.ONLINE -> dotWord("Online", ui.color(R.color.ok), ui.color(R.color.ok_text))
+        Link.OFFLINE -> dotWord("Offline", ui.color(R.color.bad), ui.color(R.color.bad_text))
+        Link.UNKNOWN -> View(this)
+    }
+
+    private fun dotWord(word: String, dot: Int, fg: Int): View = ui.horizontal(5).apply {
+        addView(View(this@MainActivity).apply { background = ui.oval(dot) }, LinearLayout.LayoutParams(ui.dp(6), ui.dp(6)))
+        addView(ui.text(word, 12f, fg, 600))
+    }
+
+    private fun offline(col: LinearLayout) {
+        val box = ui.vertical().apply { gravity = Gravity.CENTER_HORIZONTAL }
+        val art = FrameLayout(this)
+        art.addView(MarkView(this, MarkView.Mode.DIM), FrameLayout.LayoutParams(ui.dp(180), ui.dp(180), Gravity.CENTER))
+        art.addView(ui.iconBox(R.drawable.ic_ui_link_off, 40, 20, ui.color(R.color.bad_text), ui.color(R.color.bad_tint)).apply {
+            background = ui.oval(ui.color(R.color.card), ui.color(R.color.bad))
+        }, FrameLayout.LayoutParams(ui.dp(40), ui.dp(40), Gravity.CENTER).apply {
+            leftMargin = ui.dp(52)
+            topMargin = ui.dp(52)
+        })
+        box.addView(art, ui.lp(ui.dp(180), ui.dp(180), top = 12))
+        box.addView(ui.text("Can't reach your server", 22f, ui.color(R.color.fg), 700).apply { gravity = Gravity.CENTER }, ui.lp(top = 4))
+        box.addView(ui.text(linkError ?: "It didn't answer. Check that knurd is running and this phone is on the same network.",
+            14.5f, ui.color(R.color.muted)).apply { gravity = Gravity.CENTER; setLineSpacing(0f, 1.2f) }, ui.lp(top = 8))
+        snapshot?.let { s ->
+            val seen = ui.horizontal().apply {
+                background = ui.glass(18f)
+                setPadding(ui.dp(14), ui.dp(12), ui.dp(14), ui.dp(12))
+            }
+            seen.addView(ui.label("Last seen"))
+            seen.addView(ui.text(Words.ago(s.at, zone), 13.5f, ui.color(R.color.fg)).apply { gravity = Gravity.END }, LinearLayout.LayoutParams(0, WRAP, 1f))
+            box.addView(seen, ui.lp(top = 16))
+        }
+        val buttons = ui.horizontal(10)
+        buttons.addView(ui.button("How to fix", Ui.Kind.OUTLINE, 52) {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://docs.knura.io")))
+        }, LinearLayout.LayoutParams(0, WRAP, 1f))
+        buttons.addView(ui.button("Try again", Ui.Kind.LIGHT, 52) { refresh() }, LinearLayout.LayoutParams(0, WRAP, 1f))
+        box.addView(buttons, ui.lp(top = 16))
+        col.addView(box, ui.lp(top = 8))
+    }
+
+    private fun tile(icon: Int, title: String, hint: String, onClick: () -> Unit): View {
+        val tile = ui.vertical().apply {
+            setPadding(ui.dp(16), ui.dp(16), ui.dp(16), ui.dp(16))
+            minimumHeight = ui.dp(128)
+        }
+        ui.pressable(tile, ui.glass(22f), onClick)
+        tile.addView(ui.iconBox(icon, 40, 20, ui.color(R.color.accent_stroke), ui.color(R.color.icon_bg)), LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)))
+        tile.addView(ui.space(weight = 1f), LinearLayout.LayoutParams(1, 0, 1f))
+        tile.addView(ui.text(title, 15.5f, ui.color(R.color.fg), 600), ui.lp(top = 10))
+        tile.addView(ui.text(hint, 12.5f, ui.color(R.color.muted)), ui.lp(top = 3))
+        return tile
+    }
+
+    private fun listRow(icon: Int, title: String, hint: String, onClick: () -> Unit): View {
+        val row = ui.horizontal(12).apply {
+            setPadding(ui.dp(14), ui.dp(12), ui.dp(14), ui.dp(12))
+            minimumHeight = ui.dp(60)
+        }
+        ui.pressable(row, ui.glass(18f), onClick)
+        row.addView(ui.iconBox(icon, 36, 18, ui.color(R.color.accent_stroke), ui.color(R.color.icon_bg), 12f), LinearLayout.LayoutParams(ui.dp(36), ui.dp(36)))
+        val words = ui.vertical(2)
+        words.addView(ui.text(title, 14.5f, ui.color(R.color.fg), 600))
+        words.addView(ui.text(hint, 12.5f, ui.color(R.color.muted)))
+        row.addView(words, LinearLayout.LayoutParams(0, WRAP, 1f))
+        row.addView(ui.icon(R.drawable.ic_ui_chevron, 16, ui.color(R.color.line_strong)))
+        return row
+    }
+
+    /** Home's row of tag cards, newest tap first. */
+    private fun tagStrip(col: LinearLayout) {
+        val scroller = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            clipToPadding = false
+        }
+        val row = ui.horizontal(10)
+        val s = snapshot
+        when {
+            s == null -> row.addView(tagCard(R.drawable.ic_ui_lock, "Unlock", "to see your tags", null) { refresh() })
+            s.tags.isEmpty() -> row.addView(tagCard(R.drawable.ic_ui_plus, "No tags yet", "Set one up", null) { start(Action.PROVISION) })
+            else -> for (t in sortedTags(s)) {
+                val last = s.lastTap(t.uid)
+                row.addView(tagCard(R.drawable.ic_ui_tag, tagTitle(t.uid), last?.let { Words.ago(it.time, zone) } ?: "No recent taps",
+                    last?.ok) { renameTag(t.uid) })
+            }
+        }
+        scroller.addView(row)
+        col.addView(scroller, ui.lp(top = 8))
+    }
+
+    private fun tagCard(icon: Int, title: String, line: String, ok: Boolean?, onClick: () -> Unit): View {
+        val card = ui.vertical(8).apply { setPadding(ui.dp(12), ui.dp(12), ui.dp(12), ui.dp(12)) }
+        ui.pressable(card, ui.glass(20f), onClick)
+        card.addView(ui.iconBox(icon, 36, 19, ui.color(R.color.fg), ui.color(R.color.icon_bg), 12f), LinearLayout.LayoutParams(ui.dp(36), ui.dp(36)))
+        card.addView(ui.singleLine(ui.text(title, 14f, ui.color(R.color.fg), 600)))
+        val status = ui.horizontal(5)
+        if (ok != null) {
+            status.addView(ui.icon(if (ok) R.drawable.ic_ui_check else R.drawable.ic_ui_cross, 12,
+                ui.color(if (ok) R.color.ok else R.color.bad)).apply {
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                contentDescription = if (ok) "Verified" else "Rejected"
+            })
+        }
+        status.addView(ui.singleLine(ui.text(line, 12f, ui.color(R.color.muted))))
+        card.addView(status)
+        return card.also { it.layoutParams = LinearLayout.LayoutParams(ui.dp(128), WRAP) }
+    }
+
+    /** The wide home screen's tag cards, three to a row, with a slot for setting up another. */
+    private fun tagGrid(col: LinearLayout) {
+        val s = snapshot
+        val cards = mutableListOf<View>()
+        if (s == null) {
+            cards += tagCard(R.drawable.ic_ui_lock, "Unlock", "to see your tags", null) { refresh() }
+        } else {
+            for (t in sortedTags(s).take(8)) {
+                val last = s.lastTap(t.uid)
+                cards += tagCard(R.drawable.ic_ui_tag, tagTitle(t.uid), last?.let { Words.ago(it.time, zone) } ?: "No recent taps", last?.ok) {
+                    renameTag(t.uid)
+                }
+            }
+            cards += tagCard(R.drawable.ic_ui_plus, "Set up a tag", "Give it keys", null) { start(Action.PROVISION) }
+        }
+        val grid = ui.vertical(10)
+        for (chunk in cards.chunked(3)) {
+            val row = ui.horizontal(10)
+            for (c in chunk) row.addView(c, LinearLayout.LayoutParams(0, WRAP, 1f))
+            repeat(3 - chunk.size) { row.addView(ui.space(), LinearLayout.LayoutParams(0, 1, 1f)) }
+            grid.addView(row)
+        }
+        col.addView(grid, ui.lp(top = 12))
+    }
+
+    // ---------------------------------------------------------------- tabs
+
+    private fun tags(): View = tabPage { outer ->
+        val col = centered(outer)
+        val s = snapshot
+        val head = ui.horizontal(10)
+        head.addView(pageTitle("Tags"))
+        if (s != null) head.addView(ui.text(if (s.tags.size == 1) "1 tag" else "${s.tags.size} tags", 14f, ui.color(R.color.muted)))
+        head.addView(ui.space(), LinearLayout.LayoutParams(0, 1, 1f))
+        head.addView(ui.circleButton(R.drawable.ic_ui_refresh, "Refresh", 44) { refresh() })
+        head.addView(ui.circleButton(R.drawable.ic_ui_plus, "Set up a new tag", 44) { start(Action.PROVISION) })
+        col.addView(head, ui.lp(height = ui.dp(52)))
+        noticeLine(col, onDark = false)
+        when {
+            s == null -> locked(col, "Unlock to see your tags")
+            s.tags.isEmpty() -> emptyTags(col)
+            else -> {
+                val list = ui.vertical(10)
+                for (t in sortedTags(s)) {
+                    val last = s.lastTap(t.uid)
+                    val row = ui.horizontal(12).apply { setPadding(ui.dp(14), ui.dp(12), ui.dp(14), ui.dp(12)) }
+                    ui.pressable(row, ui.glass(20f)) { renameTag(t.uid) }
+                    row.addView(ui.iconBox(R.drawable.ic_ui_tag, 44, 22, ui.color(R.color.fg), ui.color(R.color.icon_bg), 14f),
+                        LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)))
+                    val words = ui.vertical(3)
+                    val named = tagName(t.uid)
+                    val top = ui.horizontal(8)
+                    top.addView(ui.singleLine(ui.text(named ?: t.uid, if (named == null) 13.5f else 14.5f, ui.color(R.color.fg), 600, mono = named == null)))
+                    if (named != null) top.addView(ui.text(Words.shortUid(t.uid), 11.5f, ui.color(R.color.muted), mono = true))
+                    words.addView(top)
+                    words.addView(ui.text("Tap counter ${t.lastCounter}", 12.5f, ui.color(R.color.muted)))
+                    row.addView(words, LinearLayout.LayoutParams(0, WRAP, 1f))
+                    val right = ui.vertical(4).apply { gravity = Gravity.END }
+                    right.addView(ui.text(last?.let { Words.ago(it.time, zone) } ?: "No recent taps", 12f, ui.color(R.color.muted)))
+                    right.addView(ui.icon(R.drawable.ic_ui_chevron, 16, ui.color(R.color.line_strong)), ui.lp(ui.dp(16), ui.dp(16), gravity = Gravity.END))
+                    row.addView(right)
+                    list.addView(row)
+                }
+                col.addView(list, ui.lp(top = 16))
+                col.addView(ui.text("Tap a tag to give it a name. Names stay on this phone.", 12.5f, ui.color(R.color.muted)), ui.lp(top = 14))
+                updatedLine(col, s)
+            }
         }
     }
 
-    private fun hint(text: String, bad: Boolean) {
-        val view = findViewById<TextView>(R.id.workHint)
-        view.text = text
-        view.setTextColor(getColor(if (bad) R.color.bad_text else R.color.muted))
-    }
-
-    private fun step(n: Int, state: Step) {
-        val icon = findViewById<ImageView>(listOf(R.id.step1Icon, R.id.step2Icon, R.id.step3Icon)[n - 1])
-        val spin = findViewById<ProgressBar>(listOf(R.id.step1Spin, R.id.step2Spin, R.id.step3Spin)[n - 1])
-        val text = findViewById<TextView>(listOf(R.id.step1Text, R.id.step2Text, R.id.step3Text)[n - 1])
-        spin.visibility = if (state == Step.ACTIVE) View.VISIBLE else View.GONE
-        icon.visibility = if (state == Step.ACTIVE) View.GONE else View.VISIBLE
-        icon.setImageResource(if (state == Step.DONE) R.drawable.ic_check_ok else R.drawable.step_pending)
-        text.setTextColor(getColor(if (state == Step.PENDING) R.color.muted else R.color.fg))
-        text.typeface = if (state == Step.ACTIVE) Typeface.create("sans-serif-medium", Typeface.NORMAL) else Typeface.DEFAULT
-    }
-
-    /** The result screen. [againLabel] null hides the button that runs the action again. */
-    private fun showResult(label: String, result: TagResults.Result, logText: String, againLabel: String?) {
-        findViewById<TextView>(R.id.resultAction).text = label
-        findViewById<View>(R.id.resultIconBox).setBackgroundResource(
-            if (result.good) R.drawable.bg_result_good else R.drawable.bg_result_bad)
-        findViewById<ImageView>(R.id.resultIcon).setImageResource(
-            if (result.good) R.drawable.ic_check_ok else R.drawable.ic_cross_bad)
-        findViewById<TextView>(R.id.resultTitle).text = result.title
-        findViewById<TextView>(R.id.resultSubtitle).text = result.subtitle
-        val rows = findViewById<LinearLayout>(R.id.resultRows)
-        rows.removeAllViews()
-        for ((name, value) in result.rows) {
-            rows.addView(pairRow(name, value, mono = name == "UID" || value.startsWith("http")))
+    private fun taps(): View = tabPage { outer ->
+        val col = centered(outer)
+        val s = snapshot
+        val head = ui.horizontal(10)
+        head.addView(pageTitle("Taps"), LinearLayout.LayoutParams(0, WRAP, 1f))
+        head.addView(ui.circleButton(R.drawable.ic_ui_refresh, "Refresh", 44) { refresh() })
+        col.addView(head, ui.lp(height = ui.dp(52)))
+        noticeLine(col, onDark = false)
+        if (s == null) {
+            locked(col, "Unlock to see your taps")
+            return@tabPage
         }
-        rows.visibility = if (result.rows.isEmpty()) View.GONE else View.VISIBLE
-        log.text = logText.trimEnd()
-        log.visibility = View.VISIBLE
-        findViewById<View>(R.id.logBox).visibility = if (logText.isBlank()) View.GONE else View.VISIBLE
-        val again = findViewById<Button>(R.id.again)
-        again.visibility = if (againLabel == null) View.GONE else View.VISIBLE
-        again.text = againLabel ?: ""
+        val chips = ui.horizontal(8)
+        listOf("All", "Verified", "Rejected").forEachIndexed { i, word ->
+            val on = i == tapFilter
+            val chip = ui.text(word, 13f, if (on) ui.color(R.color.bg) else ui.color(R.color.soft), if (on) 600 else 500).apply {
+                setPadding(ui.dp(14), ui.dp(9), ui.dp(14), ui.dp(9))
+                if (on) stateDescription = "Selected"
+            }
+            ui.pressable(chip, if (on) ui.rounded(ui.color(R.color.fg), 999f) else ui.glass(999f)) { tapFilter = i; render() }
+            chips.addView(chip)
+        }
+        col.addView(chips, ui.lp(top = 12))
+        val shownTaps = s.taps.filter { tapFilter == 0 || (tapFilter == 1) == it.ok }
+        if (shownTaps.isEmpty()) {
+            col.addView(ui.text(if (s.taps.isEmpty()) "No taps since your server started." else "No taps like that.", 14.5f,
+                ui.color(R.color.muted)).apply { gravity = Gravity.CENTER }, ui.lp(top = 40))
+        } else {
+            val now = Instant.now()
+            val groups = shownTaps.groupBy {
+                when (Words.clock(it.time, zone, now)) {
+                    "Yesterday" -> "Yesterday"
+                    else -> if (it.time.atZone(zone).toLocalDate() == now.atZone(zone).toLocalDate()) "Today" else "Earlier"
+                }
+            }
+            for (name in listOf("Today", "Yesterday", "Earlier")) {
+                val list = groups[name] ?: continue
+                col.addView(ui.label(name), ui.lp(top = 20))
+                col.addView(tapCard(list), ui.lp(top = 10))
+            }
+        }
+        updatedLine(col, s)
+    }
+
+    private fun tapCard(list: List<Snapshot.Tap>): View {
+        val card = ui.vertical().apply {
+            background = ui.glass(22f)
+            setPadding(ui.dp(14), ui.dp(2), ui.dp(14), ui.dp(2))
+        }
+        list.forEachIndexed { i, tap ->
+            val row = ui.horizontal(12).apply { minimumHeight = ui.dp(62) }
+            val good = tap.ok
+            row.addView(ui.iconBox(if (good) R.drawable.ic_ui_check else R.drawable.ic_ui_cross, 38, 18,
+                ui.color(if (good) R.color.ok_text else R.color.bad_text), ui.color(if (good) R.color.ok_tint else R.color.bad_tint), 12f),
+                LinearLayout.LayoutParams(ui.dp(38), ui.dp(38)))
+            val words = ui.vertical(3)
+            val uid = tap.uid
+            words.addView(ui.singleLine(ui.text(if (uid == null) "Unknown tag" else tagTitle(uid), 14.5f, ui.color(R.color.fg), 600,
+                mono = uid != null && tagName(uid) == null)))
+            words.addView(ui.singleLine(ui.text(Words.tapDetail(tap), 12.5f, ui.color(R.color.muted))))
+            row.addView(words, LinearLayout.LayoutParams(0, WRAP, 1f))
+            val right = ui.vertical(3).apply { gravity = Gravity.END }
+            right.addView(ui.text(statusWord(tap.status), 12.5f, ui.color(if (good) R.color.ok_text else R.color.bad_text), 600))
+            right.addView(ui.text(Words.clock(tap.time, zone), 12f, ui.color(R.color.muted)))
+            row.addView(right)
+            card.addView(row)
+            if (i < list.size - 1) card.addView(View(this).apply { setBackgroundColor(ui.color(R.color.line)) }, ui.lp(height = 1))
+        }
+        return card
+    }
+
+    private fun server(): View = tabPage { outer ->
+        val col = centered(outer)
+        val s = snapshot
+        val head = ui.horizontal(10)
+        head.addView(pageTitle("Server"), LinearLayout.LayoutParams(0, WRAP, 1f))
+        when (link) {
+            Link.ONLINE -> head.addView(ui.statusPill("Online", ui.color(R.color.ok), ui.color(R.color.ok_text), ui.color(R.color.ok_tint)))
+            Link.OFFLINE -> head.addView(ui.statusPill("Offline", ui.color(R.color.bad), ui.color(R.color.bad_text), ui.color(R.color.bad_tint)))
+            Link.UNKNOWN -> head.addView(ui.circleButton(R.drawable.ic_ui_refresh, "Refresh", 44) { refresh() })
+        }
+        col.addView(head, ui.lp(height = ui.dp(52)))
+        noticeLine(col, onDark = false)
+
+        val card = ui.vertical(14).apply {
+            setPadding(ui.dp(16), ui.dp(16), ui.dp(16), ui.dp(16))
+        }
+        ui.pressable(card, ui.glass(22f)) { refresh() }
+        val top = ui.horizontal(12)
+        val tile = FrameLayout(this).apply { background = ui.rounded(Color.argb(178, 10, 13, 18), 15f, Color.argb(26, 255, 255, 255)) }
+        tile.addView(MarkView(this, MarkView.Mode.STILL, showTile = false), FrameLayout.LayoutParams(ui.dp(28), ui.dp(28), Gravity.CENTER))
+        top.addView(tile, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
+        val words = ui.vertical(3)
+        words.addView(ui.text(if (hosted) "Hosted account" else "knurd", 14.5f, ui.color(R.color.fg), 500, mono = !hosted))
+        words.addView(ui.singleLine(ui.text(vault.url?.removePrefix("https://") ?: "", 12.5f, ui.color(R.color.muted), mono = true), middle = true))
+        top.addView(words, LinearLayout.LayoutParams(0, WRAP, 1f))
+        card.addView(top)
+        if (s != null) {
+            val stats = ui.horizontal(8)
+            stats.addView(stat(s.tapsToday(zone).toString(), "taps today"), LinearLayout.LayoutParams(0, WRAP, 1f))
+            stats.addView(stat(s.tags.size.toString(), "tags"), LinearLayout.LayoutParams(0, WRAP, 1f))
+            stats.addView(stat(s.status?.let { Words.uptime(it.uptimeSeconds) } ?: "–", "uptime"), LinearLayout.LayoutParams(0, WRAP, 1f))
+            card.addView(stats)
+        } else {
+            card.addView(ui.text(if (loading) "Checking..." else "Tap to unlock and load the server's status.", 13f, ui.color(R.color.muted)))
+        }
+        col.addView(card, ui.lp(top = 14))
+
+        col.addView(ui.label("Connection"), ui.lp(top = 20))
+        val rows = mutableListOf<Triple<Int, String, String>>()
+        val st = s?.status
+        if (st != null) {
+            rows += Triple(R.drawable.ic_ui_link, "Tap link", st.publicUrl?.removePrefix("https://") ?: "Not set")
+            rows += Triple(R.drawable.ic_ui_key, "Keys", if (st.keys == "master") "Per tag, from one master key" else "Fixed keys")
+        }
+        rows += Triple(R.drawable.ic_ui_lock, "Certificate", if (hosted) "Public certificate" else "Pinned")
+        rows += Triple(R.drawable.ic_ui_fingerprint, "Unlock", "Fingerprint or screen lock")
+        if (st != null && !hosted) rows += Triple(R.drawable.ic_ui_link, "Resolver", st.resolverOwner?.let { "Owner $it" } ?: "Not registered")
+        col.addView(infoCard(rows), ui.lp(top = 10))
+
+        val tokens = s?.tokens
+        if (tokens != null && tokens.isNotEmpty()) {
+            col.addView(ui.label("Phones and tokens"), ui.lp(top = 20))
+            val list = ui.vertical().apply {
+                background = ui.glass(22f)
+                setPadding(ui.dp(16), ui.dp(2), ui.dp(16), ui.dp(2))
+            }
+            tokens.forEachIndexed { i, name ->
+                val you = name == s?.you
+                val row = ui.horizontal(12).apply { minimumHeight = ui.dp(58) }
+                val w = ui.vertical(2)
+                w.addView(ui.text(name, 13.5f, ui.color(R.color.fg), mono = true))
+                if (you) w.addView(ui.text("This phone", 12f, ui.color(R.color.muted)))
+                row.addView(w, LinearLayout.LayoutParams(0, WRAP, 1f))
+                row.addView(ui.button("Remove", Ui.Kind.DANGER, 38) { confirmRemove(name, you) }.apply {
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                })
+                list.addView(row)
+                if (i < tokens.size - 1) list.addView(View(this).apply { setBackgroundColor(ui.color(R.color.line)) }, ui.lp(height = 1))
+            }
+            col.addView(list, ui.lp(top = 10))
+        }
+        col.addView(ui.text(if (hosted) "Forget this account on this phone" else "Forget this server on this phone", 13.5f,
+            ui.color(R.color.muted), 500).apply {
+            gravity = Gravity.CENTER
+            minHeight = ui.dp(48)
+            setOnClickListener { confirmForget() }
+        }, ui.lp(top = 14))
+        if (s != null) updatedLine(col, s)
+    }
+
+    private fun stat(value: String, label: String): View = ui.vertical(2).apply {
+        background = ui.rounded(ui.color(R.color.icon_bg), 14f)
+        setPadding(ui.dp(12), ui.dp(10), ui.dp(12), ui.dp(10))
+        addView(ui.text(value, 19f, ui.color(R.color.fg), 700))
+        addView(ui.text(label, 11.5f, ui.color(R.color.muted)))
+    }
+
+    private fun infoCard(rows: List<Triple<Int, String, String>>): View {
+        val card = ui.vertical().apply {
+            background = ui.glass(22f)
+            setPadding(ui.dp(16), ui.dp(2), ui.dp(16), ui.dp(2))
+        }
+        rows.forEachIndexed { i, (icon, name, value) ->
+            val row = ui.horizontal(12).apply { minimumHeight = ui.dp(54) }
+            row.addView(ui.icon(icon, 18, ui.color(R.color.muted)))
+            row.addView(ui.text(name, 14f, ui.color(R.color.fg)))
+            row.addView(ui.singleLine(ui.text(value, 13f, ui.color(R.color.muted), mono = value.contains('.') && !value.contains(' ')), middle = true)
+                .apply { gravity = Gravity.END; setTextIsSelectable(true) }, LinearLayout.LayoutParams(0, WRAP, 1f))
+            card.addView(row)
+            if (i < rows.size - 1) card.addView(View(this).apply { setBackgroundColor(ui.color(R.color.line)) }, ui.lp(height = 1))
+        }
+        return card
+    }
+
+    private fun emptyTags(col: LinearLayout) {
+        val box = ui.vertical().apply { gravity = Gravity.CENTER_HORIZONTAL }
+        box.addView(MarkView(this, MarkView.Mode.DASHED), ui.lp(ui.dp(180), ui.dp(180), top = 40))
+        box.addView(ui.text("No tags yet", 22f, ui.color(R.color.fg), 700), ui.lp(WRAP, WRAP, top = 8))
+        box.addView(ui.text("Set up a blank NTAG 424 DNA tag, or claim one that came with a claim card.", 14.5f, ui.color(R.color.muted))
+            .apply { gravity = Gravity.CENTER; setLineSpacing(0f, 1.2f) }, ui.lp(top = 8))
+        box.addView(ui.button("Set up a tag") { start(Action.PROVISION) }, ui.lp(top = 20))
+        box.addView(ui.button("Claim a tag", Ui.Kind.OUTLINE) { start(Action.CLAIM) }, ui.lp(top = 10))
+        col.addView(box)
+    }
+
+    private fun locked(col: LinearLayout, why: String) {
+        val box = ui.vertical().apply { gravity = Gravity.CENTER_HORIZONTAL }
+        box.addView(ui.iconBox(R.drawable.ic_ui_lock, 72, 30, ui.color(R.color.accent_stroke), ui.color(R.color.accent_tint), 24f),
+            ui.lp(ui.dp(72), ui.dp(72), top = 60))
+        box.addView(ui.text(if (loading) "Loading..." else why, 18f, ui.color(R.color.fg), 600).apply { gravity = Gravity.CENTER }, ui.lp(top = 16))
+        box.addView(ui.text("Your server sends this to the phone after you unlock with your fingerprint or screen lock.", 14f,
+            ui.color(R.color.muted)).apply { gravity = Gravity.CENTER }, ui.lp(top = 6))
+        if (!loading) box.addView(ui.button("Unlock") { refresh() }, ui.lp(top = 20))
+        col.addView(box)
+    }
+
+    private fun updatedLine(col: LinearLayout, s: Snapshot) {
+        col.addView(ui.text("Updated ${Words.ago(s.at, zone).replaceFirstChar { it.lowercase() }}", 12f, ui.color(R.color.muted))
+            .apply { gravity = Gravity.CENTER }, ui.lp(top = 18))
+    }
+
+    // ---------------------------------------------------------------- scan screen and result
+
+    private fun hold(): View = glowPage { col ->
+        val a = running ?: action
+        val top = ui.horizontal()
+        top.addView(ui.circleButton(R.drawable.ic_ui_close, "Cancel", 44, fill = DARK_PILL, tint = ON_DARK, stroke = null) {
+            stop()
+            showHome("Cancelled.")
+        })
+        top.addView(ui.space(), LinearLayout.LayoutParams(0, 1, 1f))
+        top.addView(darkPill().apply {
+            addView(ui.text(a.label, 14f, ON_DARK, 600))
+            setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(8))
+        })
+        top.addView(ui.space(), LinearLayout.LayoutParams(0, 1, 1f))
+        top.addView(ui.space(), LinearLayout.LayoutParams(ui.dp(44), 1))
+        col.addView(top, ui.lp(height = ui.dp(48)))
+        col.addView(ui.space(weight = 1f), LinearLayout.LayoutParams(1, 0, 1f))
+        col.addView(MarkView(this, MarkView.Mode.SCANNING), ui.lp(ui.dp(276), ui.dp(276), gravity = Gravity.CENTER_HORIZONTAL))
+        col.addView(ui.space(weight = 1f), LinearLayout.LayoutParams(1, 0, 1f))
+        val titleView = ui.text(holdTitle, 30f, ON_DARK, 800).apply { gravity = Gravity.CENTER; letterSpacing = -0.025f }
+        holdTitleView = titleView
+        col.addView(titleView, ui.lp())
+        val hintView = ui.text(holdHint, 15f, if (holdHintBad) ON_DARK_BAD else ON_DARK_SOFT).apply {
+            gravity = Gravity.CENTER
+            setLineSpacing(0f, 1.2f)
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
+        holdHintView = hintView
+        col.addView(hintView, ui.lp(top = 8))
+        val steps = ui.horizontal(8).apply {
+            background = darkGlass()
+            setPadding(ui.dp(14), ui.dp(14), ui.dp(14), ui.dp(14))
+        }
+        holdStepsView = steps
+        fillHoldSteps(steps, a)
+        col.addView(steps, ui.lp(top = 22))
+        if (a == Action.PROVISION || a == Action.RESET) {
+            val row = ui.horizontal(12).apply {
+                background = darkGlass()
+                setPadding(ui.dp(16), ui.dp(6), ui.dp(12), ui.dp(6))
+                minimumHeight = ui.dp(56)
+            }
+            val label = ui.text(getString(R.string.knura_keys), 14.5f, ON_DARK)
+            row.addView(label, LinearLayout.LayoutParams(0, WRAP, 1f))
+            val switch = Switch(this).apply {
+                isChecked = from == "knura"
+                contentDescription = getString(R.string.knura_keys)
+                thumbTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                    intArrayOf(Color.WHITE, Color.parseColor("#B7C0CB")))
+                trackTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                    intArrayOf(Color.parseColor("#F28C3A"), Color.parseColor("#2C3846")))
+                setOnCheckedChangeListener { _, on -> from = if (on) "knura" else "factory" }
+            }
+            row.addView(switch)
+            col.addView(row, ui.lp(top = 10))
+        }
+        col.addView(ui.button(getString(R.string.cancel), Ui.Kind.ON_DARK) { stop(); showHome("Cancelled.") }, ui.lp(top = 14))
+    }
+
+    private fun fillHoldSteps(row: LinearLayout, a: Action) {
+        row.removeAllViews()
+        val names = listOf(getString(R.string.step_unlocked), if (holdFound) "Tag found" else "Waiting", a.short)
+        names.forEachIndexed { i, name ->
+            if (i > 0) row.addView(View(this).apply { setBackgroundColor(Color.argb(36, 255, 255, 255)) },
+                LinearLayout.LayoutParams(0, 1, 1f))
+            val item = ui.horizontal(7)
+            item.addView(stepIcon(holdSteps[i], onDark = true, small = true))
+            item.addView(ui.text(name, 13f, if (holdSteps[i] == Step.PENDING) ON_DARK_MUTED else ON_DARK,
+                if (holdSteps[i] == Step.ACTIVE) 600 else 400))
+            row.addView(item)
+        }
+    }
+
+    private fun result(): View {
+        val r = shown ?: return home()
+        val good = r.result.good
+        return tabPage(if (good) R.color.glow_ok else R.color.glow_bad) { outer ->
+            val col = centered(outer)
+            val top = ui.horizontal()
+            top.addView(ui.circleButton(R.drawable.ic_ui_close, getString(R.string.close), 44) { forgetPackCard(); showHome(null) })
+            top.addView(ui.space(), LinearLayout.LayoutParams(0, 1, 1f))
+            top.addView(ui.text(r.label, 15f, ui.color(R.color.fg), 600))
+            top.addView(ui.space(), LinearLayout.LayoutParams(0, 1, 1f))
+            top.addView(ui.space(), LinearLayout.LayoutParams(ui.dp(44), 1))
+            col.addView(top, ui.lp(height = ui.dp(48)))
+            col.addView(MarkView(this, if (good) MarkView.Mode.VERIFIED else MarkView.Mode.REJECTED),
+                ui.lp(ui.dp(190), ui.dp(190), top = 8, gravity = Gravity.CENTER_HORIZONTAL))
+            col.addView(ui.text(r.result.title, 30f, ui.color(R.color.fg), 800).apply {
+                gravity = Gravity.CENTER
+                letterSpacing = -0.025f
+                accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            }, ui.lp())
+            col.addView(ui.text(r.result.subtitle, 15f, ui.color(R.color.soft)).apply {
+                gravity = Gravity.CENTER
+                setLineSpacing(0f, 1.2f)
+            }, ui.lp(top = 8))
+            if (r.result.rows.isNotEmpty()) {
+                val card = ui.vertical().apply {
+                    background = ui.glass(22f)
+                    setPadding(ui.dp(16), ui.dp(4), ui.dp(16), ui.dp(4))
+                }
+                r.result.rows.forEachIndexed { i, (name, value) ->
+                    val row = ui.horizontal(16).apply { minimumHeight = ui.dp(48) }
+                    row.addView(ui.label(name))
+                    row.addView(ui.text(value, if (name == "UID" || value.startsWith("http")) 13f else 13.5f, ui.color(R.color.fg),
+                        mono = name == "UID" || value.startsWith("http")).apply {
+                        gravity = Gravity.END
+                        setTextIsSelectable(true)
+                    }, LinearLayout.LayoutParams(0, WRAP, 1f))
+                    card.addView(row)
+                    if (i < r.result.rows.size - 1) card.addView(View(this).apply { setBackgroundColor(ui.color(R.color.line)) }, ui.lp(height = 1))
+                }
+                col.addView(card, ui.lp(top = 24))
+            }
+            if (r.log.isNotBlank()) {
+                val logCard = ui.vertical(10).apply { setPadding(ui.dp(16), ui.dp(14), ui.dp(16), ui.dp(14)) }
+                ui.pressable(logCard, ui.glass(22f)) { logOpen = !logOpen; render() }
+                val head = ui.horizontal(10)
+                head.addView(ui.text(getString(R.string.what_knurd_did), 14.5f, ui.color(R.color.fg), 600), LinearLayout.LayoutParams(0, WRAP, 1f))
+                head.addView(ui.icon(R.drawable.ic_ui_chevron, 16, ui.color(R.color.muted)).apply { rotation = if (logOpen) 90f else 0f })
+                logCard.addView(head)
+                if (logOpen) {
+                    logCard.addView(ui.text(r.log.trimEnd(), 12f, Color.parseColor("#D5DDE6"), mono = true).apply {
+                        background = ui.rounded(Color.parseColor("#070A0E"), 12f)
+                        setPadding(ui.dp(12), ui.dp(10), ui.dp(12), ui.dp(10))
+                        setTextIsSelectable(true)
+                    })
+                }
+                col.addView(logCard, ui.lp(top = 16))
+            }
+            val buttons = ui.horizontal(10)
+            buttons.addView(ui.button(getString(R.string.copy_details), Ui.Kind.OUTLINE) { copyDetails() }, LinearLayout.LayoutParams(0, WRAP, 1f))
+            if (r.again != null) {
+                buttons.addView(ui.button(r.again) {
+                    val pack = packCard
+                    if (action == Action.CLAIM && pack != null && running == null) begin(Action.CLAIM, pack) else start(action)
+                }, LinearLayout.LayoutParams(0, WRAP, 1f))
+            }
+            col.addView(buttons, ui.lp(top = 24))
+            if (!resultFelt) {
+                resultFelt = true
+                root.post { root.performHapticFeedback(if (good) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.REJECT) }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- small parts
+
+    private fun pageTitle(text: String): TextView = ui.text(text, 28f, ui.color(R.color.fg), 800).apply { letterSpacing = -0.025f }
+
+    private fun sectionTitle(text: String): TextView = ui.text(text, 17f, ui.color(R.color.fg), 600).apply { letterSpacing = -0.01f }
+
+    private fun sectionHead(title: String, link: String, onClick: () -> Unit): View = ui.horizontal().apply {
+        addView(sectionTitle(title), LinearLayout.LayoutParams(0, WRAP, 1f))
+        addView(ui.text(link, 13.5f, ui.color(R.color.accent_text), 500).apply {
+            setPadding(ui.dp(8), ui.dp(10), 0, ui.dp(10))
+            setOnClickListener { onClick() }
+        })
+    }
+
+    private fun kicker(text: String): TextView = ui.text(text.uppercase(), 12.5f, ON_DARK_ACCENT, 600).apply { letterSpacing = 0.14f }
+
+    private fun darkPill(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        background = ui.rounded(DARK_PILL, 999f)
+    }
+
+    private fun darkGlass(): GradientDrawable = ui.rounded(Color.argb(15, 255, 255, 255), 22f, Color.argb(26, 255, 255, 255))
+
+    private fun stepNumber(n: Int): View = ui.text(n.toString(), 13f, ON_DARK_ACCENT, 600).apply {
+        gravity = Gravity.CENTER
+        background = ui.oval(Color.argb(41, 242, 140, 58))
+        layoutParams = LinearLayout.LayoutParams(ui.dp(28), ui.dp(28))
+    }
+
+    private fun stepIcon(state: Step, onDark: Boolean, small: Boolean = false): View {
+        val size = if (small) 22 else 26
+        val ok = if (onDark) Color.parseColor("#4ADE9B") else ui.color(R.color.ok)
+        val accent = if (onDark) ON_DARK_ACCENT else ui.color(R.color.accent_text)
+        return when (state) {
+            Step.DONE -> ui.iconBox(R.drawable.ic_ui_check, size, if (small) 13 else 15, ok, Color.argb(41, Color.red(ok), Color.green(ok), Color.blue(ok)))
+            Step.ACTIVE -> FrameLayout(this).apply {
+                background = ui.oval(Color.TRANSPARENT, accent).apply { setStroke(ui.dp(2), accent) }
+                addView(View(this@MainActivity).apply { background = ui.oval(accent) },
+                    FrameLayout.LayoutParams(ui.dp(if (small) 7 else 8), ui.dp(if (small) 7 else 8), Gravity.CENTER))
+            }
+            Step.PENDING -> View(this).apply {
+                background = ui.oval(Color.TRANSPARENT).apply { setStroke(ui.dp(2), Color.argb(56, 255, 255, 255)) }
+            }
+        }.also { it.layoutParams = LinearLayout.LayoutParams(ui.dp(size), ui.dp(size)) }
+    }
+
+    private fun noticeLine(col: LinearLayout, onDark: Boolean) {
+        val text = notice ?: if (nfc == null) "This phone has no NFC, so it can't talk to tags." else null
+        if (text.isNullOrEmpty()) return
+        val bad = noticeBad || nfc == null
+        val color = if (onDark) (if (bad) ON_DARK_BAD else ON_DARK_SOFT) else ui.color(if (bad) R.color.bad_text else R.color.soft)
+        col.addView(ui.text(text, 13.5f, color).apply {
+            gravity = if (onDark) Gravity.CENTER else Gravity.START
+            background = if (onDark) null else ui.rounded(ui.color(if (bad) R.color.bad_tint else R.color.icon_bg), 14f)
+            if (!onDark) setPadding(ui.dp(14), ui.dp(10), ui.dp(14), ui.dp(10))
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }, ui.lp(top = 12))
+    }
+
+    private fun tinted(res: Int, color: Int) = getDrawable(res)?.mutate()?.apply {
+        setTint(color)
+        setBounds(0, 0, ui.dp(20), ui.dp(20))
+    }
+
+    private fun statusWord(status: String) = when (status) {
+        "ok" -> "Verified"
+        "replay" -> "Replayed"
+        "rejected" -> "Rejected"
+        "malformed" -> "Malformed"
+        else -> status.replaceFirstChar { it.uppercase() }
+    }
+
+    // ---------------------------------------------------------------- names kept on the phone
+
+    private fun tagNames(): JSONObject = try {
+        JSONObject(prefs.getString("tagNames", "{}") ?: "{}")
+    } catch (e: org.json.JSONException) {
+        JSONObject()
+    }
+
+    private fun tagName(uid: String): String? = tagNames().optString(uid, "").ifEmpty { null }
+
+    /** A tag's name from this phone, or its UID shortened. */
+    private fun tagTitle(uid: String): String = tagName(uid) ?: Words.shortUid(uid)
+
+    private fun sortedTags(s: Snapshot): List<Snapshot.TagInfo> =
+        s.tags.sortedByDescending { s.lastTap(it.uid)?.time ?: Instant.EPOCH }
+
+    private fun renameTag(uid: String) {
+        val input = textInput(tagName(uid) ?: "", "Front door")
+        AlertDialog.Builder(this)
+            .setTitle("Name this tag")
+            .setMessage("$uid\n\nThe name stays on this phone.")
+            .setView(padded(input))
+            .setPositiveButton("Save") { _, _ ->
+                val names = tagNames()
+                val name = input.text.toString().trim()
+                if (name.isEmpty()) names.remove(uid) else names.put(uid, name.take(40))
+                prefs.edit().putString("tagNames", names.toString()).apply()
+                render()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun editName() {
+        val input = textInput(prefs.getString("name", "") ?: "", "Your name")
+        AlertDialog.Builder(this)
+            .setTitle("What should Knura call you?")
+            .setView(padded(input))
+            .setPositiveButton("Save") { _, _ ->
+                val name = input.text.toString().trim().take(30)
+                prefs.edit().apply { if (name.isEmpty()) remove("name") else putString("name", name) }.apply()
+                render()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun textInput(value: String, hint: String) = EditText(this).apply {
+        setText(value)
+        this.hint = hint
+        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
+        isSingleLine = true
+        setSelection(text.length)
+    }
+
+    private fun padded(view: View) = FrameLayout(this).apply {
+        setPadding(ui.dp(20), ui.dp(8), ui.dp(20), 0)
+        addView(view)
+    }
+
+    private fun copyDetails() {
+        getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Knura", details))
+        // Android 13+ shows its own "Copied" message.
+    }
+
+    // ---------------------------------------------------------------- moving between screens
+
+    /** The home screen when paired, the welcome screen when not, with an optional [text] notice. */
+    private fun showHome(text: String?, bad: Boolean = false) {
+        notice = text
+        noticeBad = bad
+        screen = if (vault.isPaired()) Screen.HOME else Screen.WELCOME
+        render()
+    }
+
+    private fun showResult(label: String, result: TagResults.Result, logText: String, again: String?) {
+        shown = Shown(label, result, logText, again)
+        resultFelt = false
+        logOpen = false
         details = buildString {
             append(result.title).append('\n').append(result.subtitle).append('\n')
             for ((name, value) in result.rows) append(name).append(": ").append(value).append('\n')
             if (logText.isNotBlank()) append('\n').append(logText.trimEnd())
         }
-        show(screenResult)
-    }
-
-    /** The screen for one of knurd's answers, first with a spinner while it loads. */
-    private fun showKnurd(title: String) {
-        findViewById<TextView>(R.id.knurdTitle).text = title
-        findViewById<View>(R.id.knurdNote).visibility = View.GONE
-        findViewById<View>(R.id.knurdRows).visibility = View.GONE
-        findViewById<View>(R.id.knurdMessage).visibility = View.GONE
-        findViewById<View>(R.id.knurdLoading).visibility = View.VISIBLE
-        show(screenKnurd)
-    }
-
-    private fun showAnswer(answer: KnurdViews.Answer, pairs: Boolean) {
-        findViewById<View>(R.id.knurdLoading).visibility = View.GONE
-        val note = findViewById<TextView>(R.id.knurdNote)
-        note.text = answer.note ?: ""
-        note.visibility = if (answer.note == null || answer.rows.isEmpty()) View.GONE else View.VISIBLE
-        val rows = findViewById<LinearLayout>(R.id.knurdRows)
-        rows.removeAllViews()
-        for (row in answer.rows) {
-            rows.addView(if (pairs) pairRow(row.title, row.detail, row.mono) else listRow(row))
-        }
-        rows.visibility = if (answer.rows.isEmpty()) View.GONE else View.VISIBLE
-        if (answer.rows.isEmpty()) knurdMessage(answer.empty ?: "Nothing here yet.", bad = false)
-    }
-
-    private fun knurdMessage(text: String, bad: Boolean) {
-        findViewById<View>(R.id.knurdLoading).visibility = View.GONE
-        val view = findViewById<TextView>(R.id.knurdMessage)
-        view.text = text
-        view.setTextColor(getColor(if (bad) R.color.bad_text else R.color.muted))
-        view.visibility = View.VISIBLE
-    }
-
-    /** A label on the left and its value on the right, like "UID   04406B02936980". */
-    private fun pairRow(name: String, value: String, mono: Boolean): View {
-        val row = LinearLayout(this)
-        row.orientation = LinearLayout.HORIZONTAL
-        row.gravity = Gravity.CENTER_VERTICAL
-        row.minimumHeight = dp(48)
-        row.setPadding(dp(16), dp(10), dp(16), dp(10))
-        row.addView(text(name, 14f, R.color.muted).apply { setPadding(0, 0, dp(16), 0) })
-        row.addView(text(value, if (mono) 13f else 14f, R.color.fg, mono).apply {
-            gravity = Gravity.END
-            setTextIsSelectable(true)
-        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        return row
-    }
-
-    /** A title, a detail line under it and an optional badge, like one tap in Recent taps. */
-    private fun listRow(r: KnurdViews.Row): View {
-        val row = LinearLayout(this)
-        row.orientation = LinearLayout.HORIZONTAL
-        row.gravity = Gravity.CENTER_VERTICAL
-        row.minimumHeight = dp(56)
-        row.setPadding(dp(16), dp(10), dp(16), dp(10))
-        val column = LinearLayout(this)
-        column.orientation = LinearLayout.VERTICAL
-        column.addView(text(r.title, if (r.mono) 14f else 15f, R.color.fg, r.mono))
-        if (r.detail.isNotEmpty()) {
-            column.addView(text(r.detail, 12f, R.color.muted).apply { setPadding(0, dp(3), 0, 0) })
-        }
-        row.addView(column, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        if (r.badge != null) {
-            val good = r.badgeKind == KnurdViews.Badge.GOOD
-            row.addView(text(r.badge, 12f, if (good) R.color.ok_text else R.color.bad_text).apply {
-                setBackgroundResource(if (good) R.drawable.bg_pill_good else R.drawable.bg_pill_bad)
-                setPadding(dp(10), dp(4), dp(10), dp(4))
-                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            })
-        }
-        return row
-    }
-
-    private fun text(value: String, sp: Float, color: Int, mono: Boolean = false) = TextView(this).apply {
-        text = value
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
-        setTextColor(getColor(color))
-        if (mono) typeface = Typeface.MONOSPACE
-    }
-
-    /** Puts [icon] just before the button's centered text. */
-    private fun withIcon(button: Button, icon: Int) {
-        val drawable = getDrawable(icon) ?: return
-        val size = dp(22)
-        drawable.setBounds(0, 0, size, size)
-        val text = SpannableString("  " + button.text)
-        text.setSpan(ImageSpan(drawable, ImageSpan.ALIGN_CENTER), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        button.text = text
-    }
-
-    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
-
-    private fun copyDetails() {
-        getSystemService(ClipboardManager::class.java)
-            .setPrimaryClip(ClipData.newPlainText("Knura", details))
-        // Android 13+ shows its own "Copied" message.
+        screen = Screen.RESULT
+        notice = null
+        render()
     }
 
     // ---------------------------------------------------------------- pairing
@@ -445,12 +1249,20 @@ class MainActivity : Activity() {
                     showHome(e.message, bad = true)
                     return@addOnSuccessListener
                 }
+                pairHosted = scanned.hosted
+                pairUrl = scanned.url
+                notice = null
                 if (!scanned.needsToken) {
+                    pairStep = 2
+                    screen = Screen.PAIRING
+                    render()
                     savePairing(scanned)
                     return@addOnSuccessListener
                 }
                 // A one-time code: swap it for the token first, then save that.
-                showHome("Pairing...")
+                pairStep = 1
+                screen = Screen.PAIRING
+                render()
                 worker.execute {
                     val pairing = try {
                         KnurdClient(scanned).pair()
@@ -464,34 +1276,51 @@ class MainActivity : Activity() {
                         ui { showHome("Couldn't pair: the server's answer didn't make sense", bad = true) }
                         return@execute
                     }
-                    ui { savePairing(pairing) }
+                    ui {
+                        pairStep = 2
+                        if (screen == Screen.PAIRING) render()
+                        savePairing(pairing)
+                    }
                 }
             }
             .addOnFailureListener { e -> showHome("Couldn't scan: ${e.message}", bad = true) }
     }
 
-    /** Unlocks and keeps [pairing], whose token is ready. */
+    /** Unlocks and keeps [pairing], whose token is ready, then loads the server's status. */
     private fun savePairing(pairing: Pairing) {
         unlock("Unlock to save the pairing") {
             try {
                 vault.save(pairing)
-                showHome("Paired. Pick what to do, then tap Start.")
             } catch (e: Exception) {
                 showHome("Couldn't save the pairing: ${e.message}. Does this phone have a screen lock?", bad = true)
+                return@unlock
             }
+            snapshot = null
+            prefs.edit().remove("snapshot").apply()
+            link = Link.UNKNOWN
+            val fresh = KnurdClient(pairing)
+            session = fresh
+            showHome("Paired. Pick what to do with a tag.")
+            load(fresh)
         }
     }
 
     private fun confirmForget() {
         AlertDialog.Builder(this)
-            .setTitle("Forget this knurd?")
-            .setMessage("The phone deletes its token. To use knurd again, pair with a new code from knurctl admin pair-phone.")
-            .setPositiveButton("Forget") { _, _ ->
-                vault.forget()
-                showHome(null)
-            }
+            .setTitle(if (hosted) "Forget this account?" else "Forget this knurd?")
+            .setMessage("The phone deletes its token. To use it again, pair with a new code from knurctl admin pair-phone or your account page.")
+            .setPositiveButton("Forget") { _, _ -> forgetServer() }
             .setNegativeButton(R.string.cancel, null)
             .show()
+    }
+
+    private fun forgetServer() {
+        vault.forget()
+        session = null
+        snapshot = null
+        link = Link.UNKNOWN
+        prefs.edit().remove("snapshot").apply()
+        showHome(null)
     }
 
     /** Asks for fingerprint or screen lock, then runs [then] on the main thread. */
@@ -520,110 +1349,139 @@ class MainActivity : Activity() {
     private fun knurd(): KnurdClient? = try {
         KnurdClient(vault.load())
     } catch (e: Exception) {
-        showHome("Couldn't read the pairing (${e.message}). Forget this knurd and pair again.", bad = true)
+        showHome("Couldn't read the pairing (${e.message}). Forget this server and pair again.", bad = true)
         null
     }
 
-    // ---------------------------------------------------------------- knurd's admin answers
+    // ---------------------------------------------------------------- the server's status, tags and taps
 
-    /** Unlocks, reads one of knurd's read-only admin answers and shows it, like knurctl admin status. */
-    private fun ask(path: String, title: String, pairs: Boolean, view: (JSONObject) -> KnurdViews.Answer) {
-        if (!vault.isPaired() || running != null) return
-        unlock("Unlock to use knurd") {
+    /** Loads the latest from the server, asking to unlock only if the app isn't unlocked already. */
+    private fun refresh() {
+        if (!vault.isPaired() || loading || running != null) return
+        val open = session
+        if (open != null) {
+            load(open)
+            return
+        }
+        unlock("Unlock to see your server") {
             val knurd = knurd() ?: return@unlock
-            showKnurd(title)
-            worker.execute {
-                try {
-                    val reply = knurd.get(path)
-                    if (reply.code == 200) {
-                        val answer = view(reply.json)
-                        ui { showAnswer(answer, pairs) }
-                    } else {
-                        ui { knurdMessage("knurd said no: " + reply.json.optString("detail", "status ${reply.code}"), bad = true) }
+            session = knurd
+            load(knurd)
+        }
+    }
+
+    /** Reads status, tags, taps and tokens in one go, and keeps them as the new [snapshot]. */
+    private fun load(knurd: KnurdClient) {
+        loading = true
+        if (screen in TABS) render()
+        worker.execute {
+            var next: Snapshot? = null
+            var error: String? = null
+            var offline = false
+            try {
+                val status = knurd.get("/v1/status")
+                if (status.code != 200) {
+                    error = "The server said no: " + status.json.optString("detail", "status ${status.code}")
+                } else {
+                    val tags = knurd.get("/v1/tags")
+                    val taps = knurd.get("/v1/taps?limit=200")
+                    // A hosted account may not list tokens; the Server tab leaves that part out then.
+                    val tokens = try {
+                        knurd.get("/v1/tokens").takeIf { it.code == 200 }?.json
+                    } catch (e: IOException) {
+                        null
                     }
-                } catch (e: IOException) {
-                    ui { knurdMessage(explain(e, knurd.url), bad = true) }
-                } catch (e: org.json.JSONException) {
-                    ui { knurdMessage("knurd's answer didn't make sense: ${e.message}", bad = true) }
+                    next = Snapshot.of(Instant.now(), status.json, tags.json.takeIf { tags.code == 200 },
+                        taps.json.takeIf { taps.code == 200 }, tokens)
                 }
+            } catch (e: IOException) {
+                offline = true
+                error = explain(e, knurd.url)
+            } catch (e: org.json.JSONException) {
+                error = "The server's answer didn't make sense: ${e.message}"
+            }
+            ui {
+                loading = false
+                val fresh = next
+                if (fresh != null) {
+                    snapshot = fresh
+                    link = Link.ONLINE
+                    linkError = null
+                    prefs.edit().putString("snapshot", fresh.toJson().toString()).apply()
+                } else if (offline) {
+                    link = Link.OFFLINE
+                    linkError = error
+                } else if (error != null && screen in TABS) {
+                    notice = error
+                    noticeBad = true
+                }
+                if (screen in TABS) render()
             }
         }
     }
 
-    /** Unlocks, lists knurd's admin tokens, and removes the one picked, like knurctl admin token remove. */
-    private fun pickTokenToRemove() {
-        if (!vault.isPaired() || running != null) return
-        unlock("Unlock to use knurd") {
-            val knurd = knurd() ?: return@unlock
-            showHome("Asking knurd...")
-            worker.execute {
-                val reply = try {
-                    knurd.get("/v1/tokens")
-                } catch (e: IOException) {
-                    ui { showHome(explain(e, knurd.url), bad = true) }
-                    return@execute
-                }
-                ui {
-                    if (reply.code != 200) {
-                        showHome("knurd said no: " + reply.json.optString("detail", "status ${reply.code}"), bad = true)
-                        return@ui
-                    }
-                    showHome(null)
-                    val you = reply.json.optString("you")
-                    val names = KnurdViews.tokenNames(reply.json)
-                    val labels = names.map { if (it == you) "$it (this phone)" else it }.toTypedArray()
-                    AlertDialog.Builder(this)
-                        .setTitle("Remove which token?")
-                        .setItems(labels) { _, which -> confirmRemove(knurd, names[which], names[which] == you) }
-                        .setNegativeButton(R.string.cancel, null)
-                        .show()
-                }
-            }
-        }
-    }
-
-    private fun confirmRemove(knurd: KnurdClient, name: String, isThisPhone: Boolean) {
-        val warning = if (isThisPhone) "This phone's own token: the app won't reach knurd again until you pair it again."
+    /** Removes a token after asking, like knurctl admin token remove. */
+    private fun confirmRemove(name: String, isThisPhone: Boolean) {
+        val warning = if (isThisPhone) "This phone's own token: the app won't reach the server again until you pair it again."
         else "Whatever uses it (a phone or a knurctl creds file) stops working right away."
         AlertDialog.Builder(this)
             .setTitle("Remove token \"$name\"?")
             .setMessage(warning)
-            .setPositiveButton("Remove") { _, _ ->
-                showHome("Removing $name...")
-                worker.execute {
-                    var removed = false
-                    val text = try {
-                        val reply = knurd.delete("/v1/tokens/$name")
-                        removed = reply.code == 200
-                        if (removed) "Removed token \"$name\". knurd refuses it from now on."
-                        else "knurd said no: " + reply.json.optString("detail", "status ${reply.code}")
-                    } catch (e: IOException) {
-                        explain(e, knurd.url)
-                    }
-                    ui {
-                        if (isThisPhone && removed) {
-                            vault.forget()
-                        }
-                        showHome(text, bad = !removed)
-                    }
-                }
-            }
+            .setPositiveButton("Remove") { _, _ -> withSession { knurd -> remove(knurd, name, isThisPhone) } }
             .setNegativeButton(R.string.cancel, null)
             .show()
     }
 
-    // ---------------------------------------------------------------- tag sessions
+    private fun remove(knurd: KnurdClient, name: String, isThisPhone: Boolean) {
+        worker.execute {
+            var removed = false
+            val text = try {
+                val reply = knurd.delete("/v1/tokens/$name")
+                removed = reply.code == 200
+                if (removed) "Removed token \"$name\". The server refuses it from now on."
+                else "The server said no: " + reply.json.optString("detail", "status ${reply.code}")
+            } catch (e: IOException) {
+                explain(e, knurd.url)
+            }
+            ui {
+                if (isThisPhone && removed) {
+                    forgetServer()
+                    return@ui
+                }
+                notice = text
+                noticeBad = !removed
+                if (removed) load(knurd) else render()
+            }
+        }
+    }
 
-    private fun start() {
-        val adapter = nfc ?: return
-        if (running != null) return
-        if (!adapter.isEnabled) {
-            showHome("NFC is off. Turn it on in Settings, then tap Start again.", bad = true)
+    /** Runs [then] with the unlocked server, asking to unlock first if needed. */
+    private fun withSession(then: (KnurdClient) -> Unit) {
+        val open = session
+        if (open != null) {
+            then(open)
             return
         }
-        val a = action
+        unlock("Unlock to use your server") {
+            val knurd = knurd() ?: return@unlock
+            session = knurd
+            then(knurd)
+        }
+    }
+
+    // ---------------------------------------------------------------- tag sessions
+
+    private fun start(a: Action) {
+        val adapter = nfc ?: return
+        if (running != null) return
+        if (!vault.isPaired()) return
+        if (!adapter.isEnabled) {
+            showHome("NFC is off. Turn it on in Settings, then try again.", bad = true)
+            return
+        }
+        forgetPackCard()
+        action = a
         if (a == Action.CLAIM) {
-            forgetPackCard()
             askForClaim { card -> begin(a, card) }
         } else {
             begin(a, null)
@@ -631,21 +1489,42 @@ class MainActivity : Activity() {
     }
 
     private fun begin(a: Action, card: ClaimCodes.Claim?) {
-        unlock("Unlock to use knurd") {
+        unlock("Unlock to use your server") {
             val knurd = knurd() ?: return@unlock
+            session = knurd
             claim = card
+            // A new tag has factory keys; a tag being reset was most likely set up by Knura.
             from = when (a) {
-                Action.PROVISION, Action.RESET -> if (knuraKeys.isChecked) "knura" else "factory"
+                Action.PROVISION -> "factory"
+                Action.RESET -> "knura"
                 Action.CLAIM -> "claim"
                 else -> null
             }
             // Last: a tag arriving on the worker thread starts relaying once running is set.
             client = knurd
             running = a
-            log.text = ""
-            showWorking(a)
+            action = a
+            holdTitle = getString(R.string.hold_title)
+            holdHint = getString(R.string.hold_hint)
+            holdHintBad = false
+            holdFound = false
+            holdSteps[0] = Step.DONE
+            holdSteps[1] = Step.ACTIVE
+            holdSteps[2] = Step.PENDING
+            notice = null
+            screen = Screen.HOLD
+            render()
             // NFC may have been turned on since the app came to the front.
             listenForTags()
+        }
+    }
+
+    private fun hint(text: String, bad: Boolean) {
+        holdHint = text
+        holdHintBad = bad
+        holdHintView?.apply {
+            this.text = text
+            setTextColor(if (bad) ON_DARK_BAD else ON_DARK_SOFT)
         }
     }
 
@@ -672,17 +1551,13 @@ class MainActivity : Activity() {
             hint = getString(R.string.claim_code_hint)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS or
                 InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-            typeface = Typeface.MONOSPACE
+            typeface = ui.font(400, mono = true)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             isSingleLine = true
         }
-        val box = FrameLayout(this).apply {
-            setPadding(dp(20), dp(8), dp(20), 0)
-            addView(input)
-        }
         AlertDialog.Builder(this)
             .setTitle(R.string.claim_title)
-            .setView(box)
+            .setView(padded(input))
             .setPositiveButton(R.string.claim_continue) { _, _ -> readClaim(input.text.toString(), then) }
             .setNegativeButton(R.string.cancel, null)
             .show()
@@ -701,7 +1576,7 @@ class MainActivity : Activity() {
     /**
      * Reader mode for as long as the app is in front: every tag comes to the app, and Android
      * doesn't open the tag's link in the browser, even when the tag is already at the phone
-     * before Start or while the unlock prompt is up. Tags only do something during a session.
+     * before a session or while the unlock prompt is up. Tags only do something during a session.
      */
     private fun listenForTags() {
         val adapter = nfc ?: return
@@ -716,18 +1591,17 @@ class MainActivity : Activity() {
             relay(tag)
         } else {
             ui {
-                if (screenHome.visibility == View.VISIBLE) {
-                    say(R.id.homeNotice, "Pick what to do and tap Start, then hold the tag.", bad = false)
+                if (screen == Screen.HOME) {
+                    notice = "Choose what to do first, then hold the tag."
+                    noticeBad = false
+                    render()
                 }
             }
         }
     }
 
-    /** Ends the session; tags are ignored again until the next Start. The caller picks the next screen. */
+    /** Ends the session; tags are ignored again until the next one. The caller picks the next screen. */
     private fun stop() {
-        pulse?.cancel()
-        pulse = null
-        findViewById<View>(R.id.target).apply { scaleX = 1f; scaleY = 1f }
         client = null
         running = null
         claim = null
@@ -750,11 +1624,14 @@ class MainActivity : Activity() {
             return
         }
         ui {
-            findViewById<TextView>(R.id.workTitle).text = "Keep holding it"
+            holdTitle = "Keep holding it"
+            holdTitleView?.text = holdTitle
             hint(getString(R.string.hold_hint), bad = false)
-            findViewById<TextView>(R.id.step2Text).setText(R.string.step_found)
-            step(2, Step.DONE)
-            step(3, Step.ACTIVE)
+            holdFound = true
+            holdSteps[1] = Step.DONE
+            holdSteps[2] = Step.ACTIVE
+            holdStepsView?.let { fillHoldSteps(it, a) }
+            root.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
         }
         val lines = StringBuilder()
         try {
@@ -797,6 +1674,8 @@ class MainActivity : Activity() {
                             } else {
                                 showResult(a.label, result, lines.toString(), a.again)
                             }
+                            // The tag's tap or new keys show up in the tabs without another unlock.
+                            session?.let { load(it) }
                         }
                         return
                     }
@@ -844,4 +1723,16 @@ class MainActivity : Activity() {
     }
 
     private fun ui(block: () -> Unit) = runOnUiThread(block)
+
+    private companion object {
+        val TABS = setOf(Screen.HOME, Screen.TAGS, Screen.TAPS, Screen.SERVER)
+
+        // The welcome, pairing and scan screens are dark in both themes.
+        val ON_DARK = Color.parseColor("#E8EDF3")
+        val ON_DARK_SOFT = Color.parseColor("#B7C0CB")
+        val ON_DARK_MUTED = Color.parseColor("#8B97A6")
+        val ON_DARK_ACCENT = Color.parseColor("#FFB86B")
+        val ON_DARK_BAD = Color.parseColor("#F87171")
+        val DARK_PILL = Color.argb(140, 10, 13, 18)
+    }
 }
