@@ -67,7 +67,7 @@ class MainActivity : Activity() {
         CLAIM("provision", "Claim a tag", "knurd swaps in your keys", "Claiming", "Claim another"),
     }
 
-    private enum class Screen { WELCOME, PAIRING, HOME, TAGS, TAPS, SERVER, HOLD, RESULT }
+    private enum class Screen { WELCOME, PAIRING, HOME, TAGS, TAPS, SERVER, HOLD, RESULT, TAG, NOTES, WALK }
 
     private enum class Step { PENDING, ACTIVE, DONE }
 
@@ -100,6 +100,19 @@ class MainActivity : Activity() {
      */
     @Volatile private var session: KnurdClient? = null
     private var tapFilter = 0
+
+    /** The tag the tag screen shows, and the tab it was opened from. */
+    private var openTag: String? = null
+    private var tagFrom = Screen.TAGS
+    /** The app's own notifications, newest first, and the list as it was when the screen opened. */
+    private var notes: List<Note> = emptyList()
+    private var notesShown: List<Note> = emptyList()
+    private var offlineSince: Instant? = null
+    /** The first-tag walkthrough: its step (0 to 4), and whether a tag session belongs to it. */
+    private var walkStep = 0
+    private var walking = false
+    /** Set by pairing, so the first load can offer the walkthrough when there are no tags. */
+    private var offerWalk = false
 
     // Pairing screen.
     private var pairStep = 1
@@ -147,6 +160,7 @@ class MainActivity : Activity() {
         prefs = getSharedPreferences("app", Context.MODE_PRIVATE)
         nfc = NfcAdapter.getDefaultAdapter(this)
         snapshot = Snapshot.fromJson(prefs.getString("snapshot", null))
+        notes = Note.listFromJson(prefs.getString("notes", null))
 
         // Draw behind the status and navigation bars, so the orange glow reaches the top of the screen.
         window.setDecorFitsSystemWindows(false)
@@ -207,10 +221,12 @@ class MainActivity : Activity() {
     @Deprecated("Still the simplest way to handle Back on Android 11 and 12.")
     override fun onBackPressed() {
         when (screen) {
-            Screen.HOLD -> { stop(); showHome("Cancelled.") }
-            Screen.RESULT -> { forgetPackCard(); showHome(null) }
+            Screen.HOLD -> cancelHold()
+            Screen.RESULT -> closeResult()
             Screen.PAIRING -> showHome(null)
-            Screen.TAGS, Screen.TAPS, Screen.SERVER -> go(Screen.HOME)
+            Screen.TAGS, Screen.TAPS, Screen.SERVER, Screen.NOTES -> go(Screen.HOME)
+            Screen.TAG -> go(tagFrom)
+            Screen.WALK -> if (walkStep > 0) { walkStep--; render() } else endWalk()
             else -> @Suppress("DEPRECATION") super.onBackPressed()
         }
     }
@@ -245,6 +261,9 @@ class MainActivity : Activity() {
             Screen.SERVER -> server()
             Screen.HOLD -> hold()
             Screen.RESULT -> result()
+            Screen.TAG -> tagDetail()
+            Screen.NOTES -> notifications()
+            Screen.WALK -> walk()
         }
         root.addView(page, FrameLayout.LayoutParams(MATCH, MATCH))
         if (screen in TABS) {
@@ -259,7 +278,7 @@ class MainActivity : Activity() {
                 rightMargin = ui.dp(16)
             })
         }
-        val darkPage = screen == Screen.WELCOME || screen == Screen.PAIRING || screen == Screen.HOLD
+        val darkPage = screen == Screen.WELCOME || screen == Screen.PAIRING || screen == Screen.HOLD || screen == Screen.WALK
         val lightBars = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
         window.insetsController?.setSystemBarsAppearance(if (darkPage || night) 0 else lightBars, lightBars)
     }
@@ -273,7 +292,8 @@ class MainActivity : Activity() {
             gradientRadius = resources.displayMetrics.widthPixels * if (wide) 0.45f else 0.85f
             setGradientCenter(if (wide) 0.25f else 0.5f, 0f)
         }))
-        val scroll = ScrollView(this).apply { isFillViewport = true; clipToPadding = false }
+        // No fillViewport here: stretching the column to the screen made the action tiles grow to fill it.
+        val scroll = ScrollView(this).apply { clipToPadding = false }
         val column = ui.vertical()
         val side = if (wide) ui.dp(32) else ui.dp(20)
         column.setPadding(side, topInset + ui.dp(12), side, bottomInset + ui.dp(if (screen in TABS) 120 else 28))
@@ -488,6 +508,13 @@ class MainActivity : Activity() {
             setOnClickListener { editName() }
         })
         row.addView(words, LinearLayout.LayoutParams(0, WRAP, 1f))
+        val unread = notes.count { it.unread }
+        val bell = ui.circleButton(R.drawable.ic_ui_bell, if (unread > 0) "Notifications, $unread new" else "Notifications", 44) { openNotes() }
+        if (unread > 0) {
+            bell.addView(View(this).apply { background = ui.oval(ui.color(R.color.accent), ui.color(R.color.bg)) },
+                FrameLayout.LayoutParams(ui.dp(10), ui.dp(10), Gravity.TOP or Gravity.END).apply { topMargin = ui.dp(9); rightMargin = ui.dp(10) })
+        }
+        row.addView(bell)
         col.addView(row, ui.lp(height = ui.dp(52)).apply { height = WRAP })
         noticeLine(col, onDark = false)
     }
@@ -499,6 +526,7 @@ class MainActivity : Activity() {
             offline(col)
             return
         }
+        if (snapshot?.tags?.isEmpty() == true) col.addView(firstTagCard(), ui.lp(top = 14))
         col.addView(sectionTitle("What do you want to do?"), ui.lp(top = 24))
         val grid = ui.vertical(10)
         val first = ui.horizontal(10)
@@ -521,11 +549,13 @@ class MainActivity : Activity() {
         row.addView(ui.iconBox(R.drawable.ic_ui_server, 44, 22, ui.color(R.color.accent_stroke), ui.color(R.color.accent_tint), 14f),
             LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)))
         val words = ui.vertical(3)
-        val title = ui.horizontal(8)
-        title.addView(ui.text(if (hosted) "Your hosted account" else "Your server", 14.5f, ui.color(R.color.fg), 600))
-        title.addView(linkWord())
-        words.addView(title)
-        words.addView(ui.singleLine(ui.text(vault.url?.removePrefix("https://") ?: "", 12.5f, ui.color(R.color.muted), mono = true), middle = true))
+        // The name on its own line and the status beside the address, so neither has to wrap next to the chart.
+        words.addView(ui.singleLine(ui.text(if (hosted) "Hosted account" else "Your server", 14.5f, ui.color(R.color.fg), 600)))
+        val second = ui.horizontal(8)
+        if (link != Link.UNKNOWN) second.addView(linkWord())
+        second.addView(ui.singleLine(ui.text(vault.url?.removePrefix("https://") ?: "", 12.5f, ui.color(R.color.muted), mono = true), middle = true),
+            LinearLayout.LayoutParams(0, WRAP, 1f))
+        words.addView(second)
         row.addView(words, LinearLayout.LayoutParams(0, WRAP, 1f))
         val s = snapshot
         if (s != null && link != Link.OFFLINE) {
@@ -554,7 +584,7 @@ class MainActivity : Activity() {
 
     private fun dotWord(word: String, dot: Int, fg: Int): View = ui.horizontal(5).apply {
         addView(View(this@MainActivity).apply { background = ui.oval(dot) }, LinearLayout.LayoutParams(ui.dp(6), ui.dp(6)))
-        addView(ui.text(word, 12f, fg, 600))
+        addView(ui.singleLine(ui.text(word, 12f, fg, 600)))
     }
 
     private fun offline(col: LinearLayout) {
@@ -596,8 +626,7 @@ class MainActivity : Activity() {
         }
         ui.pressable(tile, ui.glass(22f), onClick)
         tile.addView(ui.iconBox(icon, 40, 20, ui.color(R.color.accent_stroke), ui.color(R.color.icon_bg)), LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)))
-        tile.addView(ui.space(weight = 1f), LinearLayout.LayoutParams(1, 0, 1f))
-        tile.addView(ui.text(title, 15.5f, ui.color(R.color.fg), 600), ui.lp(top = 10))
+        tile.addView(ui.text(title, 15.5f, ui.color(R.color.fg), 600), ui.lp(top = 24))
         tile.addView(ui.text(hint, 12.5f, ui.color(R.color.muted)), ui.lp(top = 3))
         return tile
     }
@@ -631,7 +660,7 @@ class MainActivity : Activity() {
             else -> for (t in sortedTags(s)) {
                 val last = s.lastTap(t.uid)
                 row.addView(tagCard(R.drawable.ic_ui_tag, tagTitle(t.uid), last?.let { Words.ago(it.time, zone) } ?: "No recent taps",
-                    last?.ok) { renameTag(t.uid) })
+                    last?.ok) { showTag(t.uid) })
             }
         }
         scroller.addView(row)
@@ -666,7 +695,7 @@ class MainActivity : Activity() {
             for (t in sortedTags(s).take(8)) {
                 val last = s.lastTap(t.uid)
                 cards += tagCard(R.drawable.ic_ui_tag, tagTitle(t.uid), last?.let { Words.ago(it.time, zone) } ?: "No recent taps", last?.ok) {
-                    renameTag(t.uid)
+                    showTag(t.uid)
                 }
             }
             cards += tagCard(R.drawable.ic_ui_plus, "Set up a tag", "Give it keys", null) { start(Action.PROVISION) }
@@ -702,7 +731,7 @@ class MainActivity : Activity() {
                 for (t in sortedTags(s)) {
                     val last = s.lastTap(t.uid)
                     val row = ui.horizontal(12).apply { setPadding(ui.dp(14), ui.dp(12), ui.dp(14), ui.dp(12)) }
-                    ui.pressable(row, ui.glass(20f)) { renameTag(t.uid) }
+                    ui.pressable(row, ui.glass(20f)) { showTag(t.uid) }
                     row.addView(ui.iconBox(R.drawable.ic_ui_tag, 44, 22, ui.color(R.color.fg), ui.color(R.color.icon_bg), 14f),
                         LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)))
                     val words = ui.vertical(3)
@@ -720,7 +749,7 @@ class MainActivity : Activity() {
                     list.addView(row)
                 }
                 col.addView(list, ui.lp(top = 16))
-                col.addView(ui.text("Tap a tag to give it a name. Names stay on this phone.", 12.5f, ui.color(R.color.muted)), ui.lp(top = 14))
+                col.addView(ui.text("Tap a tag to see its taps or give it a name. Names stay on this phone.", 12.5f, ui.color(R.color.muted)), ui.lp(top = 14))
                 updatedLine(col, s)
             }
         }
@@ -909,6 +938,11 @@ class MainActivity : Activity() {
             .apply { gravity = Gravity.CENTER; setLineSpacing(0f, 1.2f) }, ui.lp(top = 8))
         box.addView(ui.button("Set up a tag") { start(Action.PROVISION) }, ui.lp(top = 20))
         box.addView(ui.button("Claim a tag", Ui.Kind.OUTLINE) { start(Action.CLAIM) }, ui.lp(top = 10))
+        box.addView(ui.text("Walk me through it", 14f, ui.color(R.color.accent_text), 500).apply {
+            gravity = Gravity.CENTER
+            minHeight = ui.dp(48)
+            setOnClickListener { startWalk() }
+        }, ui.lp(top = 6))
         col.addView(box)
     }
 
@@ -933,10 +967,7 @@ class MainActivity : Activity() {
     private fun hold(): View = glowPage { col ->
         val a = running ?: action
         val top = ui.horizontal()
-        top.addView(ui.circleButton(R.drawable.ic_ui_close, "Cancel", 44, fill = DARK_PILL, tint = ON_DARK, stroke = null) {
-            stop()
-            showHome("Cancelled.")
-        })
+        top.addView(ui.circleButton(R.drawable.ic_ui_close, "Cancel", 44, fill = DARK_PILL, tint = ON_DARK, stroke = null) { cancelHold() })
         top.addView(ui.space(), LinearLayout.LayoutParams(0, 1, 1f))
         top.addView(darkPill().apply {
             addView(ui.text(a.label, 14f, ON_DARK, 600))
@@ -985,7 +1016,7 @@ class MainActivity : Activity() {
             row.addView(switch)
             col.addView(row, ui.lp(top = 10))
         }
-        col.addView(ui.button(getString(R.string.cancel), Ui.Kind.ON_DARK) { stop(); showHome("Cancelled.") }, ui.lp(top = 14))
+        col.addView(ui.button(getString(R.string.cancel), Ui.Kind.ON_DARK) { cancelHold() }, ui.lp(top = 14))
     }
 
     private fun fillHoldSteps(row: LinearLayout, a: Action) {
@@ -1008,7 +1039,7 @@ class MainActivity : Activity() {
         return tabPage(if (good) R.color.glow_ok else R.color.glow_bad) { outer ->
             val col = centered(outer)
             val top = ui.horizontal()
-            top.addView(ui.circleButton(R.drawable.ic_ui_close, getString(R.string.close), 44) { forgetPackCard(); showHome(null) })
+            top.addView(ui.circleButton(R.drawable.ic_ui_close, getString(R.string.close), 44) { closeResult() })
             top.addView(ui.space(), LinearLayout.LayoutParams(0, 1, 1f))
             top.addView(ui.text(r.label, 15f, ui.color(R.color.fg), 600))
             top.addView(ui.space(), LinearLayout.LayoutParams(0, 1, 1f))
@@ -1072,6 +1103,290 @@ class MainActivity : Activity() {
                 resultFelt = true
                 root.post { root.performHapticFeedback(if (good) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.REJECT) }
             }
+        }
+    }
+
+    // ---------------------------------------------------------------- tag, notifications, walkthrough
+
+    private fun showTag(uid: String) {
+        openTag = uid
+        tagFrom = if (screen in TABS) screen else Screen.TAGS
+        go(Screen.TAG)
+    }
+
+    private fun tagDetail(): View = tabPage { outer ->
+        val col = centered(outer)
+        val uid = openTag ?: return@tabPage
+        val s = snapshot
+        val info = s?.tags?.firstOrNull { it.uid == uid }
+        val taps = s?.taps?.filter { it.uid == uid }.orEmpty()
+        val top = ui.horizontal()
+        top.addView(ui.circleButton(R.drawable.ic_ui_back, "Back", 44) { go(tagFrom) })
+        top.addView(ui.space(), LinearLayout.LayoutParams(0, 1, 1f))
+        top.addView(ui.text("Tag", 15f, ui.color(R.color.fg), 600))
+        top.addView(ui.space(), LinearLayout.LayoutParams(0, 1, 1f))
+        top.addView(ui.space(), LinearLayout.LayoutParams(ui.dp(44), 1))
+        col.addView(top, ui.lp(height = ui.dp(48)))
+        noticeLine(col, onDark = false)
+
+        val head = ui.horizontal(14)
+        head.addView(ui.iconBox(R.drawable.ic_ui_tag, 64, 30, ui.color(R.color.accent_stroke), ui.color(R.color.accent_tint), 20f),
+            LinearLayout.LayoutParams(ui.dp(64), ui.dp(64)))
+        val words = ui.vertical(4)
+        val named = tagName(uid)
+        words.addView(ui.text(named ?: "Unnamed tag", 24f, ui.color(R.color.fg), 700).apply {
+            letterSpacing = -0.02f
+            contentDescription = (named ?: "Unnamed tag") + ". Double tap to rename."
+            setOnClickListener { renameTag(uid) }
+        })
+        words.addView(ui.text(uid, 12.5f, ui.color(R.color.muted), mono = true).apply { setTextIsSelectable(true) })
+        head.addView(words, LinearLayout.LayoutParams(0, WRAP, 1f))
+        if (info != null) head.addView(ui.statusPill("Signed", ui.color(R.color.ok), ui.color(R.color.ok_text), ui.color(R.color.ok_tint)))
+        col.addView(head, ui.lp(top = 12))
+
+        val weekStart = Instant.now().minus(java.time.Duration.ofDays(7))
+        val stats = ui.horizontal(8)
+        stats.addView(stat(taps.count { it.ok && it.time.isAfter(weekStart) }.toString(), "this week"), LinearLayout.LayoutParams(0, WRAP, 1f))
+        stats.addView(stat(info?.lastCounter?.toString() ?: "–", "all time"), LinearLayout.LayoutParams(0, WRAP, 1f))
+        stats.addView(stat(taps.count { !it.ok }.toString(), "rejected"), LinearLayout.LayoutParams(0, WRAP, 1f))
+        col.addView(stats, ui.lp(top = 18))
+
+        col.addView(ui.label("When tapped"), ui.lp(top = 22))
+        val action = ui.vertical(10).apply {
+            background = ui.glass(22f)
+            setPadding(ui.dp(16), ui.dp(14), ui.dp(16), ui.dp(14))
+        }
+        val actionRow = ui.horizontal(12)
+        actionRow.addView(ui.iconBox(R.drawable.ic_ui_pulse, 40, 20, ui.color(R.color.accent_stroke), ui.color(R.color.icon_bg), 13f),
+            LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)))
+        val lastRan = taps.firstOrNull { it.ok }
+        val aw = ui.vertical(2)
+        aw.addView(ui.text(when {
+            lastRan == null -> "No verified taps yet"
+            lastRan.actions == 0 -> "Last tap ran no actions"
+            lastRan.actions == 1 -> "Last tap ran 1 action"
+            else -> "Last tap ran ${lastRan.actions} actions"
+        }, 14.5f, ui.color(R.color.fg), 600))
+        aw.addView(ui.text(if (hosted) "Pick what it does on your account's dashboard."
+            else "Your server runs the knot for this tag from knurgN's settings.", 12.5f, ui.color(R.color.muted)))
+        actionRow.addView(aw, LinearLayout.LayoutParams(0, WRAP, 1f))
+        action.addView(actionRow)
+        action.addView(ui.button("How to set actions", Ui.Kind.OUTLINE, 44) {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://docs.knura.io")))
+        }.apply { setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f) })
+        col.addView(action, ui.lp(top = 10))
+
+        col.addView(sectionHead("Recent taps", "See all") { go(Screen.TAPS) }, ui.lp(top = 18))
+        if (taps.isEmpty()) {
+            col.addView(ui.text(if (s == null) "Unlock to see this tag's taps." else "Your server doesn't remember any taps from this tag.",
+                14f, ui.color(R.color.muted)), ui.lp(top = 6))
+        } else {
+            col.addView(tapCard(taps.take(5)), ui.lp(top = 6))
+        }
+
+        val buttons = ui.horizontal(10)
+        buttons.addView(ui.button("Rename", Ui.Kind.OUTLINE, 52) { renameTag(uid) }, LinearLayout.LayoutParams(0, WRAP, 1f))
+        buttons.addView(ui.button("Reset tag", Ui.Kind.DANGER, 52) { start(Action.RESET) }, LinearLayout.LayoutParams(0, WRAP, 1f))
+        col.addView(buttons, ui.lp(top = 22))
+        if (s != null) updatedLine(col, s)
+    }
+
+    private fun addNotes(found: List<Note>) {
+        if (found.isEmpty()) return
+        notes = Note.merge(notes, found)
+        prefs.edit().putString("notes", Note.listToJson(notes)).apply()
+    }
+
+    /** Opens the notifications and marks them read; the screen still shows which were new. */
+    private fun openNotes() {
+        notesShown = notes
+        notes = notes.map { it.copy(unread = false) }
+        prefs.edit().putString("notes", Note.listToJson(notes)).apply()
+        go(Screen.NOTES)
+    }
+
+    private fun notifications(): View = tabPage { outer ->
+        val col = centered(outer)
+        val top = ui.horizontal(10)
+        top.addView(ui.circleButton(R.drawable.ic_ui_back, "Back", 44) { go(Screen.HOME) })
+        top.addView(pageTitle("Notifications"), LinearLayout.LayoutParams(0, WRAP, 1f))
+        if (notesShown.isNotEmpty()) {
+            top.addView(ui.text("Clear", 14f, ui.color(R.color.accent_text), 500).apply {
+                setPadding(ui.dp(10), ui.dp(12), ui.dp(4), ui.dp(12))
+                setOnClickListener {
+                    notes = emptyList()
+                    notesShown = emptyList()
+                    prefs.edit().remove("notes").apply()
+                    render()
+                }
+            })
+        }
+        col.addView(top, ui.lp(height = ui.dp(52)))
+        col.addView(ui.text("Rejected taps, new tags and tokens, and the server going offline show up here when the app checks your server. " +
+            "Alerts while the app is closed need a server update that is still to come.", 13f, ui.color(R.color.muted)).apply {
+            background = ui.rounded(ui.color(R.color.icon_bg), 16f)
+            setPadding(ui.dp(14), ui.dp(12), ui.dp(14), ui.dp(12))
+            setLineSpacing(0f, 1.15f)
+        }, ui.lp(top = 12))
+        if (notesShown.isEmpty()) {
+            val box = ui.vertical().apply { gravity = Gravity.CENTER_HORIZONTAL }
+            box.addView(ui.iconBox(R.drawable.ic_ui_bell, 72, 30, ui.color(R.color.muted), ui.color(R.color.icon_bg), 24f),
+                ui.lp(ui.dp(72), ui.dp(72), top = 48))
+            box.addView(ui.text("Nothing yet", 18f, ui.color(R.color.fg), 600), ui.lp(WRAP, WRAP, top = 14))
+            box.addView(ui.text("You're all caught up.", 14f, ui.color(R.color.muted)), ui.lp(WRAP, WRAP, top = 4))
+            col.addView(box)
+            return@tabPage
+        }
+        val today = Instant.now().atZone(zone).toLocalDate()
+        val groups = notesShown.groupBy { if (it.time.atZone(zone).toLocalDate() == today) "Today" else "Earlier" }
+        for (name in listOf("Today", "Earlier")) {
+            val list = groups[name] ?: continue
+            col.addView(ui.label(name), ui.lp(top = 20))
+            val card = ui.vertical().apply {
+                background = ui.glass(22f)
+                setPadding(ui.dp(14), ui.dp(4), ui.dp(14), ui.dp(4))
+            }
+            list.forEachIndexed { i, n ->
+                val row = ui.horizontal(12).apply {
+                    gravity = Gravity.TOP
+                    setPadding(0, ui.dp(12), 0, ui.dp(12))
+                }
+                val (icon, fg, tint) = when (n.kind) {
+                    Note.Kind.BAD -> Triple(R.drawable.ic_ui_shield_x, ui.color(R.color.bad_text), ui.color(R.color.bad_tint))
+                    Note.Kind.OK -> Triple(R.drawable.ic_ui_check, ui.color(R.color.ok_text), ui.color(R.color.ok_tint))
+                    Note.Kind.INFO -> Triple(R.drawable.ic_ui_key, ui.color(R.color.accent_text), ui.color(R.color.accent_tint))
+                    Note.Kind.WARN -> Triple(R.drawable.ic_ui_link_off, ui.color(R.color.soft), ui.color(R.color.icon_bg))
+                }
+                row.addView(ui.iconBox(icon, 38, 18, fg, tint, 12f), LinearLayout.LayoutParams(ui.dp(38), ui.dp(38)))
+                val w = ui.vertical(3)
+                val titleRow = ui.horizontal(8)
+                titleRow.addView(ui.text(n.title, 14.5f, ui.color(R.color.fg), 600), LinearLayout.LayoutParams(0, WRAP, 1f))
+                titleRow.addView(ui.text(Words.clock(n.time, zone), 12f, ui.color(R.color.muted)))
+                if (n.unread) {
+                    titleRow.addView(View(this).apply {
+                        background = ui.oval(ui.color(R.color.accent))
+                        contentDescription = "New"
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                    }, LinearLayout.LayoutParams(ui.dp(8), ui.dp(8)))
+                }
+                w.addView(titleRow)
+                w.addView(ui.text(n.body, 13f, ui.color(R.color.muted)).apply { setLineSpacing(0f, 1.15f) })
+                row.addView(w, LinearLayout.LayoutParams(0, WRAP, 1f))
+                card.addView(row)
+                if (i < list.size - 1) card.addView(View(this).apply { setBackgroundColor(ui.color(R.color.line)) }, ui.lp(height = 1))
+            }
+            col.addView(card, ui.lp(top = 10))
+        }
+    }
+
+    /** Home's prompt to set up a first tag, while the server has none. */
+    private fun firstTagCard(): View {
+        val card = ui.horizontal(14).apply { setPadding(ui.dp(16), ui.dp(14), ui.dp(14), ui.dp(14)) }
+        ui.pressable(card, ui.rounded(ui.color(R.color.accent_tint), 22f, ui.color(R.color.accent_stroke) and 0x00FFFFFF or 0x66000000)) { startWalk() }
+        card.addView(ui.iconBox(R.drawable.ic_ui_plus, 44, 22, ui.color(R.color.on_accent), ui.color(R.color.accent), 14f),
+            LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)))
+        val w = ui.vertical(2)
+        w.addView(ui.text("Set up your first tag", 15f, ui.color(R.color.fg), 600))
+        w.addView(ui.text("Five quick steps, start to first tap", 12.5f, ui.color(R.color.muted)))
+        card.addView(w, LinearLayout.LayoutParams(0, WRAP, 1f))
+        card.addView(ui.icon(R.drawable.ic_ui_chevron, 16, ui.color(R.color.accent_text)))
+        return card
+    }
+
+    private fun startWalk() {
+        walkStep = 0
+        walking = false
+        notice = null
+        screen = Screen.WALK
+        render()
+    }
+
+    /** Leaves the walkthrough for good; [show] goes home, otherwise the caller picks the screen. */
+    private fun endWalk(show: Boolean = true) {
+        walking = false
+        prefs.edit().putBoolean("walked", true).apply()
+        if (show) showHome(null)
+    }
+
+    private fun walk(): View = glowPage { col ->
+        val steps = listOf(
+            "Get a blank tag" to "Any NTAG 424 DNA tag works, including the round ones from a Knura pack.",
+            "Hold it to the back of your phone" to "Keep it still for a moment. Your server writes the tag its own keys, and they never touch the phone.",
+            "Choose what it does" to (if (hosted) "On your account's dashboard, pick an action for the tag, like turning on a light or sending a webhook. You can change it any time."
+                else "In knurgN's settings on your server, give the tag a knot, like turning on a light in Home Assistant or sending a webhook. You can change it any time."),
+            "Stick it where you will tap it" to "A door frame, desk or cabinet. Peel off the back and press firmly for a few seconds.",
+            "Give it a try" to "Tap the tag with your phone. When the logo turns green, your server has checked it.",
+        )
+        val step = walkStep.coerceIn(0, 4)
+        val top = ui.horizontal(6)
+        for (i in 0..4) {
+            top.addView(View(this).apply {
+                background = ui.rounded(if (i <= step) Color.parseColor("#F28C3A") else Color.argb(46, 255, 255, 255), 2f)
+            }, LinearLayout.LayoutParams(0, ui.dp(4), 1f))
+        }
+        top.addView(ui.text("Skip", 14f, ON_DARK_SOFT, 500).apply {
+            setPadding(ui.dp(12), ui.dp(12), ui.dp(4), ui.dp(12))
+            setOnClickListener { endWalk() }
+        })
+        top.contentDescription = "Step ${step + 1} of 5"
+        col.addView(top, ui.lp(height = ui.dp(48)))
+        col.addView(ui.space(weight = 1f), LinearLayout.LayoutParams(1, 0, 1f))
+        col.addView(WalkView(this, step), ui.lp(ui.dp(280), ui.dp(280), gravity = Gravity.CENTER_HORIZONTAL))
+        col.addView(ui.space(weight = 1f), LinearLayout.LayoutParams(1, 0, 1f))
+        col.addView(kicker("Step ${step + 1} of 5"))
+        col.addView(ui.text(steps[step].first, 28f, ON_DARK, 800).apply {
+            letterSpacing = -0.025f
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }, ui.lp(top = 10))
+        col.addView(ui.text(steps[step].second, 15.5f, ON_DARK_SOFT).apply { setLineSpacing(0f, 1.25f) }, ui.lp(top = 10))
+        if (step == 2) {
+            col.addView(ui.text("How to set actions", 14.5f, ON_DARK_ACCENT, 600).apply {
+                minHeight = ui.dp(44)
+                gravity = Gravity.CENTER_VERTICAL
+                setOnClickListener { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://docs.knura.io"))) }
+            }, ui.lp(top = 4))
+        }
+        noticeLine(col, onDark = true)
+        val buttons = ui.horizontal(10)
+        if (step > 0) {
+            buttons.addView(ui.button("Back", Ui.Kind.ON_DARK) { walkStep--; render() }, LinearLayout.LayoutParams(0, WRAP, 1f))
+        }
+        val (label, next) = when (step) {
+            1 -> "Hold the tag now" to { walking = true; start(Action.PROVISION) }
+            4 -> "Tap it now" to { walking = true; start(Action.TAP) }
+            else -> "Continue" to { walkStep++; render() }
+        }
+        buttons.addView(ui.button(label, Ui.Kind.ORANGE) { next() }, LinearLayout.LayoutParams(0, WRAP, if (step > 0) 1.6f else 1f))
+        col.addView(buttons, ui.lp(top = 24))
+        if (step == 1 || step == 4) {
+            col.addView(ui.text(if (step == 1) "Already set it up? Skip this step" else "Done for now", 14f, ON_DARK_MUTED, 500).apply {
+                gravity = Gravity.CENTER
+                minHeight = ui.dp(44)
+                setOnClickListener { if (step == 1) { walkStep = 2; render() } else endWalk() }
+            }, ui.lp(top = 6))
+        }
+    }
+
+    private fun cancelHold() {
+        stop()
+        if (walking) {
+            walking = false
+            notice = null
+            screen = Screen.WALK
+            render()
+        } else {
+            showHome("Cancelled.")
+        }
+    }
+
+    private fun closeResult() {
+        forgetPackCard()
+        if (walking) {
+            walking = false
+            screen = Screen.WALK
+            render()
+        } else {
+            showHome(null)
         }
     }
 
@@ -1217,6 +1532,7 @@ class MainActivity : Activity() {
 
     /** The home screen when paired, the welcome screen when not, with an optional [text] notice. */
     private fun showHome(text: String?, bad: Boolean = false) {
+        walking = false
         notice = text
         noticeBad = bad
         screen = if (vault.isPaired()) Screen.HOME else Screen.WELCOME
@@ -1300,6 +1616,7 @@ class MainActivity : Activity() {
             link = Link.UNKNOWN
             val fresh = KnurdClient(pairing)
             session = fresh
+            offerWalk = true
             showHome("Paired. Pick what to do with a tag.")
             load(fresh)
         }
@@ -1318,6 +1635,8 @@ class MainActivity : Activity() {
         vault.forget()
         session = null
         snapshot = null
+        notes = emptyList()
+        prefs.edit().remove("notes").apply()
         link = Link.UNKNOWN
         prefs.edit().remove("snapshot").apply()
         showHome(null)
@@ -1404,11 +1723,31 @@ class MainActivity : Activity() {
                 loading = false
                 val fresh = next
                 if (fresh != null) {
+                    val found = Note.changes(snapshot, fresh) { tagName(it) }.toMutableList()
+                    offlineSince?.let { since ->
+                        val minutes = java.time.Duration.between(since, fresh.at).toMinutes()
+                        found += Note(Note.Kind.OK, "Server is back online",
+                            "It answered again after " + (if (minutes < 1) "less than a minute" else if (minutes == 1L) "1 minute" else "$minutes minutes") + " offline.", fresh.at)
+                    }
+                    offlineSince = null
+                    addNotes(found)
                     snapshot = fresh
                     link = Link.ONLINE
                     linkError = null
+                    if (offerWalk && fresh.tags.isEmpty() && !prefs.getBoolean("walked", false) && screen == Screen.HOME) {
+                        offerWalk = false
+                        startWalk()
+                        return@ui
+                    }
+                    offerWalk = false
                     prefs.edit().putString("snapshot", fresh.toJson().toString()).apply()
                 } else if (offline) {
+                    if (link != Link.OFFLINE) {
+                        val now = Instant.now()
+                        offlineSince = now
+                        addNotes(listOf(Note(Note.Kind.WARN, "Server went offline",
+                            "${knurd.url.removePrefix("https://")} stopped answering at ${Words.clock(now, zone)}.", now)))
+                    }
                     link = Link.OFFLINE
                     linkError = error
                 } else if (error != null && screen in TABS) {
@@ -1666,6 +2005,16 @@ class MainActivity : Activity() {
                             reply.json.getJSONObject("result"))
                         ui {
                             stop()
+                            if (walking && a == Action.PROVISION && result.good) {
+                                // The walkthrough's tag has its keys: on to choosing what it does.
+                                walkStep = 2
+                                screen = Screen.WALK
+                                render()
+                                root.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                session?.let { load(it) }
+                                return@ui
+                            }
+                            if (walking && a == Action.TAP) endWalk(show = false)
                             if (a == Action.CLAIM && card != null && card.pack) {
                                 // A pack card: keep it, so the next tag of the pack needs no new scan.
                                 packCard = card
