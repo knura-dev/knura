@@ -292,7 +292,8 @@ class MainActivity : Activity() {
             gradientRadius = resources.displayMetrics.widthPixels * if (wide) 0.45f else 0.85f
             setGradientCenter(if (wide) 0.25f else 0.5f, 0f)
         }))
-        val scroll = ScrollView(this).apply { isFillViewport = true; clipToPadding = false }
+        // No fillViewport here: stretching the column to the screen made the action tiles grow to fill it.
+        val scroll = ScrollView(this).apply { clipToPadding = false }
         val column = ui.vertical()
         val side = if (wide) ui.dp(32) else ui.dp(20)
         column.setPadding(side, topInset + ui.dp(12), side, bottomInset + ui.dp(if (screen in TABS) 120 else 28))
@@ -548,11 +549,13 @@ class MainActivity : Activity() {
         row.addView(ui.iconBox(R.drawable.ic_ui_server, 44, 22, ui.color(R.color.accent_stroke), ui.color(R.color.accent_tint), 14f),
             LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)))
         val words = ui.vertical(3)
-        val title = ui.horizontal(8)
-        title.addView(ui.text(if (hosted) "Your hosted account" else "Your server", 14.5f, ui.color(R.color.fg), 600))
-        title.addView(linkWord())
-        words.addView(title)
-        words.addView(ui.singleLine(ui.text(vault.url?.removePrefix("https://") ?: "", 12.5f, ui.color(R.color.muted), mono = true), middle = true))
+        // The name on its own line and the status beside the address, so neither has to wrap next to the chart.
+        words.addView(ui.singleLine(ui.text(if (hosted) "Hosted account" else "Your server", 14.5f, ui.color(R.color.fg), 600)))
+        val second = ui.horizontal(8)
+        if (link != Link.UNKNOWN) second.addView(linkWord())
+        second.addView(ui.singleLine(ui.text(vault.url?.removePrefix("https://") ?: "", 12.5f, ui.color(R.color.muted), mono = true), middle = true),
+            LinearLayout.LayoutParams(0, WRAP, 1f))
+        words.addView(second)
         row.addView(words, LinearLayout.LayoutParams(0, WRAP, 1f))
         val s = snapshot
         if (s != null && link != Link.OFFLINE) {
@@ -581,7 +584,7 @@ class MainActivity : Activity() {
 
     private fun dotWord(word: String, dot: Int, fg: Int): View = ui.horizontal(5).apply {
         addView(View(this@MainActivity).apply { background = ui.oval(dot) }, LinearLayout.LayoutParams(ui.dp(6), ui.dp(6)))
-        addView(ui.text(word, 12f, fg, 600))
+        addView(ui.singleLine(ui.text(word, 12f, fg, 600)))
     }
 
     private fun offline(col: LinearLayout) {
@@ -623,8 +626,7 @@ class MainActivity : Activity() {
         }
         ui.pressable(tile, ui.glass(22f), onClick)
         tile.addView(ui.iconBox(icon, 40, 20, ui.color(R.color.accent_stroke), ui.color(R.color.icon_bg)), LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)))
-        tile.addView(ui.space(weight = 1f), LinearLayout.LayoutParams(1, 0, 1f))
-        tile.addView(ui.text(title, 15.5f, ui.color(R.color.fg), 600), ui.lp(top = 10))
+        tile.addView(ui.text(title, 15.5f, ui.color(R.color.fg), 600), ui.lp(top = 24))
         tile.addView(ui.text(hint, 12.5f, ui.color(R.color.muted)), ui.lp(top = 3))
         return tile
     }
