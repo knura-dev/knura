@@ -67,7 +67,7 @@ class MainActivity : Activity() {
         CLAIM("provision", "Claim a tag", "knurd swaps in your keys", "Claiming", "Claim another"),
     }
 
-    private enum class Screen { WELCOME, PAIRING, HOME, TAGS, TAPS, SERVER, HOLD, RESULT, TAG, NOTES, WALK }
+    private enum class Screen { WELCOME, PAIRING, HOME, TAGS, TAPS, SERVER, HOLD, RESULT, TAG, NOTES, WALK, SETTINGS }
 
     private enum class Step { PENDING, ACTIVE, DONE }
 
@@ -113,6 +113,9 @@ class MainActivity : Activity() {
     private var walking = false
     /** Set by pairing, so the first load can offer the walkthrough when there are no tags. */
     private var offerWalk = false
+    /** Opened from the Quick Settings tile or the Check a tap widget. */
+    private var pendingTap = false
+    private var settingsFrom = Screen.HOME
 
     // Pairing screen.
     private var pairStep = 1
@@ -161,6 +164,7 @@ class MainActivity : Activity() {
         nfc = NfcAdapter.getDefaultAdapter(this)
         snapshot = Snapshot.fromJson(prefs.getString("snapshot", null))
         notes = Note.listFromJson(prefs.getString("notes", null))
+        pendingTap = intent?.action == Widgets.ACTION_CHECK_TAP && savedInstanceState == null
 
         // Draw behind the status and navigation bars, so the orange glow reaches the top of the screen.
         window.setDecorFitsSystemWindows(false)
@@ -196,6 +200,17 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         listenForTags()
+        if (pendingTap) {
+            // From the Quick Settings tile or the widget: go straight to Check a tap.
+            pendingTap = false
+            root.post { if (vault.isPaired() && running == null) start(Action.TAP) }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.action == Widgets.ACTION_CHECK_TAP) pendingTap = true
     }
 
     override fun onPause() {
@@ -225,6 +240,7 @@ class MainActivity : Activity() {
             Screen.RESULT -> closeResult()
             Screen.PAIRING -> showHome(null)
             Screen.TAGS, Screen.TAPS, Screen.SERVER, Screen.NOTES -> go(Screen.HOME)
+            Screen.SETTINGS -> go(settingsFrom)
             Screen.TAG -> go(tagFrom)
             Screen.WALK -> if (walkStep > 0) { walkStep--; render() } else endWalk()
             else -> @Suppress("DEPRECATION") super.onBackPressed()
@@ -263,6 +279,7 @@ class MainActivity : Activity() {
             Screen.RESULT -> result()
             Screen.TAG -> tagDetail()
             Screen.NOTES -> notifications()
+            Screen.SETTINGS -> settings()
             Screen.WALK -> walk()
         }
         root.addView(page, FrameLayout.LayoutParams(MATCH, MATCH))
@@ -515,6 +532,7 @@ class MainActivity : Activity() {
                 FrameLayout.LayoutParams(ui.dp(10), ui.dp(10), Gravity.TOP or Gravity.END).apply { topMargin = ui.dp(9); rightMargin = ui.dp(10) })
         }
         row.addView(bell)
+        row.addView(ui.circleButton(R.drawable.ic_ui_settings, "Settings", 44) { openSettings() })
         col.addView(row, ui.lp(height = ui.dp(52)).apply { height = WRAP })
         noticeLine(col, onDark = false)
     }
@@ -836,6 +854,7 @@ class MainActivity : Activity() {
             Link.OFFLINE -> head.addView(ui.statusPill("Offline", ui.color(R.color.bad), ui.color(R.color.bad_text), ui.color(R.color.bad_tint)))
             Link.UNKNOWN -> head.addView(ui.circleButton(R.drawable.ic_ui_refresh, "Refresh", 44) { refresh() })
         }
+        head.addView(ui.circleButton(R.drawable.ic_ui_settings, "Settings", 44) { openSettings() })
         col.addView(head, ui.lp(height = ui.dp(52)))
         noticeLine(col, onDark = false)
 
@@ -1101,7 +1120,7 @@ class MainActivity : Activity() {
             col.addView(buttons, ui.lp(top = 24))
             if (!resultFelt) {
                 resultFelt = true
-                root.post { root.performHapticFeedback(if (good) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.REJECT) }
+                root.post { feel(if (good) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.REJECT) }
             }
         }
     }
@@ -1390,6 +1409,160 @@ class MainActivity : Activity() {
         }
     }
 
+    // ---------------------------------------------------------------- settings
+
+    private fun openSettings() {
+        settingsFrom = if (screen in TABS) screen else Screen.HOME
+        go(Screen.SETTINGS)
+    }
+
+    /** Vibration, unless it is turned off in Settings. */
+    private fun feel(constant: Int) {
+        if (prefs.getBoolean("haptics", true)) root.performHapticFeedback(constant)
+    }
+
+    private fun settings(): View = tabPage { outer ->
+        val col = centered(outer)
+        val top = ui.horizontal(10)
+        top.addView(ui.circleButton(R.drawable.ic_ui_back, "Back", 44) { go(settingsFrom) })
+        top.addView(pageTitle("Settings"), LinearLayout.LayoutParams(0, WRAP, 1f))
+        col.addView(top, ui.lp(height = ui.dp(52)))
+        noticeLine(col, onDark = false)
+
+        col.addView(ui.label("You"), ui.lp(top = 18))
+        col.addView(settingsCard(listOf(
+            settingRow(R.drawable.ic_ui_home, "Your name", prefs.getString("name", null) ?: "Not set") { editName() },
+        )), ui.lp(top = 10))
+
+        col.addView(ui.label("App"), ui.lp(top = 20))
+        val appRows = mutableListOf<View>()
+        if (android.os.Build.VERSION.SDK_INT >= 31) appRows += themeRow()
+        appRows += switchRow(R.drawable.ic_ui_tap, "Vibration", "When a tag is found and on the result", prefs.getBoolean("haptics", true)) { on ->
+            prefs.edit().putBoolean("haptics", on).apply()
+        }
+        appRows += settingRow(R.drawable.ic_ui_plus, "First-tag walkthrough", "Show it again") { startWalk() }
+        appRows += settingRow(R.drawable.ic_ui_bell, "Notifications", if (notes.isEmpty()) "None" else "Clear ${notes.size}") {
+            notes = emptyList()
+            prefs.edit().remove("notes").apply()
+            notice = "Notifications cleared."
+            noticeBad = false
+            render()
+        }
+        col.addView(settingsCard(appRows), ui.lp(top = 10))
+
+        col.addView(ui.label(if (hosted) "Account" else "Server"), ui.lp(top = 20))
+        col.addView(settingsCard(listOf(
+            settingRow(R.drawable.ic_ui_server, if (hosted) "Hosted account" else "Your server", vault.url?.removePrefix("https://") ?: "Not paired") {
+                go(Screen.SERVER)
+            },
+            settingRow(R.drawable.ic_ui_link_off, if (hosted) "Forget this account" else "Forget this server", "Pair again with a new code") { confirmForget() },
+        )), ui.lp(top = 10))
+
+        col.addView(ui.label("About"), ui.lp(top = 20))
+        val version = try {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: "?"
+        } catch (e: Exception) {
+            "?"
+        }
+        col.addView(settingsCard(listOf(
+            settingRow(R.drawable.ic_ui_link, "Help and docs", "docs.knura.io") { open("https://docs.knura.io") },
+            settingRow(R.drawable.ic_ui_grid, "Source code", "Open source, Apache-2.0") { open("https://github.com/knura-dev/knura") },
+            settingRow(R.drawable.ic_ui_shield, "Android settings", "Permissions, storage, notifications") {
+                startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+            },
+        )), ui.lp(top = 10))
+        col.addView(ui.text("Knura $version", 12.5f, ui.color(R.color.muted)).apply { gravity = Gravity.CENTER }, ui.lp(top = 18))
+    }
+
+    private fun open(url: String) = startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+
+    private fun settingsCard(rows: List<View>): View {
+        val card = ui.vertical().apply {
+            background = ui.glass(22f)
+            setPadding(ui.dp(14), ui.dp(2), ui.dp(14), ui.dp(2))
+        }
+        rows.forEachIndexed { i, row ->
+            card.addView(row, ui.lp())
+            if (i < rows.size - 1) card.addView(View(this).apply { setBackgroundColor(ui.color(R.color.line)) }, ui.lp(height = 1))
+        }
+        return card
+    }
+
+    private fun settingRow(icon: Int, title: String, value: String, onClick: () -> Unit): View {
+        val row = ui.horizontal(12).apply {
+            minimumHeight = ui.dp(60)
+            setPadding(0, ui.dp(8), 0, ui.dp(8))
+        }
+        ui.pressable(row, ColorDrawable(Color.TRANSPARENT), onClick)
+        row.addView(ui.iconBox(icon, 36, 18, ui.color(R.color.accent_stroke), ui.color(R.color.icon_bg), 12f), LinearLayout.LayoutParams(ui.dp(36), ui.dp(36)))
+        val w = ui.vertical(2)
+        w.addView(ui.text(title, 14.5f, ui.color(R.color.fg), 600))
+        w.addView(ui.singleLine(ui.text(value, 12.5f, ui.color(R.color.muted)), middle = true))
+        row.addView(w, LinearLayout.LayoutParams(0, WRAP, 1f))
+        row.addView(ui.icon(R.drawable.ic_ui_chevron, 16, ui.color(R.color.line_strong)))
+        return row
+    }
+
+    private fun switchRow(icon: Int, title: String, hint: String, on: Boolean, changed: (Boolean) -> Unit): View {
+        val row = ui.horizontal(12).apply {
+            minimumHeight = ui.dp(60)
+            setPadding(0, ui.dp(8), 0, ui.dp(8))
+        }
+        row.addView(ui.iconBox(icon, 36, 18, ui.color(R.color.accent_stroke), ui.color(R.color.icon_bg), 12f), LinearLayout.LayoutParams(ui.dp(36), ui.dp(36)))
+        val w = ui.vertical(2)
+        w.addView(ui.text(title, 14.5f, ui.color(R.color.fg), 600))
+        w.addView(ui.text(hint, 12.5f, ui.color(R.color.muted)))
+        row.addView(w, LinearLayout.LayoutParams(0, WRAP, 1f))
+        val switch = Switch(this).apply {
+            isChecked = on
+            contentDescription = title
+            thumbTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                intArrayOf(Color.WHITE, ui.color(R.color.muted)))
+            trackTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                intArrayOf(ui.color(R.color.accent_stroke), ui.color(R.color.line_strong)))
+            setOnCheckedChangeListener { _, value -> changed(value) }
+        }
+        row.addView(switch)
+        row.setOnClickListener { switch.toggle() }
+        return row
+    }
+
+    /** System, light or dark, for this app only (Android 12 and newer). */
+    private fun themeRow(): View {
+        val box = ui.vertical(10).apply { setPadding(0, ui.dp(12), 0, ui.dp(12)) }
+        val head = ui.horizontal(12)
+        head.addView(ui.iconBox(R.drawable.ic_ui_theme, 36, 18, ui.color(R.color.accent_stroke), ui.color(R.color.icon_bg), 12f),
+            LinearLayout.LayoutParams(ui.dp(36), ui.dp(36)))
+        head.addView(ui.text("Theme", 14.5f, ui.color(R.color.fg), 600), LinearLayout.LayoutParams(0, WRAP, 1f))
+        box.addView(head)
+        val chosen = prefs.getString("theme", "system")
+        val chips = ui.horizontal(8)
+        for ((key, word) in listOf("system" to "System", "light" to "Light", "dark" to "Dark")) {
+            val on = key == chosen
+            val chip = ui.text(word, 13.5f, if (on) ui.color(R.color.bg) else ui.color(R.color.soft), if (on) 600 else 500).apply {
+                gravity = Gravity.CENTER
+                setPadding(0, ui.dp(10), 0, ui.dp(10))
+                if (on) stateDescription = "Selected"
+            }
+            ui.pressable(chip, if (on) ui.rounded(ui.color(R.color.fg), 999f) else ui.rounded(ui.color(R.color.icon_bg), 999f)) { chooseTheme(key) }
+            chips.addView(chip, LinearLayout.LayoutParams(0, WRAP, 1f))
+        }
+        box.addView(chips)
+        return box
+    }
+
+    private fun chooseTheme(key: String) {
+        prefs.edit().putString("theme", key).apply()
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            getSystemService(android.app.UiModeManager::class.java).setApplicationNightMode(when (key) {
+                "light" -> android.app.UiModeManager.MODE_NIGHT_NO
+                "dark" -> android.app.UiModeManager.MODE_NIGHT_YES
+                else -> android.app.UiModeManager.MODE_NIGHT_AUTO
+            })
+        }
+        render()
+    }
+
     // ---------------------------------------------------------------- small parts
 
     private fun pageTitle(text: String): TextView = ui.text(text, 28f, ui.color(R.color.fg), 800).apply { letterSpacing = -0.025f }
@@ -1490,6 +1663,7 @@ class MainActivity : Activity() {
                 val name = input.text.toString().trim()
                 if (name.isEmpty()) names.remove(uid) else names.put(uid, name.take(40))
                 prefs.edit().putString("tagNames", names.toString()).apply()
+                Widgets.refresh(this)
                 render()
             }
             .setNegativeButton(R.string.cancel, null)
@@ -1636,9 +1810,10 @@ class MainActivity : Activity() {
         session = null
         snapshot = null
         notes = emptyList()
-        prefs.edit().remove("notes").apply()
+        prefs.edit().remove("notes").remove("link").apply()
         link = Link.UNKNOWN
         prefs.edit().remove("snapshot").apply()
+        Widgets.refresh(this)
         showHome(null)
     }
 
@@ -1703,7 +1878,9 @@ class MainActivity : Activity() {
                     error = "The server said no: " + status.json.optString("detail", "status ${status.code}")
                 } else {
                     val tags = knurd.get("/v1/tags")
-                    val taps = knurd.get("/v1/taps?limit=200")
+                    // knurd keeps up to 200 taps and a hosted account up to 100; ask for the most either allows.
+                    var taps = knurd.get("/v1/taps?limit=200")
+                    if (taps.code == 400) taps = knurd.get("/v1/taps?limit=100")
                     // A hosted account may not list tokens; the Server tab leaves that part out then.
                     val tokens = try {
                         knurd.get("/v1/tokens").takeIf { it.code == 200 }?.json
@@ -1734,13 +1911,14 @@ class MainActivity : Activity() {
                     snapshot = fresh
                     link = Link.ONLINE
                     linkError = null
+                    prefs.edit().putString("snapshot", fresh.toJson().toString()).putString("link", link.name).apply()
+                    Widgets.refresh(this)
                     if (offerWalk && fresh.tags.isEmpty() && !prefs.getBoolean("walked", false) && screen == Screen.HOME) {
                         offerWalk = false
                         startWalk()
                         return@ui
                     }
                     offerWalk = false
-                    prefs.edit().putString("snapshot", fresh.toJson().toString()).apply()
                 } else if (offline) {
                     if (link != Link.OFFLINE) {
                         val now = Instant.now()
@@ -1750,6 +1928,8 @@ class MainActivity : Activity() {
                     }
                     link = Link.OFFLINE
                     linkError = error
+                    prefs.edit().putString("link", link.name).apply()
+                    Widgets.refresh(this)
                 } else if (error != null && screen in TABS) {
                     notice = error
                     noticeBad = true
@@ -1970,7 +2150,7 @@ class MainActivity : Activity() {
             holdSteps[1] = Step.DONE
             holdSteps[2] = Step.ACTIVE
             holdStepsView?.let { fillHoldSteps(it, a) }
-            root.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            feel(HapticFeedbackConstants.CLOCK_TICK)
         }
         val lines = StringBuilder()
         try {
@@ -2010,7 +2190,7 @@ class MainActivity : Activity() {
                                 walkStep = 2
                                 screen = Screen.WALK
                                 render()
-                                root.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                feel(HapticFeedbackConstants.CONFIRM)
                                 session?.let { load(it) }
                                 return@ui
                             }

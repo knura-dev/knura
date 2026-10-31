@@ -144,7 +144,18 @@ On the **Server** tab, **Remove** next to a token removes it, like
 Only phone tokens (the ones in `admin.provision.tokens`) may do this. If you remove this phone's
 own token, the app forgets knurd and you pair again.
 
-The app follows the phone's light or dark mode. On a foldable, the home screen shows the actions
+**Quick Settings tile and widgets.** Edit your Quick Settings and drag in **Check a tap** to
+start a check from the pull-down. On the home screen, long-press, choose Widgets and find Knura:
+**Last tap** (the newest tap and whether the server answered), **Check a tap** (one touch) and
+**Today** (today's taps, rejected ones and the 7-day chart). Widgets show what the app last
+read, because only the app can unlock the token with your fingerprint; they update every time
+the app checks your server.
+
+**Settings** (the gear on Home or Server) has your name, the theme (system, light or dark, on
+Android 12 and newer), vibration, the first-tag walkthrough, clearing notifications, your
+server, and links to the docs, the source code and Android's settings for the app.
+
+The app follows the phone's light or dark mode unless you pick one in Settings. On a foldable, the home screen shows the actions
 and your tags side by side when the phone is open, and folding it mid-session keeps going.
 
 Setting up keys, TLS, new tokens and the resolver stays on the computer, so a lost phone can't
