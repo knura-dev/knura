@@ -24,7 +24,7 @@
 
         <activity
             android:name=".MainActivity"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode"
             android:exported="true"
             android:launchMode="singleTop">
             <!-- configChanges: folding or unfolding the phone keeps the screen as it is, mid-session too. -->

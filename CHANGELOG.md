@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Android app 0.6.0: a new look. A bottom menu with Home, Tags, Taps and Server, and an orange
+  button that starts Check a tap from any tab. Home greets you by time of day and shows the
+  server with today's taps and a 7-day chart, the actions, and your tags with their last tap.
+  Tags can be named on the phone. Taps are grouped by day and filter by Verified or Rejected.
+  The tabs read the admin API after one unlock that lasts while the app is on screen, and the
+  last answer is kept for next time. Welcome, pairing and the scan screen have a slowly moving
+  orange glow and an animated Knura mark; results animate a check or a cross. Offline and empty
+  screens, a two-pane home on open foldables, and vibration on tag found and on the result.
 - Logging: knurd and knura-link take `log.level` (error, warn, info, debug, trace) and
   `log.file` in their config, and `KNURA_LOG_LEVEL` overrides the level for one run. Lines are
   now one per message with a time and level (no time under systemd, whose journal adds it). The

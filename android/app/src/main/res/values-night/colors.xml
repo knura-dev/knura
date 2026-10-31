@@ -24,4 +24,13 @@
     <color name="code_text">#FFB86B</color>
     <color name="logo_core">#E5ECF0</color>
     <color name="ripple">#29FFFFFF</color>
+    <!-- The redesign (2026-10-31): see-through cards, the bottom menu and softer text. -->
+    <color name="glass">#0EFFFFFF</color>
+    <color name="glass_line">#17FFFFFF</color>
+    <color name="soft">#B7C0CB</color>
+    <color name="icon_bg">#14FFFFFF</color>
+    <color name="nav_bg">#D1161B23</color>
+    <color name="glow">#47F28C3A</color>
+    <color name="glow_ok">#334ADE9B</color>
+    <color name="glow_bad">#2EF87171</color>
 </resources>
