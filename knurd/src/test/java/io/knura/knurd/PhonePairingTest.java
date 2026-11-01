@@ -216,7 +216,15 @@ class PhonePairingTest {
         HttpsURLConnection c = (HttpsURLConnection) URI.create("https://127.0.0.1:" + lanPort + path).toURL()
                 .openConnection(java.net.Proxy.NO_PROXY);
         c.setSSLSocketFactory(tls.getSocketFactory());
-        c.setHostnameVerifier((host, session) -> true); // the pin above is the check, as in the app
+        // An IP address has no name to check: the certificate's fingerprint is the check, as in the app.
+        c.setHostnameVerifier((host, session) -> {
+            try {
+                return session.getPeerCertificates()[0] instanceof X509Certificate x
+                        && CertFingerprint.of(x).equalsIgnoreCase(fingerprint);
+            } catch (javax.net.ssl.SSLPeerUnverifiedException e) {
+                return false;
+            }
+        });
         c.setRequestMethod(method);
         c.setRequestProperty(AdminServer.REQUEST_HEADER, "1");
         if (token != null) {
