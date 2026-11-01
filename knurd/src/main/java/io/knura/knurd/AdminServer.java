@@ -118,7 +118,12 @@ final class AdminServer implements AutoCloseable {
 
     /** What the setup page needs: the password, browser sessions and the settings it changes. */
     record Manage(AdminPassword password, Sessions sessions, HomeSettings settings, Tailscale tailscale,
-            PhonePairing phones) {
+            PhonePairing phones, SetupCode setupCode) {
+        Manage(AdminPassword password, Sessions sessions, HomeSettings settings, Tailscale tailscale,
+                PhonePairing phones) {
+            this(password, sessions, settings, tailscale, phones, null);
+        }
+
         Manage(AdminPassword password, Sessions sessions, HomeSettings settings, Tailscale tailscale) {
             this(password, sessions, settings, tailscale, null);
         }
@@ -148,6 +153,8 @@ final class AdminServer implements AutoCloseable {
     private volatile NfcRelay nfc;
     private volatile HttpsServer wifi;
     private volatile Manage manage;
+    /** Whether an address is this computer; tests swap it to act as another device on the network. */
+    java.util.function.Predicate<InetAddress> thisComputer = InetAddress::isLoopbackAddress;
 
     AdminServer(String host, int port, SSLContext tls, TokenStore tokens, AuditLog audit, CounterStore counters,
             RecentTaps taps, Info info, Clock clock) throws IOException {
@@ -674,8 +681,15 @@ final class AdminServer implements AutoCloseable {
         Manage m = manage;
         switch (method) {
             case "GET" -> {
-                return new Answer(200, "{\"passwordSet\":" + m.password().isSet() + ",\"signedIn\":"
-                        + m.sessions().check(session) + "}", "session check");
+                boolean set = m.password().isSet();
+                String extra = "";
+                if (!set && !thisComputer.test(exchange.getRemoteAddress().getAddress())) {
+                    // From another computer the first password needs the setup code, if there is one.
+                    extra = ",\"needsSetupCode\":true,\"setupCodeWaiting\":"
+                            + (m.setupCode() != null && m.setupCode().waiting());
+                }
+                return new Answer(200, "{\"passwordSet\":" + set + ",\"signedIn\":"
+                        + m.sessions().check(session) + extra + "}", "session check");
             }
             case "DELETE" -> {
                 m.sessions().end(session);
@@ -725,23 +739,44 @@ final class AdminServer implements AutoCloseable {
             exchange.getResponseHeaders().set("Allow", "POST");
             return new Answer(405, error("method_not_allowed", null), null);
         }
-        if (!remote.isLoopbackAddress()) {
-            return new Answer(403, error("forbidden", "set the first password on the Knura computer itself"),
-                    "first password from another computer");
+        Map<String, Object> f = fields(body);
+        boolean byCode = false;
+        if (!thisComputer.test(remote)) {
+            SetupCode code = manage.setupCode();
+            if (code == null || !code.waiting()) {
+                return new Answer(403, error("forbidden", "set the first password on the Knura computer itself"),
+                        "first password from another computer");
+            }
+            String who = remote.getHostAddress();
+            Duration wait = throttle.waitFor(who);
+            if (!wait.isZero()) {
+                exchange.getResponseHeaders().set("Retry-After", String.valueOf(Math.max(1, wait.toSeconds())));
+                return new Answer(429, error("too_many_attempts", "too many wrong setup codes; try again later"),
+                        "locked out");
+            }
+            if (!code.matches(f.get("setupCode") instanceof String c ? c : null)) {
+                throttle.failed(who);
+                return new Answer(401, error("bad_setup_code", "that setup code is wrong. It's in the file "
+                        + SetupCode.FILE + " in Knura's settings folder, and in Knura's log"), "wrong setup code");
+            }
+            byCode = true;
         }
-        Object password = fields(body).get("password");
+        Object password = f.get("password");
         String problem = AdminPassword.problem(password instanceof String p ? p : null);
         if (problem != null) {
             return new Answer(400, error("malformed", "password: " + problem), "password too weak");
         }
         try {
             manage.password().set((String) password);
+            if (byCode) {
+                manage.setupCode().used();
+            }
         } catch (IOException e) {
             LOG.log(Level.ERROR, "could not save the admin password", e);
             return new Answer(500, error("error", "knurd couldn't save the password"), "password not saved");
         }
         exchange.getResponseHeaders().add("Set-Cookie", cookie(exchange, manage.sessions().start(), Sessions.IDLE.toSeconds()));
-        return new Answer(200, "{\"signedIn\":true}", "first password set");
+        return new Answer(200, "{\"signedIn\":true}", byCode ? "first password set with the setup code" : "first password set");
     }
 
     private Answer manageRoute(String method, String path, Caller caller, byte[] body, HttpExchange exchange) {

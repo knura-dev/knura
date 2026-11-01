@@ -19,7 +19,11 @@ genuine tag, then trigger actions from it.
 
 ## Getting started
 
-**Easiest:** download knurctl and knurd from the [latest release](https://github.com/knura-dev/knura/releases)
+**Easiest:** install Knura for Windows, Mac, Ubuntu/Debian, Fedora or Raspberry Pi from the
+[latest release](https://github.com/knura-dev/knura/releases) ([Install Knura](docs/install.md)),
+then open the setup page at http://127.0.0.1:8425/setup.
+
+**By hand:** download knurctl and knurd from the [latest release](https://github.com/knura-dev/knura/releases)
 and follow [Set up Knura from the release downloads](docs/setup-from-release.md), which goes from
 a new tag to a phone tap that sends a webhook.
 

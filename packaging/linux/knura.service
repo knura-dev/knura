@@ -1,0 +1,31 @@
+# Knura's verification daemon, installed by the knura package. Settings in /var/lib/knura.
+[Unit]
+Description=Knura (knurd): checks NFC tag taps and runs their actions
+Documentation=https://docs.knura.io
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=knura
+Group=knura
+WorkingDirectory=/var/lib/knura
+# --lan: phones and other computers on the home network may reach the setup page over TLS on port
+# 8426; the first password from another device needs the setup code in /var/lib/knura/knurd-setup-code.
+ExecStart=/opt/knura/bin/knura --home /var/lib/knura --lan
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/knura
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

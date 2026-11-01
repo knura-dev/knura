@@ -23,11 +23,26 @@ public final class Main {
     private Main() {}
 
     public static void main(String[] args) throws IOException {
-        if (args.length > 1 || (args.length == 1 && args[0].startsWith("-"))) {
+        Path configFile;
+        boolean lan = false;
+        if (args.length >= 2 && args[0].equals("--home") && (args.length == 2 || args.length == 3 && args[2].equals("--lan"))) {
+            // How the installers start knurd: the folder, and its settings on the first start.
+            lan = args.length == 3;
+            try {
+                configFile = FirstRun.prepare(Path.of(args[1]), lan);
+            } catch (IOException e) {
+                System.err.println("knurd: can't set up the settings folder " + args[1] + ": " + e.getMessage());
+                System.exit(1);
+                return;
+            }
+        } else if (args.length > 1 || (args.length == 1 && args[0].startsWith("-"))) {
             System.err.println("usage: knurd [config-file]   (default: knurd.properties)");
+            System.err.println("       knurd --home <folder> [--lan]   (makes the folder's settings on the first start)");
             System.exit(2);
+            return;
+        } else {
+            configFile = Path.of(args.length == 1 ? args[0] : "knurd.properties");
         }
-        Path configFile = Path.of(args.length == 1 ? args[0] : "knurd.properties");
         if (!Files.exists(configFile)) {
             System.err.println("knurd: config file not found: " + configFile.toAbsolutePath());
             System.err.println("Copy knurd/knurd.example.properties to knurd.properties and set your keys.");
@@ -166,8 +181,9 @@ public final class Main {
         AdminPassword password = new AdminPassword(configFile.toAbsolutePath().getParent().resolve(AdminPassword.FILE));
         PhonePairing phones = new PhonePairing(config.keys(), resolver, a, tokens, settings, fingerprint, Clock.systemUTC());
         phones.attach(admin);
+        SetupCode setupCode = new SetupCode(configFile.toAbsolutePath().getParent().resolve(SetupCode.FILE));
         admin.manage(new AdminServer.Manage(password, new Sessions(Clock.systemUTC()), settings,
-                Tailscale.find(config.port()), phones));
+                Tailscale.find(config.port()), phones, setupCode));
         admin.start();
         if (wifiTls != null) {
             try {
@@ -178,6 +194,14 @@ public final class Main {
             }
             info("knurd admin API also on https://0.0.0.0:%d for phones on your home network (admin.lan.port)",
                     a.lanPort());
+            if (!password.isSet()) {
+                // No screen on this computer, perhaps: let the first password come from another one.
+                String code = setupCode.ensure();
+                java.util.List<String> here = io.knura.core.admin.LocalAddresses.homeNetworkAddresses();
+                info("No setup page password yet. On a computer or phone on the same network, open https://%s:%d/setup"
+                        + " (your browser will warn about the certificate; continue) and enter the setup code %s",
+                        here.isEmpty() ? "<this computer's address>" : here.get(0), a.lanPort(), code);
+            }
         }
         info("knurd admin API on %s://%s:%d, for knurctl only: never put this port on the internet",
                 a.tls() ? "https" : "http", a.host(), admin.port());

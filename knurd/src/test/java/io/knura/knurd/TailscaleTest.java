@@ -76,7 +76,7 @@ class TailscaleTest {
                 """);
         Tailscale.Funnel first = t.turnOnFunnel();
         assertFalse(first.on());
-        assertEquals("sudo tailscale set --operator=$USER", first.fixCommand());
+        assertEquals("sudo tailscale set --operator=" + Tailscale.operator(), first.fixCommand());
         assertTrue(t.turnOnFunnel().on());
         assertTrue(t.status().funnel(), "funnel status shows it passing to the tap port");
     }

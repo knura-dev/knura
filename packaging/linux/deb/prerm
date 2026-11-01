@@ -1,0 +1,11 @@
+#!/bin/sh
+# Stops the knura service before the package is removed. Settings in /var/lib/knura are kept:
+# they hold the master key every tag depends on.
+set -e
+if [ "$1" = "remove" ] || [ "$1" = "deconfigure" ]; then
+  if [ -d /run/systemd/system ]; then
+    systemctl disable --now knura.service >/dev/null 2>&1 || true
+  fi
+  rm -f /usr/bin/knurctl
+fi
+exit 0
