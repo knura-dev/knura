@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Setup page, step 4: **pair your phone from the page.** Name the phone and press "Show pairing
+  code": knurd makes its TLS certificate, starts answering phones on your home Wi-Fi (a new
+  `admin.lan.port` listener, 8426, TLS only, while this computer keeps plain HTTP on
+  127.0.0.1:8425), lets the phone set tags up, and shows a QR code for the Knura app. No terminal
+  and no restart, and it's all saved for the next start (`POST /v1/phones/pair`). If the app can't
+  connect, the page offers the firewall command and this computer's other network addresses. A
+  phone only counts as paired once the app has used its code. QR codes come from a small encoder
+  in knura-core, so knurd still has no third-party dependencies.
+- Android app 0.8.2: the pairing screen mentions the setup page as well as `knurctl admin pair-phone`.
+- The setup page's tab icon is the plain Knura mark, without the dark square behind it.
+
 - Setup page, step 6: **Make a new webhook id** for a Home Assistant connection whose id you
   lost. The automation to paste updates with the new one, and the old one stops working at once
   (`POST /v1/connections/<type>/<id>/secret`). Reloading the page on step 6 now asks for the tag

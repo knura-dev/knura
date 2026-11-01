@@ -59,15 +59,27 @@ public record KnurdConfig(
      * serves plain HTTP, which is only allowed on this computer (loopback). With {@code
      * plaintext}, there is no login ({@code tokensFile} is null) and it must be loopback. {@code
      * provisionTokens} names the tokens allowed to set tags up through a phone ({@link NfcRelay});
-     * it is empty unless {@code admin.provision.tokens} is set.
+     * it is empty unless {@code admin.provision.tokens} is set. {@code lanPort} is the Wi-Fi
+     * listener's port ({@code admin.lan.port}), or 0 when it is off: a second listener on every
+     * network, always TLS, so phones on the home Wi-Fi can pair while this computer keeps using
+     * plain HTTP on loopback.
      */
     public record Admin(
             String host, int port, boolean plaintext, Path tokensFile, Path keystore, Path passwordFile, Path auditFile,
-            Set<String> provisionTokens) {
+            Set<String> provisionTokens, int lanPort) {
+        public Admin(String host, int port, boolean plaintext, Path tokensFile, Path keystore, Path passwordFile,
+                Path auditFile, Set<String> provisionTokens) {
+            this(host, port, plaintext, tokensFile, keystore, passwordFile, auditFile, provisionTokens, 0);
+        }
+
+        /** Whether the main listener uses TLS: with a Wi-Fi listener, only that one does. */
         public boolean tls() {
-            return keystore != null;
+            return keystore != null && lanPort == 0;
         }
     }
+
+    /** The Wi-Fi listener's port when the setup page turns it on. */
+    public static final int DEFAULT_LAN_PORT = 8426;
 
     public static KnurdConfig load(Path file) throws IOException {
         Properties p = new Properties();
@@ -182,6 +194,10 @@ public record KnurdConfig(
                         + " computer: set admin.listen.host=127.0.0.1, or use admin.security=token for " + host);
             }
             // No login means nothing to protect in transit on loopback; TLS and tokens don't apply.
+            if (!p.getProperty("admin.lan.port", "").isBlank()) {
+                throw new IllegalArgumentException("admin.lan.port needs admin.security=token: plaintext mode has no"
+                        + " login, so it only answers this computer");
+            }
             if (!provisionTokens.isEmpty()) {
                 throw new IllegalArgumentException("admin.provision.tokens needs admin.security=token: plaintext mode"
                         + " only answers this computer, so no phone could reach it");
@@ -192,6 +208,27 @@ public record KnurdConfig(
         String password = p.getProperty("admin.tls.password.file", "").trim();
         if (keystore.isEmpty() != password.isEmpty()) {
             throw new IllegalArgumentException("set both admin.tls.keystore and admin.tls.password.file, or neither");
+        }
+        int lanPort = 0;
+        String lan = p.getProperty("admin.lan.port", "").trim();
+        if (!lan.isEmpty()) {
+            try {
+                lanPort = Integer.parseInt(lan);
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("admin.lan.port must be a number", e);
+            }
+            if (lanPort < 1 || lanPort > 65535 || lanPort == port || lanPort == tapPort) {
+                throw new IllegalArgumentException("admin.lan.port must be a port number other than listen.port and"
+                        + " admin.listen.port");
+            }
+            if (!loopback) {
+                throw new IllegalArgumentException("admin.lan.port adds a Wi-Fi listener next to a loopback one: set"
+                        + " admin.listen.host=127.0.0.1, or remove admin.lan.port");
+            }
+            if (keystore.isEmpty()) {
+                throw new IllegalArgumentException("admin.lan.port needs TLS: set admin.tls.keystore and"
+                        + " admin.tls.password.file (the setup page makes them)");
+            }
         }
         if (!loopback && keystore.isEmpty()) {
             throw new IllegalArgumentException("admin.listen.host " + host + " is reachable from other computers, so"
@@ -206,7 +243,8 @@ public record KnurdConfig(
                 keystore.isEmpty() ? null : baseDir.resolve(keystore),
                 password.isEmpty() ? null : baseDir.resolve(password),
                 baseDir.resolve(audit),
-                provisionTokens);
+                provisionTokens,
+                lanPort);
     }
 
     /** admin.provision.tokens: token names, separated by commas. */

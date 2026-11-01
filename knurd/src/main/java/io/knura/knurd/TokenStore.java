@@ -70,6 +70,14 @@ final class TokenStore {
         return new TreeMap<>(tokens).keySet().stream().toList();
     }
 
+    /** Makes a one-time pairing code for the phone {@code name}; see {@link AdminTokens#startPairing}. */
+    synchronized String startPairing(String name, java.time.Instant now) throws IOException {
+        if (!Files.exists(file)) {
+            PrivateFiles.replace(file, AdminTokens.format(Map.of()));
+        }
+        return AdminTokens.startPairing(file, name, now);
+    }
+
     /** A phone that just paired: its token's name and the token, to send it once. */
     record Paired(String name, String token) {}
 

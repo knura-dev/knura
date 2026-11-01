@@ -9,23 +9,18 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.io.Reader;
 import java.net.URI;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
-import java.util.concurrent.TimeUnit;
 
 /**
  * {@code knurctl admin ...}: setting up knurd's admin API on knurd's computer (tokens, TLS) and
@@ -294,20 +289,7 @@ final class AdminCommands {
                     + " (knurctl admin token remove " + name + ") or pick another name");
         }
 
-        String code = AdminTokens.generatePairCode(new SecureRandom());
-        Path pairingFile = tokensFile.resolveSibling(AdminTokens.PAIRING_FILE);
-        Map<String, AdminTokens.Pairing> waiting = new java.util.TreeMap<>();
-        if (Files.exists(pairingFile)) {
-            Properties p = new Properties();
-            try (var in = Files.newBufferedReader(pairingFile, StandardCharsets.UTF_8)) {
-                p.load(in);
-            }
-            waiting.putAll(AdminTokens.parsePairing(p));
-        }
-        java.time.Instant now = java.time.Instant.now();
-        waiting.values().removeIf(w -> !now.isBefore(w.expires()));
-        waiting.put(name, new AdminTokens.Pairing(AdminTokens.hash(code), now.plus(AdminTokens.PAIR_TIME)));
-        PrivateFiles.replace(pairingFile, AdminTokens.formatPairing(waiting));
+        String code = AdminTokens.startPairing(tokensFile, name, java.time.Instant.now());
         if (!Files.exists(tokensFile)) {
             // knurd adds the phone's token here when the app pairs.
             PrivateFiles.replace(tokensFile, AdminTokens.format(tokens));
@@ -338,8 +320,7 @@ final class AdminCommands {
 
     /** What the app scans: {@code knura://pair?url=...&fp=...&code=knurp_...}. */
     static String pairingLink(URI adminUrl, String fingerprint, String code) {
-        return "knura://pair?url=" + URLEncoder.encode(adminUrl.toString(), StandardCharsets.UTF_8)
-                + "&fp=" + fingerprint + "&code=" + code;
+        return AdminTokens.pairingLink(adminUrl, fingerprint, code);
     }
 
     /** Adds {@code name} to admin.provision.tokens, editing the line if there is one. */
@@ -421,44 +402,7 @@ final class AdminCommands {
                 throw new UsageException(p + " already exists; move it away first");
             }
         }
-        byte[] secret = new byte[24];
-        new SecureRandom().nextBytes(secret);
-        PrivateFiles.create(passwordFile, Base64.getUrlEncoder().withoutPadding().encodeToString(secret) + "\n");
-
-        // keytool writes with the default umask, so build the keystore in a private folder first.
-        Path work = Files.createTempDirectory(keystore.toAbsolutePath().getParent(), ".knurd-tls",
-                PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
-        try {
-            Path tmp = work.resolve(DEFAULT_KEYSTORE);
-            Path keytool = Path.of(System.getProperty("java.home"), "bin", "keytool");
-            Process p = new ProcessBuilder(keytool.toString(), "-genkeypair", "-alias", "knurd-admin",
-                    "-keyalg", "EC", "-groupname", "secp256r1", "-sigalg", "SHA256withECDSA", "-validity", "3650",
-                    "-dname", "CN=knurd admin API", "-storetype", "PKCS12", "-keystore", tmp.toString(),
-                    "-storepass:file", passwordFile.toString(), "-keypass:file", passwordFile.toString())
-                    .redirectErrorStream(true)
-                    .start();
-            String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            if (!p.waitFor(60, TimeUnit.SECONDS) || p.exitValue() != 0) {
-                p.destroyForcibly();
-                throw new IOException("keytool failed: " + output.strip());
-            }
-            Files.setPosixFilePermissions(tmp, PosixFilePermissions.fromString("rw-------"));
-            Files.move(tmp, keystore, StandardCopyOption.ATOMIC_MOVE);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("interrupted", e);
-        } catch (IOException | RuntimeException e) {
-            Files.deleteIfExists(passwordFile);
-            throw e;
-        } finally {
-            try (var leftovers = Files.list(work)) {
-                for (Path left : leftovers.toList()) {
-                    Files.deleteIfExists(left);
-                }
-            }
-            Files.deleteIfExists(work);
-        }
-        String fingerprint = AdminKeystore.load(keystore, passwordFile).fingerprint();
+        String fingerprint = AdminKeystore.create(keystore, passwordFile).fingerprint();
         appendSettings("""
                 # TLS for the admin API (knurctl admin tls create): a self-signed certificate. knurctl
                 # trusts it through knurd.fingerprint in its creds file, so no CA is needed.
