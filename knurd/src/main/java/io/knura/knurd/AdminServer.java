@@ -16,6 +16,8 @@ import java.io.OutputStream;
 import java.lang.System.Logger.Level;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
@@ -68,6 +70,16 @@ import javax.net.ssl.SSLParameters;
  *       does, so a phone can lock out a lost laptop. Only for the tokens in {@code
  *       admin.provision.tokens}.
  * </ul>
+ *
+ * <p>With {@link #manage} set, the API also serves the setup page in a browser: signing in with a
+ * password ({@link AdminPassword}, {@link Sessions}) and changing the settings in {@link
+ * HomeSettings}. These requests may use a session cookie instead of a token, and are allowed for
+ * signed-in browsers, plaintext mode and the tokens in {@code admin.provision.tokens}. Every
+ * request that changes something, and every request with a session cookie, must carry {@code
+ * X-Knura-Request: 1} and, if it has an {@code Origin}, come from this same address. A web page on
+ * another site can't add that header without the browser asking first, and knurd never says yes,
+ * so other sites can't make a signed-in browser change settings (cross-site request forgery).
+ * See {@code docs/setup-api.md} for each request.
  */
 final class AdminServer implements AutoCloseable {
     private static final System.Logger LOG = System.getLogger("knurd.admin");
@@ -88,6 +100,20 @@ final class AdminServer implements AutoCloseable {
 
     private record Answer(int status, String json, String detail) {}
 
+    /**
+     * Who is asking: a token's name ("browser" for a signed-in browser, null in plaintext mode),
+     * whether they may change settings, and the browser's session id, if any.
+     */
+    private record Caller(String name, boolean canManage, String session) {}
+
+    /** What the setup page needs: the password, browser sessions and the settings it changes. */
+    record Manage(AdminPassword password, Sessions sessions, HomeSettings settings) {}
+
+    static final String REQUEST_HEADER = "X-Knura-Request";
+    private static final String SESSION = "/v1/session";
+    private static final String PASSWORD = "/v1/password";
+    private static final int MAX_MANAGE_BODY = 4096;
+
     private static final String NFC_SESSIONS = "/v1/nfc/sessions";
     private static final int MAX_NFC_BODY = 4096;
     private static final String TOKENS = "/v1/tokens";
@@ -101,6 +127,8 @@ final class AdminServer implements AutoCloseable {
     private final Info info;
     private final Clock clock;
     private final NfcRelay nfc;
+    private final boolean tls;
+    private volatile Manage manage;
 
     AdminServer(String host, int port, SSLContext tls, TokenStore tokens, AuditLog audit, CounterStore counters,
             RecentTaps taps, Info info, Clock clock) throws IOException {
@@ -137,8 +165,14 @@ final class AdminServer implements AutoCloseable {
         this.info = info;
         this.clock = clock;
         this.nfc = nfc;
+        this.tls = tls != null;
         server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
         server.createContext("/", this::handle);
+    }
+
+    /** Turns on the setup page's requests; call before {@link #start}. */
+    void manage(Manage manage) {
+        this.manage = manage;
     }
 
     void start() {
@@ -167,6 +201,9 @@ final class AdminServer implements AutoCloseable {
         String path = exchange.getRequestURI().getRawPath();
         String tokenName = null;
         Answer answer;
+        Headers headers = exchange.getRequestHeaders();
+        String session = Sessions.fromCookie(headers.getFirst("Cookie"));
+        String forgery = forgeryProblem(headers, method, path, session != null);
         if (!LocalAddresses.isLocalNetwork(remote)) {
             answer = new Answer(403, error("forbidden", "the admin API only answers this computer and the local network"),
                     "not a local address");
@@ -176,9 +213,19 @@ final class AdminServer implements AutoCloseable {
         } else if (tokens == null && !loopbackHost(exchange.getRequestHeaders().getFirst("Host"))) {
             answer = new Answer(403, error("forbidden", "in plaintext mode the admin API only answers requests for"
                     + " 127.0.0.1 or localhost"), "Host is not this computer");
+        } else if (forgery != null) {
+            answer = new Answer(403, error("forbidden", forgery), "failed the browser request check");
+        } else if (manage != null && path.equals(SESSION)) {
+            answer = signIn(method, requestBody, remoteText, session, exchange);
+            tokenName = answer.status() == 200 && "signed in".equals(answer.detail()) ? "browser" : null;
+        } else if (manage != null && path.equals(PASSWORD) && !manage.password().isSet()) {
+            answer = firstPassword(method, requestBody, remote, exchange);
+            tokenName = answer.status() == 200 ? "browser" : null;
         } else if (tokens == null) {
+            boolean signedIn = manage != null && manage.sessions().check(session);
             try {
-                answer = route(method, path, exchange.getRequestURI().getRawQuery(), null, requestBody, exchange);
+                answer = route(method, path, exchange.getRequestURI().getRawQuery(),
+                        new Caller(null, true, signedIn ? session : null), requestBody, exchange);
             } catch (RuntimeException e) {
                 LOG.log(Level.ERROR, "admin request " + method + " " + path + " failed", e);
                 answer = new Answer(500, error("error", null), "internal error");
@@ -200,6 +247,15 @@ final class AdminServer implements AutoCloseable {
                     tokenName = answer.detail().substring("paired ".length());
                 }
             }
+        } else if (manage != null && manage.sessions().check(session)) {
+            tokenName = "browser";
+            try {
+                answer = route(method, path, exchange.getRequestURI().getRawQuery(), new Caller("browser", true, session),
+                        requestBody, exchange);
+            } catch (RuntimeException e) {
+                LOG.log(Level.ERROR, "admin request " + method + " " + path + " failed", e);
+                answer = new Answer(500, error("error", null), "internal error");
+            }
         } else {
             Optional<String> name = tokens.nameOf(bearer(exchange.getRequestHeaders()));
             Duration wait = throttle.waitFor(remoteText);
@@ -208,7 +264,8 @@ final class AdminServer implements AutoCloseable {
                 throttle.succeeded(remoteText);
                 tokenName = name.get();
                 try {
-                    answer = route(method, path, exchange.getRequestURI().getRawQuery(), tokenName, requestBody, exchange);
+                    answer = route(method, path, exchange.getRequestURI().getRawQuery(),
+                            new Caller(tokenName, nfc != null && nfc.allows(tokenName), null), requestBody, exchange);
                 } catch (RuntimeException e) {
                     LOG.log(Level.ERROR, "admin request " + method + " " + path + " failed", e);
                     answer = new Answer(500, error("error", null), "internal error");
@@ -255,8 +312,12 @@ final class AdminServer implements AutoCloseable {
                 + Json.quote(paired.get().token()) + "}", "paired " + paired.get().name());
     }
 
-    private Answer route(String method, String path, String query, String tokenName, byte[] body,
+    private Answer route(String method, String path, String query, Caller caller, byte[] body,
             HttpExchange exchange) {
+        String tokenName = caller.name();
+        if (manage != null && isManagePath(path)) {
+            return manageRoute(method, path, caller, body, exchange);
+        }
         if (path.equals(NFC_SESSIONS) || path.startsWith(NFC_SESSIONS + "/")) {
             return nfc(method, path, tokenName, body, exchange);
         }
@@ -358,9 +419,19 @@ final class AdminServer implements AutoCloseable {
 
     private String status() {
         long uptime = Duration.between(info.startedAt(), clock.instant()).toSeconds();
+        Manage m = manage;
+        String name = "";
+        if (m != null) {
+            try {
+                name = ",\"name\":" + Json.quote(m.settings().name());
+            } catch (IOException e) {
+                LOG.log(Level.WARNING, "could not read knura.name", e);
+            }
+        }
         return "{\"status\":\"up\",\"uptimeSeconds\":" + uptime + ",\"keys\":" + Json.quote(info.keyMode())
                 + ",\"publicUrl\":" + Json.quote(info.publicUrl()) + ",\"resolverOwner\":" + Json.quote(info.resolverOwner())
-                + ",\"knots\":" + info.knots() + ",\"tags\":" + counters.snapshot().size() + backup() + "}";
+                + ",\"knots\":" + (m == null ? info.knots() : m.settings().knotCount())
+                + ",\"tags\":" + counters.snapshot().size() + name + backup() + "}";
     }
 
     /** {@code ,"backup":{"file":..,"sheet":..}} with ISO times or null, or nothing without a master key. */
@@ -374,6 +445,9 @@ final class AdminServer implements AutoCloseable {
     }
 
     private String tags() {
+        if (manage != null) {
+            return manageTags();
+        }
         StringBuilder json = new StringBuilder("{\"tags\":[");
         String sep = "";
         for (Map.Entry<String, Integer> e : counters.snapshot().entrySet()) {
@@ -457,6 +531,336 @@ final class AdminServer implements AutoCloseable {
 
     private static Answer ok(String json) {
         return new Answer(200, json, null);
+    }
+
+    // ---- the setup page ----
+
+    /** Whether a path belongs to the setup page's requests. */
+    static boolean isManagePath(String path) {
+        return path.equals(SESSION) || path.equals(PASSWORD) || path.equals("/v1/settings")
+                || path.equals("/v1/actions/reload") || path.equals("/v1/connections")
+                || path.startsWith("/v1/connections/") || path.startsWith("/v1/tags/");
+    }
+
+    /**
+     * Why a request may have been sent by another web site in the owner's browser, or null. Only
+     * requests that change something, or carry a session cookie, are checked: they must have
+     * {@code X-Knura-Request: 1}, and an {@code Origin}, if any, must be this same address.
+     */
+    static String forgeryProblem(Headers headers, String method, String path, boolean hasCookie) {
+        if (!isManagePath(path) && !hasCookie) {
+            return null; // knurctl and the phone app, which never send cookies
+        }
+        boolean changes = !"GET".equals(method) && !"HEAD".equals(method);
+        if (!changes && !hasCookie) {
+            return null;
+        }
+        if (!"1".equals(headers.getFirst(REQUEST_HEADER))) {
+            return "browser requests need the " + REQUEST_HEADER + ": 1 header";
+        }
+        String origin = headers.getFirst("Origin");
+        if (origin != null && !sameOrigin(origin, headers.getFirst("Host"))) {
+            return "this request came from another web site";
+        }
+        return null;
+    }
+
+    static boolean sameOrigin(String origin, String host) {
+        if (host == null) {
+            return false;
+        }
+        try {
+            URI o = new URI(origin);
+            if (!("http".equals(o.getScheme()) || "https".equals(o.getScheme())) || o.getRawAuthority() == null) {
+                return false;
+            }
+            return o.getRawAuthority().equalsIgnoreCase(host.trim());
+        } catch (URISyntaxException e) {
+            return false;
+        }
+    }
+
+    /** {@code /v1/session}: GET says whether you're signed in, POST signs in, DELETE signs out. */
+    private Answer signIn(String method, byte[] body, String remote, String session, HttpExchange exchange) {
+        Manage m = manage;
+        switch (method) {
+            case "GET" -> {
+                return new Answer(200, "{\"passwordSet\":" + m.password().isSet() + ",\"signedIn\":"
+                        + m.sessions().check(session) + "}", "session check");
+            }
+            case "DELETE" -> {
+                m.sessions().end(session);
+                exchange.getResponseHeaders().add("Set-Cookie", cookie("", 0));
+                return new Answer(200, "{\"signedIn\":false}", "signed out");
+            }
+            case "POST" -> {
+                Duration wait = throttle.waitFor(remote);
+                if (!wait.isZero()) {
+                    exchange.getResponseHeaders().set("Retry-After", String.valueOf(Math.max(1, wait.toSeconds())));
+                    return new Answer(429, error("too_many_attempts", "too many wrong passwords; try again later"),
+                            "locked out");
+                }
+                if (!m.password().isSet()) {
+                    return new Answer(409, error("no_password", "no password is set yet; set one on the Knura computer"),
+                            "no password yet");
+                }
+                Object password = fields(body).get("password");
+                boolean ok;
+                try {
+                    ok = password instanceof String p && m.password().matches(p);
+                } catch (IOException e) {
+                    LOG.log(Level.ERROR, "could not read " + m.password().file(), e);
+                    return new Answer(500, error("error", "knurd couldn't read its password file"), "password file error");
+                }
+                if (!ok) {
+                    throttle.failed(remote);
+                    return new Answer(401, error("unauthorized", "that password is wrong"), "wrong password");
+                }
+                throttle.succeeded(remote);
+                exchange.getResponseHeaders().add("Set-Cookie", cookie(m.sessions().start(), Sessions.IDLE.toSeconds()));
+                return new Answer(200, "{\"signedIn\":true}", "signed in");
+            }
+            default -> {
+                exchange.getResponseHeaders().set("Allow", "GET, POST, DELETE");
+                return new Answer(405, error("method_not_allowed", null), null);
+            }
+        }
+    }
+
+    /**
+     * {@code POST /v1/password} before any password exists. Only this computer may set the first
+     * one, so someone else on the network can't get there first; it signs the browser in.
+     */
+    private Answer firstPassword(String method, byte[] body, InetAddress remote, HttpExchange exchange) {
+        if (!"POST".equals(method)) {
+            exchange.getResponseHeaders().set("Allow", "POST");
+            return new Answer(405, error("method_not_allowed", null), null);
+        }
+        if (!remote.isLoopbackAddress()) {
+            return new Answer(403, error("forbidden", "set the first password on the Knura computer itself"),
+                    "first password from another computer");
+        }
+        Object password = fields(body).get("password");
+        String problem = AdminPassword.problem(password instanceof String p ? p : null);
+        if (problem != null) {
+            return new Answer(400, error("malformed", "password: " + problem), "password too weak");
+        }
+        try {
+            manage.password().set((String) password);
+        } catch (IOException e) {
+            LOG.log(Level.ERROR, "could not save the admin password", e);
+            return new Answer(500, error("error", "knurd couldn't save the password"), "password not saved");
+        }
+        exchange.getResponseHeaders().add("Set-Cookie", cookie(manage.sessions().start(), Sessions.IDLE.toSeconds()));
+        return new Answer(200, "{\"signedIn\":true}", "first password set");
+    }
+
+    private Answer manageRoute(String method, String path, Caller caller, byte[] body, HttpExchange exchange) {
+        Manage m = manage;
+        if (!caller.canManage()) {
+            return new Answer(403, error("forbidden", "this token may not change settings; sign in on the setup page,"
+                    + " or add the token to admin.provision.tokens"), "token may not manage");
+        }
+        if (body.length > MAX_MANAGE_BODY) {
+            return new Answer(413, error("too_large", "request body over " + MAX_MANAGE_BODY + " bytes"), null);
+        }
+        Map<String, Object> f;
+        try {
+            f = body.length == 0 ? Map.of() : FlatJson.parse(new String(body, StandardCharsets.UTF_8));
+        } catch (IllegalArgumentException e) {
+            return new Answer(400, error("malformed", "the body must be a flat JSON object: " + e.getMessage()), null);
+        }
+        String[] parts = path.substring(1).split("/", -1);
+        try {
+            if (path.equals("/v1/settings")) {
+                if ("PUT".equals(method)) {
+                    m.settings().setName(text(f, "name"));
+                    return new Answer(200, settingsJson(), "changed name");
+                }
+                return only("GET", method, exchange, () -> new Answer(200, settingsJson(), null));
+            }
+            if (path.equals(PASSWORD)) {
+                return only("POST", method, exchange, () -> changePassword(f, caller, exchange));
+            }
+            if (path.equals("/v1/actions/reload")) {
+                return only("POST", method, exchange, () -> new Answer(200, "{\"knots\":" + m.settings().reload() + "}",
+                        "reloaded actions"));
+            }
+            if (path.equals("/v1/connections")) {
+                return only("GET", method, exchange, () -> new Answer(200, connectionsJson(), null));
+            }
+            if (parts.length == 4 && parts[1].equals("connections")) {
+                String type = parts[2];
+                String id = parts[3];
+                if (!HomeSettings.TYPES.contains(type)) {
+                    return new Answer(404, error("not_found", null), null);
+                }
+                if ("DELETE".equals(method)) {
+                    m.settings().removeConnection(type, id);
+                    return new Answer(200, "{\"removed\":" + Json.quote(id) + "}", "removed " + type + " " + id);
+                }
+                return only("PUT", method, exchange, () -> {
+                    Optional<String> secret = m.settings().putConnection(type, id, text(f, "url"));
+                    return new Answer(200, "{\"type\":" + Json.quote(type) + ",\"id\":" + Json.quote(id)
+                            + ",\"secret\":" + Json.quote(secret.orElse(null)) + "}",
+                            (secret.isPresent() ? "added " : "changed ") + type + " " + id);
+                });
+            }
+            if (parts.length == 3 && parts[1].equals("tags")) {
+                String uid = HomeSettings.uid(parts[2]);
+                return only("PUT", method, exchange, () -> {
+                    m.settings().setLabel(uid, optionalText(f, "label"), optionalText(f, "icon"));
+                    return new Answer(200, "{\"uid\":" + Json.quote(uid) + "}", "labelled " + uid);
+                });
+            }
+            if (parts.length == 4 && parts[1].equals("tags") && parts[3].equals("actions")) {
+                String uid = HomeSettings.uid(parts[2]);
+                return only("PUT", method, exchange, () -> {
+                    Object list = f.get("actions");
+                    if (list != null && !(list instanceof String)) {
+                        throw new IllegalArgumentException("actions: a comma-separated list of connector names");
+                    }
+                    List<String> ids = HomeSettings.split((String) list);
+                    m.settings().setTagActions(uid, ids);
+                    return new Answer(200, "{\"uid\":" + Json.quote(uid) + ",\"actions\":" + jsonList(ids) + "}",
+                            "set actions for " + uid);
+                });
+            }
+            if (parts.length == 4 && parts[1].equals("tags") && parts[3].equals("test")) {
+                String uid = HomeSettings.uid(parts[2]);
+                return only("POST", method, exchange, () -> new Answer(200, "{\"started\":" + m.settings().test(uid) + "}",
+                        "test tap for " + uid));
+            }
+            return new Answer(404, error("not_found", null), null);
+        } catch (HomeSettings.NotFound e) {
+            return new Answer(404, error("not_found", e.getMessage()), null);
+        } catch (HomeSettings.InUse e) {
+            return new Answer(409, error("in_use", e.getMessage()), null);
+        } catch (IllegalArgumentException e) {
+            return new Answer(400, error("malformed", e.getMessage()), "refused a change");
+        } catch (IOException e) {
+            LOG.log(Level.ERROR, "admin request " + method + " " + path + " couldn't change a file", e);
+            return new Answer(500, error("error", "knurd couldn't save the change: " + e.getMessage()), "save failed");
+        }
+    }
+
+    @FunctionalInterface
+    private interface Work {
+        Answer run() throws IOException;
+    }
+
+    private static Answer only(String allowed, String method, HttpExchange exchange, Work work) throws IOException {
+        if (!allowed.equals(method)) {
+            exchange.getResponseHeaders().set("Allow", allowed);
+            return new Answer(405, error("method_not_allowed", null), null);
+        }
+        return work.run();
+    }
+
+    /** {@code POST /v1/password} once one is set: a browser must give the current one too. */
+    private Answer changePassword(Map<String, Object> f, Caller caller, HttpExchange exchange) throws IOException {
+        Manage m = manage;
+        if (caller.session() != null) {
+            Object current = f.get("current");
+            if (!(current instanceof String c) || !m.password().matches(c)) {
+                return new Answer(401, error("unauthorized", "the current password is wrong"), "wrong current password");
+            }
+        }
+        Object password = f.get("password");
+        String problem = AdminPassword.problem(password instanceof String p ? p : null);
+        if (problem != null) {
+            return new Answer(400, error("malformed", "password: " + problem), "password too weak");
+        }
+        m.password().set((String) password);
+        m.sessions().endAll();
+        if (caller.session() != null) {
+            exchange.getResponseHeaders().add("Set-Cookie", cookie(m.sessions().start(), Sessions.IDLE.toSeconds()));
+        }
+        return new Answer(200, "{\"changed\":true}", "changed password; signed everyone else out");
+    }
+
+    private String settingsJson() throws IOException {
+        Manage m = manage;
+        return "{\"name\":" + Json.quote(m.settings().name()) + ",\"passwordSet\":" + m.password().isSet() + "}";
+    }
+
+    private String connectionsJson() throws IOException {
+        StringBuilder json = new StringBuilder("{\"connections\":[");
+        String sep = "";
+        for (HomeSettings.Connection c : manage.settings().connections()) {
+            json.append(sep).append("{\"type\":").append(Json.quote(c.type())).append(",\"id\":").append(Json.quote(c.id()))
+                    .append(",\"url\":").append(Json.quote(c.url())).append(",\"usedBy\":").append(jsonList(c.usedBy()))
+                    .append('}');
+            sep = ",";
+        }
+        return json.append("]}").toString();
+    }
+
+    /** Every tag knurd knows of, from its counters, labels and actions, with all three. */
+    private String manageTags() {
+        Map<String, Integer> seen = counters.snapshot();
+        Map<String, HomeSettings.Label> labels = manage.settings().labels();
+        Map<String, List<String>> actions;
+        try {
+            actions = manage.settings().tagActions();
+        } catch (IOException e) {
+            LOG.log(Level.WARNING, "could not read the actions file", e);
+            actions = Map.of();
+        }
+        java.util.TreeSet<String> uids = new java.util.TreeSet<>(seen.keySet());
+        uids.addAll(labels.keySet());
+        uids.addAll(actions.keySet());
+        StringBuilder json = new StringBuilder("{\"tags\":[");
+        String sep = "";
+        for (String uid : uids) {
+            HomeSettings.Label l = labels.get(uid);
+            json.append(sep).append("{\"uid\":").append(Json.quote(uid))
+                    .append(",\"lastCounter\":").append(seen.containsKey(uid) ? seen.get(uid).toString() : "null")
+                    .append(",\"label\":").append(Json.quote(l == null ? null : l.label()))
+                    .append(",\"icon\":").append(Json.quote(l == null ? null : l.icon()))
+                    .append(",\"actions\":").append(jsonList(actions.getOrDefault(uid, List.of()))).append('}');
+            sep = ",";
+        }
+        return json.append("]}").toString();
+    }
+
+    private String cookie(String value, long maxAge) {
+        return Sessions.COOKIE + "=" + value + "; Path=/; Max-Age=" + maxAge + "; HttpOnly; SameSite=Strict"
+                + (tls ? "; Secure" : "");
+    }
+
+    private static Map<String, Object> fields(byte[] body) {
+        try {
+            return FlatJson.parse(new String(body, StandardCharsets.UTF_8));
+        } catch (IllegalArgumentException e) {
+            return Map.of();
+        }
+    }
+
+    private static String text(Map<String, Object> f, String name) {
+        Object v = f.get(name);
+        if (!(v instanceof String s)) {
+            throw new IllegalArgumentException(name + " is missing");
+        }
+        return s;
+    }
+
+    private static String optionalText(Map<String, Object> f, String name) {
+        Object v = f.get(name);
+        if (v != null && !(v instanceof String)) {
+            throw new IllegalArgumentException(name + " must be text");
+        }
+        return v == null || ((String) v).isBlank() ? null : (String) v;
+    }
+
+    private static String jsonList(List<String> items) {
+        StringBuilder json = new StringBuilder("[");
+        String sep = "";
+        for (String s : items) {
+            json.append(sep).append(Json.quote(s));
+            sep = ",";
+        }
+        return json.append(']').toString();
     }
 
     private static String error(String status, String detail) {

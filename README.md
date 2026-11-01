@@ -218,8 +218,8 @@ knurd can open a second port, 8425, for management (and later LoomStudio). It is
 the tap port so the tap port can be public and this one never is: knurd only listens on this
 computer or a local network address, refuses requests from public addresses and requests that
 came through a proxy or tunnel, and writes every request to an audit log (tokens and keys never
-are). It never returns key material, and apart from setting tags up through a phone (below) it
-only reads.
+are). It never returns key material. Apart from setting tags up through a phone (below) and the
+setup page's requests, it only reads.
 
 `admin.security` in knurd.properties picks one of two modes, like Kafka's PLAINTEXT and SASL:
 
@@ -250,6 +250,11 @@ knurctl admin token remove desk         # stops working at once, no restart
 The creds file (`--creds`, like Kafka's `--command-config`) holds the URL, the token and the
 certificate fingerprint. knurctl refuses it unless it is chmod 600, and refuses plain `http://`
 unless it is this computer. knurd keeps only each token's SHA-256.
+
+The setup page (coming next) signs in with a password and uses the admin API to name this
+Knura, label tags, add Home Assistant, Matter and webhook connectors, choose what each tag does
+and send a test tap. Changes go into the usual files and take effect without a restart. See
+[docs/setup-api.md](docs/setup-api.md).
 
 ### Setting tags up with an Android phone
 
@@ -323,7 +328,7 @@ Rules:
 - Actions waiting to be sent are lost if knurd restarts (no saved outbox yet).
 - Secrets files are protected by file permissions only, not encrypted.
 - One knurd per set of tags: replay counters live in a local file.
-- The admin API is read-only.
+- The admin API can't change keys, tokens or `public.url`; use knurctl for those.
 - Connectors: signed webhooks, the Matter bridge and Home Assistant webhooks. MQTT and others are
   planned.
 - The tap MAC must cover an empty input (SDMMACInputOffset equal to SDMMACOffset).
