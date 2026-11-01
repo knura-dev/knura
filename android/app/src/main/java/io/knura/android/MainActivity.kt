@@ -407,7 +407,7 @@ class MainActivity : Activity() {
         val first = ui.horizontal(12).apply { gravity = Gravity.TOP }
         first.addView(stepNumber(1))
         val firstText = ui.vertical(8)
-        firstText.addView(ui.text("On the server's computer, run", 14f, ON_DARK))
+        firstText.addView(ui.text("On your Knura's setup page, choose My Android phone and Show pairing code. Or, in a terminal on that computer, run", 14f, ON_DARK))
         firstText.addView(ui.text("$ knurctl admin pair-phone <name>", 12.5f, Color.parseColor("#D5DDE6"), mono = true).apply {
             background = ui.rounded(Color.parseColor("#070A0E"), 12f)
             setPadding(ui.dp(12), ui.dp(10), ui.dp(12), ui.dp(10))
@@ -417,7 +417,7 @@ class MainActivity : Activity() {
         card.addView(first)
         val second = ui.horizontal(12)
         second.addView(stepNumber(2))
-        second.addView(ui.text("Scan the QR code it shows", 14f, ON_DARK))
+        second.addView(ui.text("Scan the QR code it shows. The phone must be on the same Wi-Fi.", 14f, ON_DARK))
         card.addView(second)
         col.addView(card, ui.lp(top = 20))
 

@@ -272,3 +272,8 @@ label.fl{display:block;font-size:13px;font-weight:500;color:var(--muted);margin:
 .signin{max-width:420px}
 code{font-family:var(--mono);font-size:13px;background:var(--chip);padding:1px 6px;border-radius:6px}
 .copyrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.qrwrap{flex:none;width:208px;height:208px;padding:8px;border-radius:18px;background:#fff;box-shadow:0 8px 28px rgba(0,0,0,.25)}
+.qr{display:block;width:100%;height:100%;image-rendering:pixelated}
+.codeline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.codeline code{word-break:break-all}
+.pairing details summary{cursor:pointer;color:var(--accent)}

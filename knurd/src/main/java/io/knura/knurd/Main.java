@@ -10,13 +10,10 @@ import java.io.IOException;
 import java.lang.System.Logger.Level;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.GeneralSecurityException;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.Optional;
 import java.util.function.Supplier;
-import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 
 /** Starts knurd: {@code knurd [config-file]}, default {@code knurd.properties}. */
@@ -140,20 +137,17 @@ public final class Main {
             throws IOException {
         KnurdConfig.Admin a = config.admin();
         SSLContext tls = null;
+        SSLContext wifiTls = null;
         String fingerprint = null;
-        if (a.tls()) {
+        if (a.keystore() != null) {
             AdminKeystore keystore = AdminKeystore.load(a.keystore(), a.passwordFile());
-            try {
-                KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
-                kmf.init(keystore.keyStore(), keystore.password());
-                tls = SSLContext.getInstance("TLS");
-                tls.init(kmf.getKeyManagers(), null, null);
-            } catch (GeneralSecurityException e) {
-                throw new IOException("can't use the TLS key in " + a.keystore() + ": " + e.getMessage(), e);
-            } finally {
-                Arrays.fill(keystore.password(), '\0');
-            }
             fingerprint = keystore.fingerprint();
+            SSLContext context = PhonePairing.tlsContext(keystore);
+            if (a.lanPort() > 0) {
+                wifiTls = context;
+            } else {
+                tls = context;
+            }
         }
         TokenStore tokens = a.plaintext() ? null : new TokenStore(a.tokensFile());
         AuditLog audit = new AuditLog(a.auditFile(), Clock.systemUTC());
@@ -170,8 +164,21 @@ public final class Main {
         AdminServer admin = new AdminServer(
                 a.host(), a.port(), tls, tokens, audit, counters, taps, info, Clock.systemUTC(), nfc);
         AdminPassword password = new AdminPassword(configFile.toAbsolutePath().getParent().resolve(AdminPassword.FILE));
-        admin.manage(new AdminServer.Manage(password, new Sessions(Clock.systemUTC()), settings, Tailscale.find(config.port())));
+        PhonePairing phones = new PhonePairing(config.keys(), resolver, a, tokens, settings, fingerprint, Clock.systemUTC());
+        phones.attach(admin);
+        admin.manage(new AdminServer.Manage(password, new Sessions(Clock.systemUTC()), settings,
+                Tailscale.find(config.port()), phones));
         admin.start();
+        if (wifiTls != null) {
+            try {
+                admin.listenOnWifi(a.lanPort(), wifiTls);
+            } catch (IOException e) {
+                admin.close();
+                throw new IOException("can't listen on admin.lan.port " + a.lanPort() + ": " + e.getMessage(), e);
+            }
+            info("knurd admin API also on https://0.0.0.0:%d for phones on your home network (admin.lan.port)",
+                    a.lanPort());
+        }
         info("knurd admin API on %s://%s:%d, for knurctl only: never put this port on the internet",
                 a.tls() ? "https" : "http", a.host(), admin.port());
         if (fingerprint != null) {

@@ -132,6 +132,39 @@ for your network, or `fixCommand` is the one command to run first (on Linux,
 `sudo tailscale set --operator=$USER`, so knurd's user may share a port). Once Funnel is on and
 `public.url` isn't set, knurd sets it to the Funnel address.
 
+### Pairing a phone
+
+`POST /v1/phones/pair` with `{"name":"pixel-9"}` gets knurd ready for a phone and makes its
+pairing code, as `knurctl admin pair-phone` does, with no restart:
+
+1. If knurd doesn't answer the home network yet, it makes a self-signed TLS certificate
+   (`knurd-admin.p12` and its password file, both chmod 600) and starts a second admin listener on
+   every network on `admin.lan.port` (8426), over TLS only. This computer keeps using plain HTTP on
+   `127.0.0.1:8425`. If `admin.listen.host` is already a LAN address with TLS, that is used instead.
+2. It adds the name to `admin.provision.tokens`, so the phone may set tags up as soon as it pairs.
+3. It saves `admin.tls.keystore`, `admin.tls.password.file`, `admin.lan.port` and
+   `admin.provision.tokens` in knurd.properties, so all of it is still on after a restart.
+4. It writes a one-time pairing code (15 minutes) to the pairing file and answers:
+
+```json
+{"name":"pixel-9","link":"knura://pair?url=https%3A%2F%2F192.168.1.50%3A8426&fp=...&code=knurp_...",
+ "qr":["1111111001...", "..."],"url":"https://192.168.1.50:8426","address":"192.168.1.50",
+ "addresses":["192.168.1.50","10.0.0.7"],"fingerprint":"...","expires":"2026-11-01T22:15:00Z",
+ "firewall":"sudo firewall-cmd --add-port=8426/tcp --permanent && sudo firewall-cmd --reload"}
+```
+
+`qr` is the QR code for `link`, one string of 0s and 1s per row (1 is dark, no quiet zone), drawn
+by knurd's own encoder so the page needs no outside library. `addresses` are this computer's home
+network addresses (192.168.x.x first, skipping Docker, VM and VPN interfaces); send `"address"`
+with one of them to put another in the code. `firewall` is the command that lets the port in on
+Linux with firewalld or ufw, or null. The code holds no token: the app swaps it for one at `POST
+/v1/pair` on the Wi-Fi listener, pinning the certificate by `fp`. `GET /v1/settings` lists the
+phone under `phones` once that has happened.
+
+It answers 409 with `status` saying what to fix first: `no_address` (no `public.url` yet, step
+3), `no_network` (no home network address), `name_taken`, `no_master_key` or `plaintext`
+(`admin.security=plaintext` has no logins).
+
 ### Reaching knurd
 
 `GET /v1/reach` asks `<public.url>/health` from knurd's computer, as a phone would:

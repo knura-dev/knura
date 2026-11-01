@@ -76,6 +76,39 @@ public final class AdminTokens {
         return out.toString();
     }
 
+    /**
+     * Makes a pairing code for the phone {@code name} and adds its hash to the pairing file next to
+     * {@code tokensFile}, dropping expired entries and any earlier code for that name.
+     *
+     * @return the code, to show once in a QR code
+     */
+    public static String startPairing(java.nio.file.Path tokensFile, String name, java.time.Instant now)
+            throws java.io.IOException {
+        if (!isValidName(name)) {
+            throw new IllegalArgumentException("not a token name: " + name);
+        }
+        String code = generatePairCode(new SecureRandom());
+        java.nio.file.Path pairingFile = tokensFile.resolveSibling(PAIRING_FILE);
+        Map<String, Pairing> waiting = new TreeMap<>();
+        if (java.nio.file.Files.exists(pairingFile)) {
+            Properties p = new Properties();
+            try (var in = java.nio.file.Files.newBufferedReader(pairingFile, StandardCharsets.UTF_8)) {
+                p.load(in);
+            }
+            waiting.putAll(parsePairing(p));
+        }
+        waiting.values().removeIf(w -> !now.isBefore(w.expires()));
+        waiting.put(name, new Pairing(hash(code), now.plus(PAIR_TIME)));
+        PrivateFiles.replace(pairingFile, formatPairing(waiting));
+        return code;
+    }
+
+    /** What the Knura app scans: {@code knura://pair?url=...&fp=...&code=knurp_...}. */
+    public static String pairingLink(java.net.URI adminUrl, String fingerprint, String code) {
+        return "knura://pair?url=" + java.net.URLEncoder.encode(adminUrl.toString(), StandardCharsets.UTF_8)
+                + "&fp=" + fingerprint + "&code=" + code;
+    }
+
     public static boolean isWellFormed(String token) {
         return token != null && TOKEN.matcher(token).matches();
     }

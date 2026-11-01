@@ -66,7 +66,7 @@ let S = {
   screen: 'loading', start: 'new', session: null, settings: null, status: null, tags: [], connections: [], reach: null,
   name: '', pw: '', pw2: '', showpw: false, busy: false, err: '',
   priorKit: null, words: [], fileDone: false, sheetDone: false, c2: '', c5: '', redoBackup: false,
-  dev: null, reachMode: 'ts', ts: null, haDo: 'notify', haLight: 'light.living_room', funnelFix: null, ownurl: '', tapIssue: null,
+  dev: null, phoneName: 'my-phone', pair: null, reachMode: 'ts', ts: null, haDo: 'notify', haLight: 'light.living_room', funnelFix: null, ownurl: '', tapIssue: null,
   tagSince: null, tag: null, tagname: 'Front door', tagicon: 'door', tapped: false,
   act: null, actUrl: '', secret: null, connId: null, tested: false,
 };
@@ -281,18 +281,71 @@ function s4() {
 ${S.dev === 'phone' ? (phones.length ? `<div class="stage${an('paired')}" style="gap:28px;flex-wrap:wrap;padding:24px">
     <div class="phone pop"><div class="tile ok" style="width:38px;height:38px">${ico('check', 20, 2.4)}</div><b style="font-size:13px">Paired</b></div>
     <div style="max-width:280px;display:flex;flex-direction:column;gap:6px"><span class="pill ok" style="align-self:flex-start">${ico('check', 13, 2.4)} Paired</span><b style="font-size:17px">${phones.map(esc).join(', ')}</b><p class="small muted">This phone can set up tags with your Knura over your home Wi-Fi.</p></div></div>`
-  : `<div class="sub" style="padding:18px;display:flex;flex-direction:column;gap:12px">
+  : pairBox())
+  : S.dev === 'reader' ? `<div class="sub" style="padding:18px;display:flex;flex-direction:column;gap:10px${an('rd') ? '' : ''}">
+    <div class="row"><div class="tile plain">${ico('usb', 22)}</div><div><b>Plug in your reader</b><p class="small muted">You’ll set each tag up with <code>knurctl provision</code> in your settings folder, then come back here.</p></div></div></div>`
+  : `<p class="small muted">Using an iPhone? The iPhone app isn’t ready yet, so use a USB reader for now.</p>`}
+${S.dev === 'phone' ? errLine() : ''}`;
+}
+
+function phoneSlug(v) {
+  return String(v).toLowerCase().trim().replace(/[^a-z0-9_-]+/g, '-').replace(/^[-_]+|-+$/g, '').slice(0, 32);
+}
+function qrSvg(rows) {
+  if (!Array.isArray(rows) || !rows.length || !rows.every(r => typeof r === 'string' && /^[01]+$/.test(r) && r.length === rows.length)) return '';
+  const n = rows.length, q = 4;
+  let d = '';
+  rows.forEach((row, y) => { for (let x = 0; x < n; x++) if (row[x] === '1') d += `M${x + q} ${y + q}h1v1h-1z`; });
+  return `<svg class="qr" viewBox="0 0 ${n + 2 * q} ${n + 2 * q}" shape-rendering="crispEdges" role="img" aria-label="Pairing code for the Knura app"><rect width="100%" height="100%" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+}
+function pairBox() {
+  const p = S.pair;
+  if (!p) return `<div class="sub" style="padding:18px;display:flex;flex-direction:column;gap:12px">
     <b>Pair your phone</b>
     <ol class="small muted" style="margin:0;padding-left:18px;display:grid;gap:6px">
       <li>Install the Knura app on your phone. <a href="${DOCS}/tags/set-up-with-phone" target="_blank" rel="noopener">Get the app</a></li>
-      <li>On this computer, run <code>knurctl admin pair-phone my-phone</code> in your settings folder, restart Knura, and scan the code it shows with the app.</li>
+      <li>Connect the phone to the same Wi-Fi as this computer.</li>
+      <li>Name the phone, then show the pairing code.</li>
     </ol>
-    <div class="row small muted"><div class="spin"></div>Waiting for a phone to pair. This page notices by itself.</div>
-    <p class="small muted">Pairing straight from this page comes with the Knura installer.</p>
-  </div>`)
-  : S.dev === 'reader' ? `<div class="sub" style="padding:18px;display:flex;flex-direction:column;gap:10px${an('rd') ? '' : ''}">
-    <div class="row"><div class="tile plain">${ico('usb', 22)}</div><div><b>Plug in your reader</b><p class="small muted">You’ll set each tag up with <code>knurctl provision</code> in your settings folder, then come back here.</p></div></div></div>`
-  : `<p class="small muted">Using an iPhone? The iPhone app isn’t ready yet, so use a USB reader for now.</p>`}`;
+    <div class="row" style="gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <div style="flex:1;min-width:180px"><label class="fl" for="phoneName">Phone’s name</label><input id="phoneName" class="in" data-in="phoneName" value="${esc(S.phoneName)}" maxlength="32" autocomplete="off" placeholder="my-phone"></div>
+      <button class="btn primary" data-act="pair"${S.busy ? ' disabled' : ''}>${S.busy === 'pair' ? '<div class="spin"></div> Getting ready' : ico('phone', 16) + ' Show pairing code'}</button>
+    </div>
+    <p class="small muted">The first time, Knura makes a security certificate and starts answering on your home Wi-Fi. That takes a few seconds.</p>
+  </div>`;
+  const others = (p.addresses || []).filter(a => a !== p.address);
+  return `<div class="sub pairing${an('pairqr')}" style="padding:18px;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start">
+    <div class="qrwrap">${qrSvg(p.qr)}</div>
+    <div style="flex:1;min-width:240px;display:flex;flex-direction:column;gap:10px">
+      <b style="font-size:17px">Scan this with the Knura app</b>
+      <ol class="small muted" style="margin:0;padding-left:18px;display:grid;gap:6px">
+        <li>Open the Knura app and tap <b>Scan pairing code</b>.</li>
+        <li>Point the camera at this code. The phone will be called <b>${esc(p.name)}</b>.</li>
+      </ol>
+      <div class="row small muted"><div class="spin"></div>Waiting for the phone. This page notices by itself.</div>
+      <p class="small muted">The code works once, for 15 minutes. It doesn’t contain a password, so a photo of it is useless once it’s used.</p>
+      <details class="small"><summary>The app says it can’t connect?</summary>
+        <div style="display:grid;gap:8px;margin-top:8px">
+          <span class="muted">Check the phone is on the same Wi-Fi, not mobile data. The app connects to <code>${esc(p.url)}</code>.</span>
+          ${p.firewall ? `<span class="muted">This computer’s firewall may be blocking it. Run this, then scan again:</span><div class="codeline"><code id="fwcmd">${esc(p.firewall)}</code><button class="btn sm" data-copy="fwcmd">Copy</button></div>` : ''}
+          ${others.length ? `<span class="muted">This computer has more than one network address. Try another:</span><div class="row" style="gap:6px;flex-wrap:wrap">${others.map(a => `<button class="btn sm" data-act="pairaddr" data-addr="${esc(a)}">${esc(a)}</button>`).join('')}</div>` : ''}
+        </div>
+      </details>
+      <div><button class="btn sm" data-act="pair">Make a new code</button></div>
+    </div>
+  </div>`;
+}
+
+async function pairPhone(address) {
+  const name = phoneSlug(S.phoneName);
+  if (!name) { S.err = 'Give the phone a name, like my-phone.'; render(); return; }
+  S.busy = 'pair'; S.err = ''; render();
+  const body = { name };
+  if (address) body.address = address;
+  const r = await api('POST', '/v1/phones/pair', body);
+  S.busy = false;
+  if (!r.ok) { S.err = why(r); S.pair = null; render(); return; }
+  S.pair = r.json; render();
 }
 
 function s5() {
@@ -512,7 +565,7 @@ function watchPhones() {
     if (S.screen !== 4) return;
     if (S.dev === 'phone' && !((S.settings && S.settings.phones) || []).length) {
       const r = await api('GET', '/v1/settings');
-      if (r.ok && r.json.phones.length) { S.settings = r.json; render(); toast(r.json.phones[0] + ' is paired'); return; }
+      if (r.ok && r.json.phones.length) { S.settings = r.json; S.pair = null; render(); toast(r.json.phones[0] + ' is paired'); return; }
     }
     later(tick, 3000);
   };
@@ -673,6 +726,12 @@ document.addEventListener('click', async e => {
     case 'usets': if (S.ts && S.ts.url) saveUrl(S.ts.url); break;
     case 'saveurl': if (S.ownurl.trim()) saveUrl(S.ownurl.trim()); else { S.err = 'Add the address first.'; render(); } break;
     case 'connect': connect(); break;
+    case 'pair': pairPhone(S.pair ? S.pair.address : null); break;
+    case 'pairaddr': {
+      const a = S.pair && (S.pair.addresses || []).find(x => x === t.dataset.addr); // only addresses knurd listed
+      if (a) pairPhone(a);
+      break;
+    }
     case 'test': {
       S.tested = false; render();
       const r = await api('POST', `/v1/tags/${S.tag}/test`);
@@ -693,6 +752,7 @@ document.addEventListener('input', e => {
     case 'name': S.name = v; break; case 'pw': S.pw = v; break; case 'pw2': S.pw2 = v; break;
     case 'c2': S.c2 = v; break; case 'c5': S.c5 = v; break;
     case 'tagname': S.tagname = v; break; case 'actUrl': S.actUrl = v; break; case 'ownurl': S.ownurl = v; break; case 'haLight': S.haLight = v; break;
+    case 'phoneName': S.phoneName = v; break;
     default: return;
   }
   if (t.dataset.in === 'haLight') { render(); return; } // the automation text follows what's typed
@@ -709,7 +769,7 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.dataset && e.target.dataset.in && typeof S.screen === 'number') {
-    if (e.target.id === 'haLight') return; if (e.target.id === 'actUrl') connect(); else if (e.target.id === 'ownurl') { if (S.ownurl.trim()) saveUrl(S.ownurl.trim()); } else next();
+    if (e.target.id === 'haLight') return; if (e.target.id === 'phoneName') { pairPhone(null); return; } if (e.target.id === 'actUrl') connect(); else if (e.target.id === 'ownurl') { if (S.ownurl.trim()) saveUrl(S.ownurl.trim()); } else next();
   }
 });
 

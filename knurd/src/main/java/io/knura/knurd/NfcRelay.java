@@ -98,12 +98,28 @@ final class NfcRelay {
         TapUrlLayout.forBaseUrl(tapBase); // Fails now, not on the first tag, if it can't go on a tag.
         this.keys = keys;
         this.tapBase = tapBase;
-        this.tokens = Set.copyOf(tokens);
+        this.tokens = java.util.concurrent.ConcurrentHashMap.newKeySet();
+        this.tokens.addAll(tokens);
         this.replyWait = replyWait;
     }
 
     boolean allows(String tokenName) {
         return tokenName != null && tokens.contains(tokenName);
+    }
+
+    /** Lets one more token set tags up, as when the setup page pairs a phone; no restart needed. */
+    void allow(String tokenName) {
+        tokens.add(tokenName);
+    }
+
+    /** The names allowed now. */
+    Set<String> allowed() {
+        return Set.copyOf(tokens);
+    }
+
+    /** The tap URL base tags set up through a phone get. */
+    String tapBase() {
+        return tapBase;
     }
 
     static boolean isSessionId(String id) {

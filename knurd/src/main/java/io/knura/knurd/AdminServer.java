@@ -79,6 +79,8 @@ import javax.net.ssl.SSLParameters;
  * X-Knura-Request: 1} and, if it has an {@code Origin}, come from this same address. A web page on
  * another site can't add that header without the browser asking first, and knurd never says yes,
  * so other sites can't make a signed-in browser change settings (cross-site request forgery).
+ * {@code POST /v1/phones/pair} pairs a phone from the page ({@link PhonePairing}). With {@link
+ * #listenOnWifi} the same requests are also answered over TLS on every network, for phones.
  * See {@code docs/setup-api.md} for each request.
  */
 final class AdminServer implements AutoCloseable {
@@ -115,7 +117,12 @@ final class AdminServer implements AutoCloseable {
     private record Caller(String name, boolean canManage, String session) {}
 
     /** What the setup page needs: the password, browser sessions and the settings it changes. */
-    record Manage(AdminPassword password, Sessions sessions, HomeSettings settings, Tailscale tailscale) {
+    record Manage(AdminPassword password, Sessions sessions, HomeSettings settings, Tailscale tailscale,
+            PhonePairing phones) {
+        Manage(AdminPassword password, Sessions sessions, HomeSettings settings, Tailscale tailscale) {
+            this(password, sessions, settings, tailscale, null);
+        }
+
         Manage(AdminPassword password, Sessions sessions, HomeSettings settings) {
             this(password, sessions, settings, new Tailscale(null, 0));
         }
@@ -138,8 +145,8 @@ final class AdminServer implements AutoCloseable {
     private final RecentTaps taps;
     private final Info info;
     private final Clock clock;
-    private final NfcRelay nfc;
-    private final boolean tls;
+    private volatile NfcRelay nfc;
+    private volatile HttpsServer wifi;
     private volatile Manage manage;
 
     AdminServer(String host, int port, SSLContext tls, TokenStore tokens, AuditLog audit, CounterStore counters,
@@ -155,20 +162,7 @@ final class AdminServer implements AutoCloseable {
     AdminServer(String host, int port, SSLContext tls, TokenStore tokens, AuditLog audit, CounterStore counters,
             RecentTaps taps, Info info, Clock clock, NfcRelay nfc) throws IOException {
         InetSocketAddress address = new InetSocketAddress(host, port);
-        if (tls == null) {
-            server = HttpServer.create(address, 0);
-        } else {
-            HttpsServer https = HttpsServer.create(address, 0);
-            https.setHttpsConfigurator(new HttpsConfigurator(tls) {
-                @Override
-                public void configure(HttpsParameters params) {
-                    SSLParameters p = getSSLContext().getDefaultSSLParameters();
-                    p.setProtocols(new String[] {"TLSv1.3", "TLSv1.2"});
-                    params.setSSLParameters(p);
-                }
-            });
-            server = https;
-        }
+        server = tls == null ? HttpServer.create(address, 0) : https(address, tls);
         this.tokens = tokens;
         this.audit = audit;
         this.throttle = new LoginThrottle(clock);
@@ -177,9 +171,53 @@ final class AdminServer implements AutoCloseable {
         this.info = info;
         this.clock = clock;
         this.nfc = nfc;
-        this.tls = tls != null;
         server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
         server.createContext("/", this::handle);
+    }
+
+    private static HttpsServer https(InetSocketAddress address, SSLContext tls) throws IOException {
+        HttpsServer https = HttpsServer.create(address, 0);
+        https.setHttpsConfigurator(new HttpsConfigurator(tls) {
+            @Override
+            public void configure(HttpsParameters params) {
+                SSLParameters p = getSSLContext().getDefaultSSLParameters();
+                p.setProtocols(new String[] {"TLSv1.3", "TLSv1.2"});
+                params.setSSLParameters(p);
+            }
+        });
+        return https;
+    }
+
+    /**
+     * Also answers on every network on {@code port}, over TLS, with the same checks: the Wi-Fi
+     * listener ({@code admin.lan.port}), so phones on the home network can pair and set tags up
+     * while this computer keeps using plain HTTP on loopback. Safe to call while running.
+     */
+    synchronized void listenOnWifi(int port, SSLContext tls) throws IOException {
+        if (wifi != null) {
+            return;
+        }
+        HttpsServer w = https(new InetSocketAddress(port), tls);
+        w.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+        w.createContext("/", this::handle);
+        w.start();
+        wifi = w;
+    }
+
+    /** The Wi-Fi listener's port, or 0 when it is off. */
+    int lanPort() {
+        HttpsServer w = wifi;
+        return w == null ? 0 : w.getAddress().getPort();
+    }
+
+    /** Setting tags up through a phone, or null when that is off. */
+    NfcRelay nfc() {
+        return nfc;
+    }
+
+    /** Turns setting tags up through a phone on, or swaps the relay, as pairing from the setup page does. */
+    void setNfc(NfcRelay relay) {
+        this.nfc = relay;
     }
 
     /** Turns on the setup page's requests; call before {@link #start}. */
@@ -198,6 +236,10 @@ final class AdminServer implements AutoCloseable {
     @Override
     public void close() {
         server.stop(0);
+        HttpsServer w = wifi;
+        if (w != null) {
+            w.stop(0);
+        }
     }
 
     private void handle(HttpExchange exchange) throws IOException {
@@ -281,7 +323,7 @@ final class AdminServer implements AutoCloseable {
                 tokenName = name.get();
                 try {
                     answer = route(method, path, exchange.getRequestURI().getRawQuery(),
-                            new Caller(tokenName, nfc != null && nfc.allows(tokenName), null), requestBody, exchange);
+                            new Caller(tokenName, allowsPhone(tokenName), null), requestBody, exchange);
                 } catch (RuntimeException e) {
                     LOG.log(Level.ERROR, "admin request " + method + " " + path + " failed", e);
                     answer = new Answer(500, error("error", null), "internal error");
@@ -391,7 +433,13 @@ final class AdminServer implements AutoCloseable {
         };
     }
 
+    private boolean allowsPhone(String tokenName) {
+        NfcRelay relay = nfc;
+        return relay != null && relay.allows(tokenName);
+    }
+
     private Answer nfc(String method, String path, String tokenName, byte[] body, HttpExchange exchange) {
+        NfcRelay nfc = this.nfc;
         String id = path.equals(NFC_SESSIONS) ? null : path.substring(NFC_SESSIONS.length() + 1);
         if (id != null && !NfcRelay.isSessionId(id)) {
             return new Answer(404, error("not_found", null), null);
@@ -440,7 +488,7 @@ final class AdminServer implements AutoCloseable {
             exchange.getResponseHeaders().set("Allow", "DELETE");
             return new Answer(405, error("method_not_allowed", null), null);
         }
-        if (nfc == null || !nfc.allows(tokenName)) {
+        if (!allowsPhone(tokenName)) {
             return new Answer(403, error("forbidden", "only tokens in admin.provision.tokens may remove tokens"),
                     "token may not remove tokens");
         }
@@ -578,6 +626,7 @@ final class AdminServer implements AutoCloseable {
     static boolean isManagePath(String path) {
         return path.equals(SESSION) || path.equals(PASSWORD) || path.equals("/v1/settings")
                 || path.equals("/v1/actions/reload") || path.equals("/v1/connections") || path.equals("/v1/reach") || path.equals("/v1/tailscale") || path.equals("/v1/tailscale/funnel")
+                || path.equals("/v1/phones/pair")
                 || path.startsWith("/v1/backup/")
                 || path.startsWith("/v1/connections/") || path.startsWith("/v1/tags/");
     }
@@ -630,7 +679,7 @@ final class AdminServer implements AutoCloseable {
             }
             case "DELETE" -> {
                 m.sessions().end(session);
-                exchange.getResponseHeaders().add("Set-Cookie", cookie("", 0));
+                exchange.getResponseHeaders().add("Set-Cookie", cookie(exchange, "", 0));
                 return new Answer(200, "{\"signedIn\":false}", "signed out");
             }
             case "POST" -> {
@@ -657,7 +706,7 @@ final class AdminServer implements AutoCloseable {
                     return new Answer(401, error("unauthorized", "that password is wrong"), "wrong password");
                 }
                 throttle.succeeded(remote);
-                exchange.getResponseHeaders().add("Set-Cookie", cookie(m.sessions().start(), Sessions.IDLE.toSeconds()));
+                exchange.getResponseHeaders().add("Set-Cookie", cookie(exchange, m.sessions().start(), Sessions.IDLE.toSeconds()));
                 return new Answer(200, "{\"signedIn\":true}", "signed in");
             }
             default -> {
@@ -691,7 +740,7 @@ final class AdminServer implements AutoCloseable {
             LOG.log(Level.ERROR, "could not save the admin password", e);
             return new Answer(500, error("error", "knurd couldn't save the password"), "password not saved");
         }
-        exchange.getResponseHeaders().add("Set-Cookie", cookie(manage.sessions().start(), Sessions.IDLE.toSeconds()));
+        exchange.getResponseHeaders().add("Set-Cookie", cookie(exchange, manage.sessions().start(), Sessions.IDLE.toSeconds()));
         return new Answer(200, "{\"signedIn\":true}", "first password set");
     }
 
@@ -764,6 +813,9 @@ final class AdminServer implements AutoCloseable {
                     }
                     return new Answer(200, tailscaleJson(st, funnel), funnel.on() ? "turned on Tailscale Funnel" : "Tailscale Funnel not on");
                 });
+            }
+            if (path.equals("/v1/phones/pair")) {
+                return only("POST", method, exchange, () -> pairPhone(m, f));
             }
             if (path.equals("/v1/reach")) {
                 return only("GET", method, exchange, () -> new Answer(200, reach(), null));
@@ -870,7 +922,7 @@ final class AdminServer implements AutoCloseable {
         m.password().set((String) password);
         m.sessions().endAll();
         if (caller.session() != null) {
-            exchange.getResponseHeaders().add("Set-Cookie", cookie(m.sessions().start(), Sessions.IDLE.toSeconds()));
+            exchange.getResponseHeaders().add("Set-Cookie", cookie(exchange, m.sessions().start(), Sessions.IDLE.toSeconds()));
         }
         return new Answer(200, "{\"changed\":true}", "changed password; signed everyone else out");
     }
@@ -878,8 +930,36 @@ final class AdminServer implements AutoCloseable {
     private String settingsJson() throws IOException {
         Manage m = manage;
         return "{\"name\":" + Json.quote(m.settings().name()) + ",\"passwordSet\":" + m.password().isSet()
-                + ",\"phones\":" + jsonList(m.settings().phones()) + ",\"publicUrl\":" + Json.quote(m.settings().publicUrl())
+                + ",\"phones\":" + jsonList(m.phones() == null ? m.settings().phones() : m.phones().paired()) + ",\"publicUrl\":" + Json.quote(m.settings().publicUrl())
                 + "}";
+    }
+
+    /** {@code POST /v1/phones/pair}: gets knurd ready for a phone and makes its pairing code. */
+    private Answer pairPhone(Manage m, Map<String, Object> f) throws IOException {
+        if (m.phones() == null) {
+            return new Answer(404, error("not_found", null), null);
+        }
+        Object address = f.get("address");
+        PhonePairing.Started p;
+        try {
+            p = m.phones().start(text(f, "name"), address instanceof String a ? a : null);
+        } catch (PhonePairing.NotReady e) {
+            return new Answer(409, error(e.code, e.getMessage()), "can't pair a phone: " + e.code);
+        }
+        StringBuilder qr = new StringBuilder("[");
+        for (int y = 0; y < p.qr().length; y++) {
+            StringBuilder row = new StringBuilder();
+            for (boolean dark : p.qr()[y]) {
+                row.append(dark ? '1' : '0');
+            }
+            qr.append(y == 0 ? "" : ",").append('"').append(row).append('"');
+        }
+        qr.append(']');
+        return new Answer(200, "{\"name\":" + Json.quote(p.name()) + ",\"link\":" + Json.quote(p.link())
+                + ",\"qr\":" + qr + ",\"url\":" + Json.quote(p.url()) + ",\"address\":" + Json.quote(p.address())
+                + ",\"addresses\":" + jsonList(p.addresses()) + ",\"fingerprint\":" + Json.quote(p.fingerprint())
+                + ",\"expires\":" + Json.quote(p.expires().toString()) + ",\"firewall\":" + Json.quote(p.firewall()) + "}",
+                "pairing code for " + p.name());
     }
 
     private static String tailscaleJson(Tailscale.Status s, Tailscale.Funnel f) {
@@ -968,9 +1048,9 @@ final class AdminServer implements AutoCloseable {
         return json.append("]}").toString();
     }
 
-    private String cookie(String value, long maxAge) {
+    private static String cookie(HttpExchange exchange, String value, long maxAge) {
         return Sessions.COOKIE + "=" + value + "; Path=/; Max-Age=" + maxAge + "; HttpOnly; SameSite=Strict"
-                + (tls ? "; Secure" : "");
+                + (exchange instanceof com.sun.net.httpserver.HttpsExchange ? "; Secure" : "");
     }
 
     private static Map<String, Object> fields(byte[] body) {

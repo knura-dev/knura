@@ -379,6 +379,44 @@ final class HomeSettings {
         return split(load(knurdFile).getProperty("admin.provision.tokens"));
     }
 
+    /** Adds a phone to admin.provision.tokens, so it may set tags up after a restart too. */
+    synchronized void addPhone(String name) throws IOException {
+        List<String> names = new java.util.ArrayList<>(split(load(knurdFile).getProperty("admin.provision.tokens")));
+        if (!names.contains(name)) {
+            names.add(name);
+            java.util.Collections.sort(names);
+            rewrite(knurdFile, PropertiesText.set(read(knurdFile), "admin.provision.tokens", String.join(",", names)));
+        }
+    }
+
+    /** admin.tls.keystore as saved, resolved against the settings folder, or null. */
+    synchronized Path adminKeystore() throws IOException {
+        String k = load(knurdFile).getProperty("admin.tls.keystore", "").trim();
+        return k.isEmpty() ? null : dir.resolve(k);
+    }
+
+    /** admin.tls.password.file as saved, resolved against the settings folder, or null. */
+    synchronized Path adminKeystorePassword() throws IOException {
+        String k = load(knurdFile).getProperty("admin.tls.password.file", "").trim();
+        return k.isEmpty() ? null : dir.resolve(k);
+    }
+
+    /** Saves the admin TLS key's files (names in the settings folder). */
+    synchronized void setAdminKeystore(String keystore, String passwordFile) throws IOException {
+        String text = PropertiesText.set(read(knurdFile), "admin.tls.keystore", keystore);
+        rewrite(knurdFile, PropertiesText.set(text, "admin.tls.password.file", passwordFile));
+    }
+
+    /** Saves admin.lan.port, the Wi-Fi listener's port. */
+    synchronized void setLanPort(int port) throws IOException {
+        rewrite(knurdFile, PropertiesText.set(read(knurdFile), "admin.lan.port", String.valueOf(port)));
+    }
+
+    /** The settings folder. */
+    Path folder() {
+        return dir;
+    }
+
     // ---- helpers ----
 
     /** The first change through the setup page makes knurgn.properties and points knurd at it. */
