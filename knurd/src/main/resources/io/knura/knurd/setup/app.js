@@ -320,7 +320,7 @@ function actPanel() {
   <b>Add this automation in Home Assistant</b>
   <p class="small muted">${S.secret ? 'Knura made a secret webhook id for it, shown only now.' : 'This connection already existed, so use the webhook id you saved then.'} In Home Assistant, go to <b>Settings → Automations & scenes → Create automation</b>, choose <b>Edit in YAML</b> from the ⋮ menu, and paste this. Change the light to the one you want.</p>
   <pre class="term" id="yaml">${esc(yaml)}</pre>
-  <div class="copyrow"><button class="btn sm" data-copy="yaml">${ico('copy', 15)} Copy</button><a class="btn sm" href="${esc(S.actUrl)}" target="_blank" rel="noopener">${ico('ha', 15)} Open Home Assistant</a></div></div>`;
+  <div class="copyrow"><button class="btn sm" data-copy="yaml">${ico('copy', 15)} Copy</button>${/^https?:\/\//i.test(S.actUrl) ? `<a class="btn sm" href="${esc(S.actUrl)}" target="_blank" rel="noopener">${ico('ha', 15)} Open Home Assistant</a>` : ''}</div></div>`;
   } else if (S.secret) {
     extra = `<div class="note warn">${ico('key', 18)}<div><b>Signing secret, shown once:</b> <span class="mono" id="sec" style="word-break:break-all">${esc(S.secret)}</span> <button class="btn sm" data-copy="sec" style="margin-left:6px">Copy</button><br><span class="small">${a === 'matter' ? 'Put it in the Matter bridge’s settings.' : 'Only needed by services that check signatures. Most can ignore it.'}</span></div></div>`;
   }
@@ -589,7 +589,13 @@ document.addEventListener('click', async e => {
 });
 document.addEventListener('input', e => {
   const t = e.target; if (!t.dataset || !t.dataset.in) return;
-  S[t.dataset.in] = t.value;
+  const v = String(t.value);
+  switch (t.dataset.in) { // the only fields a text box may set
+    case 'name': S.name = v; break; case 'pw': S.pw = v; break; case 'pw2': S.pw2 = v; break;
+    case 'c2': S.c2 = v; break; case 'c5': S.c5 = v; break;
+    case 'tagname': S.tagname = v; break; case 'actUrl': S.actUrl = v; break;
+    default: return;
+  }
   if (t.dataset.in === 'pw' || t.dataset.in === 'pw2') {
     const st = strength(S.pw), m = document.getElementById('pwm'), pt = document.getElementById('pwt'), p2 = document.getElementById('pw2t');
     if (m) { m.style.width = st.w + '%'; m.style.background = st.c; }
