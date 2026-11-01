@@ -288,6 +288,7 @@ ${S.tapped ? `<div class="tapzone" style="min-height:200px">
 ${errLine()}`;
 }
 
+const CHOICES = { start: ['new', 'restore', 'hosted'], dev: ['phone', 'reader'], act: ['ha', 'matter', 'web', 'none'] };
 const TYPE_OF = { ha: 'homeassistant', web: 'webhook', matter: 'matter' };
 const ID_OF = { ha: 'home-assistant', web: 'web-service', matter: 'matter' };
 function s6() {
@@ -531,20 +532,21 @@ document.addEventListener('click', async e => {
   const t = e.target.closest('[data-act],[data-set],[data-go],[data-icon],[data-uid],[data-copy]');
   if (!t || t.disabled) return;
   if (t.dataset.set) {
-    const f = t.dataset.set, v = t.dataset.val;
-    if (S[f] === v) return;
+    const f = t.dataset.set, v = CHOICES[f] && CHOICES[f].find(c => c === t.dataset.val);
+    if (!v || S[f] === v) return;
     S[f] = v; S.err = '';
     if (f === 'act') { S.connId = null; S.secret = null; S.tested = false; S.actUrl = ''; const c = S.connections.find(x => x.type === TYPE_OF[v] && x.id === ID_OF[v]); if (c) S.actUrl = c.url; }
     if (f === 'dev') { clearTimers(); watchPhones(); }
     render(); return;
   }
-  if (t.dataset.go) { go(+t.dataset.go); return; }
-  if (t.dataset.uid) { chooseTag(t.dataset.uid, false); return; }
+  if (t.dataset.go) { const n = Math.trunc(+t.dataset.go); if (n >= 1 && n <= 7) go(n); return; }
+  if (t.dataset.uid) { const tag = S.tags.find(x => x.uid === t.dataset.uid); if (tag) chooseTag(tag.uid, false); return; }
   if (t.dataset.copy) { copyFrom(t.dataset.copy); return; }
   if (t.dataset.icon) {
-    const labels = ICONS.map(x => x[1]);
-    if (labels.includes(S.tagname)) S.tagname = t.dataset.label;
-    S.tagicon = t.dataset.icon; render(); return;
+    const pick = ICONS.find(x => x[0] === t.dataset.icon); // only our own icons, never text from the page
+    if (!pick) return;
+    if (ICONS.some(x => x[1] === S.tagname)) S.tagname = pick[1];
+    S.tagicon = pick[0]; render(); return;
   }
   switch (t.dataset.act) {
     case 'begin': go(1); break;
