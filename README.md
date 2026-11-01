@@ -251,10 +251,18 @@ The creds file (`--creds`, like Kafka's `--command-config`) holds the URL, the t
 certificate fingerprint. knurctl refuses it unless it is chmod 600, and refuses plain `http://`
 unless it is this computer. knurd keeps only each token's SHA-256.
 
-The setup page (coming next) signs in with a password and uses the admin API to name this
-Knura, label tags, add Home Assistant, Matter and webhook connectors, choose what each tag does
-and send a test tap. Changes go into the usual files and take effect without a restart. See
-[docs/setup-api.md](docs/setup-api.md).
+### The setup page
+
+Once the admin API is on, open **http://127.0.0.1:8425/setup** in a browser on knurd's computer.
+It walks you through seven steps: name this Knura and pick a password for the page, save a
+recovery kit (a passphrase-locked backup file and a printable recovery sheet, both required
+before the first tag), check that phones can reach your `public.url`, pick a phone or USB reader,
+set up and tap your first tag, give it an action (Home Assistant, Matter or a web service) and
+send a test. The first password can only be set from knurd's own computer. Changes go into the
+usual files and take effect without a restart, so the page and a text editor always agree.
+
+The page is a few static files inside knurd. It loads nothing from the internet and runs under a
+strict Content-Security-Policy. See [docs/setup-api.md](docs/setup-api.md).
 
 ### Setting tags up with an Android phone
 

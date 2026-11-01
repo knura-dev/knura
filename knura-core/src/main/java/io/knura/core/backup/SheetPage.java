@@ -1,20 +1,19 @@
-package io.knura.knurctl;
+package io.knura.core.backup;
 
-import io.knura.core.backup.RecoverySheet;
 import java.util.List;
 
 /**
  * The printable recovery sheet: one A4 or Letter page, black on white, no scripts, no web fonts and
  * nothing loaded from the internet, so opening it sends the keys nowhere.
  */
-final class SheetPage {
+public final class SheetPage {
     private SheetPage() {}
 
     /**
      * @param owner the tap.knura.io owner ID, or null when not registered
      * @param resolverSeed the 32-byte resolver.key, or null when not registered
      */
-    static String render(String keyId, String day, byte[] master, String owner, String resolverUrl, byte[] resolverSeed) {
+    public static String render(String keyId, String day, byte[] master, String owner, String resolverUrl, byte[] resolverSeed) {
         StringBuilder html = new StringBuilder();
         html.append("""
                 <!doctype html>

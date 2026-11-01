@@ -5,6 +5,8 @@ import io.knura.core.backup.BackupFile.BackupException;
 import io.knura.core.backup.BackupRecord;
 import io.knura.core.backup.RecoverySheet;
 import io.knura.core.backup.RecoverySheet.SheetException;
+import io.knura.core.backup.SettingsFolder;
+import io.knura.core.backup.SheetPage;
 import io.knura.core.crypto.Hex;
 import io.knura.core.resolver.OwnerIds;
 import io.knura.core.resolver.OwnerKey;
@@ -28,15 +30,11 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
-import java.util.TreeMap;
-import java.util.regex.Pattern;
-import java.util.stream.Stream;
 
 /**
  * {@code knurctl backup}: keeps the master key (and the tap.knura.io key) safe. Every tag's keys
@@ -45,8 +43,6 @@ import java.util.stream.Stream;
  */
 final class BackupCommands {
     /** Logs and old backups stay out of backups; anything bigger than this is not a setting. */
-    private static final Pattern SKIP = Pattern.compile(".*(\\.log(\\.\\d+)?|\\.tmp|" + Pattern.quote(BackupFile.SUFFIX) + ")");
-    private static final long MAX_FILE = 5L * 1024 * 1024;
     private static final int TRIES = 3;
     private static final int MASTER_BYTES = 16;
     private static final int RESOLVER_KEY_BYTES = 32;
@@ -115,24 +111,9 @@ final class BackupCommands {
         Properties config = loadConfig();
         byte[] master = Main.masterKeyOf(config, configPath);
         Path folder = folder();
-        Map<String, byte[]> files = new TreeMap<>();
-        List<String> skipped = new ArrayList<>();
-        try (Stream<Path> walk = Files.walk(folder)) {
-            for (Path file : (Iterable<Path>) walk::iterator) {
-                if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
-                    continue;
-                }
-                String rel = folder.relativize(file).toString().replace(file.getFileSystem().getSeparator(), "/");
-                if (SKIP.matcher(file.getFileName().toString()).matches()) {
-                    continue;
-                }
-                if (Files.size(file) > MAX_FILE) {
-                    skipped.add(rel);
-                    continue;
-                }
-                files.put(rel, Files.readAllBytes(file));
-            }
-        }
+        SettingsFolder.Collected collected = SettingsFolder.collect(folder);
+        Map<String, byte[]> files = collected.files();
+        List<String> skipped = collected.skipped();
         Path keyFile = Main.masterKeyFile(config, configPath);
         boolean keyOutside = keyFile != null && !keyFile.startsWith(folder);
 

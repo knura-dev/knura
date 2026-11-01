@@ -1,6 +1,12 @@
 package io.knura.knurd;
 
 import io.knura.core.admin.PrivateFiles;
+import io.knura.core.backup.BackupFile;
+import io.knura.core.backup.BackupRecord;
+import io.knura.core.backup.SettingsFolder;
+import io.knura.core.backup.SheetPage;
+import io.knura.core.resolver.OwnerKey;
+import io.knura.core.resolver.ResolverClient;
 import io.knura.knurgn.Knurgn;
 import io.knura.knurgn.KnurgnConfig;
 import java.io.IOException;
@@ -272,6 +278,66 @@ final class HomeSettings {
 
     int knotCount() {
         return live.knotCount();
+    }
+
+
+    // ---- backups ----
+
+    /**
+     * A passphrase-locked backup of the settings folder (as {@code knurctl backup create} makes),
+     * recorded as this master key's latest backup file.
+     */
+    synchronized byte[] backupFile(char[] passphrase) throws IOException {
+        if (passphrase.length < BackupFile.MIN_PASSPHRASE) {
+            throw new IllegalArgumentException("passphrase: use at least " + BackupFile.MIN_PASSPHRASE + " characters");
+        }
+        byte[] master = masterKey();
+        SettingsFolder.Collected collected = SettingsFolder.collect(dir);
+        java.time.Instant now = clock.instant();
+        byte[] sealed;
+        try {
+            sealed = BackupFile.seal(collected.files(), now, passphrase, random);
+        } finally {
+            collected.files().values().forEach(b -> java.util.Arrays.fill(b, (byte) 0));
+        }
+        BackupRecord.record(dir, BackupRecord.keyId(master), BackupRecord.Kind.FILE, now);
+        java.util.Arrays.fill(master, (byte) 0);
+        return sealed;
+    }
+
+    /** The printable recovery sheet (as {@code knurctl backup sheet} makes), recorded as made. */
+    synchronized String recoverySheet() throws IOException {
+        Properties p = load(knurdFile);
+        byte[] master = masterKey();
+        String id = BackupRecord.keyId(master);
+        String owner = p.getProperty("resolver.owner", "").trim();
+        byte[] seed = null;
+        if (!owner.isEmpty() && !p.getProperty("resolver.key", "").isBlank()) {
+            seed = io.knura.core.crypto.Hex.decode(OwnerKey.load(p.getProperty("resolver.key").trim(),
+                    p.getProperty("resolver.publicKey", "").trim()).seedHex());
+        }
+        java.time.Instant now = clock.instant();
+        String html = SheetPage.render(id, now.atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString(), master,
+                owner.isEmpty() ? null : owner, p.getProperty("resolver.url", ResolverClient.DEFAULT_URL).trim(), seed);
+        java.util.Arrays.fill(master, (byte) 0);
+        if (seed != null) {
+            java.util.Arrays.fill(seed, (byte) 0);
+        }
+        BackupRecord.record(dir, id, BackupRecord.Kind.SHEET, now);
+        return html;
+    }
+
+    private byte[] masterKey() throws IOException {
+        byte[] master = KnurdConfig.masterKey(load(knurdFile), dir);
+        if (master == null) {
+            throw new IllegalArgumentException("this knurd has no master.key, so there is no key to back up");
+        }
+        return master;
+    }
+
+    /** The phones allowed to set tags up: the names in admin.provision.tokens. */
+    synchronized List<String> phones() throws IOException {
+        return split(load(knurdFile).getProperty("admin.provision.tokens"));
     }
 
     // ---- helpers ----
