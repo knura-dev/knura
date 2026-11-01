@@ -369,9 +369,9 @@ function actPanel() {
     <button class="btn sm${S.haDo === 'light' ? ' primary' : ''}" data-set="haDo" data-val="light" aria-pressed="${S.haDo === 'light'}">${ico('lamp', 15)} Turn a light on or off</button>
   </div>
   ${S.haDo === 'light' ? `<div><label class="fl" for="haLight">The light\u2019s entity id</label><input id="haLight" class="in" data-in="haLight" value="${esc(S.haLight)}" placeholder="light.living_room" autocomplete="off" spellcheck="false"><p class="small muted" style="margin-top:6px">Find it in Home Assistant under Settings \u2192 Devices & services \u2192 Entities. It starts with <code>light.</code></p></div>` : ''}
-  <p class="small muted">${S.secret ? 'Knura made a secret webhook id for it, shown only now.' : 'This connection already existed, so use the webhook id you saved then.'} In Home Assistant, go to <b>Settings → Automations & scenes → Create automation</b>, choose <b>Edit in YAML</b> from the ⋮ menu, and paste this. ${S.haDo === 'light' ? '' : 'The notification shows under the bell in Home Assistant\u2019s sidebar.'}</p>
+  <p class="small muted">${S.secret ? 'Knura made a secret webhook id for it, shown only now.' : 'This connection already existed, so its webhook id was shown when you first made it. Lost it? Press <b>Make a new webhook id</b> below.'} In Home Assistant, go to <b>Settings → Automations & scenes → Create automation</b>, choose <b>Edit in YAML</b> from the ⋮ menu, and paste this. ${S.haDo === 'light' ? '' : 'The notification shows under the bell in Home Assistant\u2019s sidebar.'}</p>
   <pre class="term" id="yaml">${esc(yaml)}</pre>
-  <div class="copyrow"><button class="btn sm" data-copy="yaml">${ico('copy', 15)} Copy</button>${/^https?:\/\//i.test(S.actUrl) ? `<a class="btn sm" href="${esc(S.actUrl)}" target="_blank" rel="noopener">${ico('ha', 15)} Open Home Assistant</a>` : ''}</div></div>`;
+  <div class="copyrow"><button class="btn sm" data-copy="yaml" ${S.secret ? '' : 'disabled'}>${ico('copy', 15)} Copy</button><button class="btn sm${S.secret ? '' : ' primary'}" data-act="newsecret" ${S.busy ? 'disabled' : ''}>${ico('reset', 15)} Make a new webhook id</button>${/^https?:\/\//i.test(S.actUrl) ? `<a class="btn sm" href="${esc(S.actUrl)}" target="_blank" rel="noopener">${ico('ha', 15)} Open Home Assistant</a>` : ''}</div></div>`;
   } else if (S.secret) {
     extra = `<div class="note warn">${ico('key', 18)}<div><b>Signing secret, shown once:</b> <span class="mono" id="sec" style="word-break:break-all">${esc(S.secret)}</span> <button class="btn sm" data-copy="sec" style="margin-left:6px">Copy</button><br><span class="small">${a === 'matter' ? 'Put it in the Matter bridge’s settings.' : 'Only needed by services that check signatures. Most can ignore it.'}</span></div></div>`;
   }
@@ -471,6 +471,7 @@ function go(n) {
   onEnter(); render();
 }
 function onEnter() {
+  if (S.screen === 6 && !S.tag) { S.screen = 5; } // after a reload: pick the tag again first
   if (S.screen === 2) { if (!S.words.length) S.words = pick6(); if (S.priorKit == null) S.priorKit = !!backupDone(); }
   if (S.screen === 3 || S.screen === 5 || S.screen === 7) checkReach();
   if (S.screen === 3) watchTailscale();
@@ -660,6 +661,14 @@ document.addEventListener('click', async e => {
       S.ts = r.json; S.funnelFix = r.json.funnel ? null : r.json;
       if (r.json.funnel) { const st = await api('GET', '/v1/settings'); if (st.ok) S.settings = st.json; S.reach = null; checkReach(); }
       render(); break;
+    }
+    case 'newsecret': {
+      if (S.secret && !confirm('Make a new webhook id? The automation using the old one stops working until you paste the new one.')) break;
+      S.busy = true; S.err = ''; render();
+      const r = await api('POST', `/v1/connections/${TYPE_OF[S.act]}/${S.connId}/secret`);
+      S.busy = false;
+      if (!r.ok) { S.err = why(r); render(); break; }
+      S.secret = r.json.secret; S.tested = false; toast('New webhook id made. Copy the automation again.'); render(); break;
     }
     case 'usets': if (S.ts && S.ts.url) saveUrl(S.ts.url); break;
     case 'saveurl': if (S.ownurl.trim()) saveUrl(S.ownurl.trim()); else { S.err = 'Add the address first.'; render(); } break;

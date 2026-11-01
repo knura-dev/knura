@@ -173,6 +173,7 @@ of a tag has the id `<UID>:0`.
 | `GET /v1/connections` | | `{"connections":[{"type":"webhook","id":"ifttt","url":"https://...","usedBy":["04DE5F1EACC040"]}]}` |
 | `PUT /v1/connections/<type>/<id>` | `{"url":"https://..."}` | Adds the connector, or changes its address. |
 | `DELETE /v1/connections/<type>/<id>` | | Removes it and its secret. 409 while a tag still uses it. |
+| `POST /v1/connections/<type>/<id>/secret` | | Replaces its secret with a new one, shown once as `"secret"`. The old one stops working at once. |
 
 `<type>` is `webhook`, `homeassistant` or `matter`. A new connector gets a fresh secret, which the
 answer shows **once** as `"secret"`: a `whsec_` signing secret, or a 48-character Home Assistant

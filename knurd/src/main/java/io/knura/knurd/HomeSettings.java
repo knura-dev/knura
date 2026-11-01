@@ -206,6 +206,27 @@ final class HomeSettings {
      * secret, or a Home Assistant webhook id), returned here once and never again; changing the
      * address of an existing one keeps its secret, and returns empty.
      */
+    /**
+     * Gives a connector a fresh secret (a new Home Assistant webhook id, or signing secret), for when
+     * the old one is lost. The old one stops working at once. Returns the new one, shown only now.
+     */
+    synchronized String newConnectionSecret(String type, String id) throws IOException {
+        if (!TYPES.contains(type)) {
+            throw new IllegalArgumentException("type must be webhook, homeassistant or matter");
+        }
+        id(id);
+        if (actionsFile == null || !Files.exists(actionsFile)
+                || load(actionsFile).getProperty(type + "." + id + ".url") == null) {
+            throw new NotFound("no " + type + " connector named " + id);
+        }
+        Properties rules = load(actionsFile);
+        Path secretsFile = secretsFile(rules);
+        String secrets = Files.exists(secretsFile) ? read(secretsFile) : "";
+        String secret = newSecret(type);
+        change(read(actionsFile), secretsFile, PropertiesText.set(secrets, id, secret));
+        return secret;
+    }
+
     synchronized Optional<String> putConnection(String type, String id, String url) throws IOException {
         if (!TYPES.contains(type)) {
             throw new IllegalArgumentException("type must be webhook, homeassistant or matter");

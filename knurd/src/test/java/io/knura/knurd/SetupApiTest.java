@@ -351,6 +351,24 @@ class SetupApiTest {
         assertTrue(ts.startsWith("{\"state\":\"NotInstalled\""), ts);
     }
 
+    @Test
+    void aLostSecretCanBeReplaced() throws Exception {
+        String cookie = cookie(send("POST", "/v1/password", "{\"password\":\"lantern-orbit-42\"}", null));
+        assertEquals(404, send("POST", "/v1/connections/homeassistant/home-assistant/secret", null, cookie).statusCode(),
+                "no such connector yet");
+        HttpResponse<String> added = send("PUT", "/v1/connections/homeassistant/home-assistant",
+                "{\"url\":\"http://127.0.0.1:8123\"}", cookie);
+        String first = added.body().replaceAll(".*\"secret\":\"([^\"]+)\".*", "$1");
+        HttpResponse<String> fresh = send("POST", "/v1/connections/homeassistant/home-assistant/secret", null, cookie);
+        assertEquals(200, fresh.statusCode(), fresh.body());
+        String second = fresh.body().replaceAll(".*\"secret\":\"([^\"]+)\".*", "$1");
+        assertTrue(second.length() >= 32 && !second.equals(first), fresh.body());
+        String secrets = Files.readString(dir.resolve(HomeSettings.DEFAULT_SECRETS_FILE));
+        assertTrue(secrets.contains("home-assistant=" + second) && !secrets.contains(first), "the old one is gone");
+        assertEquals(405, send("GET", "/v1/connections/homeassistant/home-assistant/secret", null, cookie).statusCode());
+        assertFalse(Files.readString(dir.resolve("audit.log")).contains(second), "never logged");
+    }
+
     // ---- helpers ----
 
     private HttpResponse<byte[]> sendBytes(String path, String json, String session) throws Exception {

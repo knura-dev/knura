@@ -775,6 +775,16 @@ final class AdminServer implements AutoCloseable {
             if (path.equals("/v1/connections")) {
                 return only("GET", method, exchange, () -> new Answer(200, connectionsJson(), null));
             }
+            if (parts.length == 5 && parts[1].equals("connections") && parts[4].equals("secret")) {
+                String type = parts[2];
+                String id = parts[3];
+                if (!HomeSettings.TYPES.contains(type)) {
+                    return new Answer(404, error("not_found", null), null);
+                }
+                return only("POST", method, exchange, () -> new Answer(200, "{\"type\":" + Json.quote(type) + ",\"id\":"
+                        + Json.quote(id) + ",\"secret\":" + Json.quote(m.settings().newConnectionSecret(type, id)) + "}",
+                        "new secret for " + type + " " + id));
+            }
             if (parts.length == 4 && parts[1].equals("connections")) {
                 String type = parts[2];
                 String id = parts[3];

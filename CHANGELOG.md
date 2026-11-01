@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Setup page, step 6: **Make a new webhook id** for a Home Assistant connection whose id you
+  lost. The automation to paste updates with the new one, and the old one stops working at once
+  (`POST /v1/connections/<type>/<id>/secret`). Reloading the page on step 6 now asks for the tag
+  again instead of carrying on without one.
+
 - Setup page, step 6: for Home Assistant, choose what the tap does. "Show a notification" (the
   default, nothing to set up first) or "Turn a light on or off" with your light's entity id. The
   automation to paste follows your choice.
