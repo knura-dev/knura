@@ -5,7 +5,7 @@
 - **Installers** with Java included (docs/install.md), built for each release by the new
   Installers workflow: `.deb` for Ubuntu/Debian and Raspberry Pi (x86-64 and ARM64) and `.rpm` for
   Fedora, which run Knura as a `knura` system service with settings in `/var/lib/knura`; `.msi`
-  for Windows and `.pkg` for Mac, which add a Knura app that starts Knura at sign-in and opens the
+  for Windows and `.pkg` for Mac (paused for now: not in releases yet), which add a Knura app that starts Knura at sign-in and opens the
   setup page. Build one yourself with `packaging/build-installer.sh`.
 - `knurd --home <folder> [--lan]`: makes the folder and a starter knurd.properties (new master key,
   admin API and setup page on, log file) on the first start. `--lan` also turns on the Wi-Fi
