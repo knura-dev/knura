@@ -29,7 +29,7 @@ jobs:
           - { os: ubuntu-24.04, types: "deb rpm" }
           - { os: ubuntu-24.04-arm, types: "deb" }
           - { os: windows-2022, types: "msi" }
-          - { os: macos-14, types: "pkg" }
+          - { os: macos-15, types: "pkg" }
     runs-on: ${{ matrix.os }}
     defaults:
       run:
