@@ -10,7 +10,7 @@ page and follow its seven steps.
 | Raspberry Pi OS 64-bit, ARM64 Linux | `knura_<version>_arm64.deb` | a system service |
 | Fedora (x86-64) | `knura-<version>-1.x86_64.rpm` | a system service |
 | Windows 10 and 11 | `Knura-<version>.msi` | a Knura app that starts at sign-in |
-| Mac with Apple silicon | `Knura-<version>.pkg` | a Knura app that starts at sign-in |
+| Mac with Apple silicon | `Knura-<version>.pkg` (coming later) | a Knura app that starts at sign-in |
 
 ## Linux and Raspberry Pi
 
@@ -39,6 +39,10 @@ On Fedora, let phones on your Wi-Fi reach port 8426 to pair:
 `sudo firewall-cmd --add-port=8426/tcp --permanent && sudo firewall-cmd --reload`.
 
 ## Windows and Mac
+
+The Mac installer is paused for now: releases don't include it yet. On a Mac, follow
+[Set up Knura from the release downloads](setup-from-release.md), or build the .pkg yourself on a
+Mac with `packaging/build-installer.sh <version> pkg`.
 
 Install, then open **Knura** from the Start menu or Applications. It starts Knura in the
 background, sets it to start each time you sign in, and opens the setup page. Open it again

@@ -1,8 +1,8 @@
 name: Installers
 
 # Builds Knura's installers, Java included, with jpackage on each system: .deb (x86-64 and ARM64,
-# for Ubuntu, Debian and Raspberry Pi OS 64-bit), .rpm (Fedora), .msi (Windows) and .pkg (Mac with
-# Apple silicon). On a version tag they are attached to that GitHub Release; otherwise they are
+# for Ubuntu, Debian and Raspberry Pi OS 64-bit), .rpm (Fedora) and .msi (Windows). The .pkg (Mac
+# with Apple silicon) is paused and only built when started by hand with "mac" ticked. On a version tag they are attached to that GitHub Release; otherwise they are
 # kept as this run's artifacts for a week. See packaging/build-installer.sh.
 on:
   push:
@@ -14,6 +14,11 @@ on:
       - "knurd/src/main/java/io/knura/knurd/Desktop.java"
       - "knurd/src/main/java/io/knura/knurd/FirstRun.java"
   workflow_dispatch:
+    inputs:
+      mac:
+        description: Include the Mac package (paused until GitHub gives this account a Mac runner)
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -25,11 +30,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { os: ubuntu-24.04, types: "deb rpm" }
-          - { os: ubuntu-24.04-arm, types: "deb" }
-          - { os: windows-2022, types: "msi" }
-          - { os: macos-15, types: "pkg" }
+        # The Mac package is paused: GitHub hasn't given this account a Mac runner yet. Start this
+        # workflow by hand with "Include the Mac package" ticked to try it.
+        include: ${{ fromJSON(inputs.mac && '[{"os":"ubuntu-24.04","types":"deb rpm"},{"os":"ubuntu-24.04-arm","types":"deb"},{"os":"windows-2022","types":"msi"},{"os":"macos-15","types":"pkg"}]' || '[{"os":"ubuntu-24.04","types":"deb rpm"},{"os":"ubuntu-24.04-arm","types":"deb"},{"os":"windows-2022","types":"msi"}]') }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
