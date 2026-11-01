@@ -1,0 +1,25 @@
+#!/bin/sh
+# Runs after the knura package is installed or upgraded: a "knura" system user, its settings
+# folder, the knurctl command, and the knura service, started now and at every boot.
+set -e
+if [ "$1" = "configure" ]; then
+  if ! getent group knura >/dev/null; then
+    groupadd --system knura
+  fi
+  if ! getent passwd knura >/dev/null; then
+    useradd --system --gid knura --home-dir /var/lib/knura --no-create-home --shell /usr/sbin/nologin \
+      --comment "Knura" knura
+  fi
+  install -d -o knura -g knura -m 700 /var/lib/knura
+  install -m 644 /opt/knura/lib/knura.service /lib/systemd/system/knura.service
+  ln -sf /opt/knura/bin/knurctl /usr/bin/knurctl
+  if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+    systemctl enable knura.service >/dev/null 2>&1
+    systemctl restart knura.service
+  fi
+  echo "Knura is running. On this computer open http://127.0.0.1:8425/setup"
+  echo "From another device on your network: https://<this computer's address>:8426/setup"
+  echo "with the setup code from: sudo cat /var/lib/knura/knurd-setup-code"
+fi
+exit 0

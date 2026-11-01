@@ -53,6 +53,14 @@ requests that change settings need the header from them too.
 
 ## The password
 
+From another device (not loopback), the first password also needs the one-time setup code:
+`POST /v1/password` with `{"password":"...","setupCode":"ABCD-EFGH-JKMN"}`. knurd makes the code
+only when started with `--home <folder> --lan` and no password is set yet. It keeps the code in
+`knurd-setup-code` (owner-only) and prints it in its log, and deletes it once used. Without a code,
+the first password can only be set on the Knura computer. Wrong codes count towards the sign-in
+lockout. From another device, `GET /v1/session` adds `"needsSetupCode":true` and
+`"setupCodeWaiting"` while no password is set.
+
 There is one password, for signing in to the setup page. knurd keeps only a salted
 PBKDF2-SHA256 hash (310,000 rounds) in `knurd-admin-password` next to `knurd.properties`, chmod
 600. If anyone else can read or change that file, every password is refused until you run
@@ -129,7 +137,7 @@ only ever runs `tailscale status --json`, `tailscale funnel status --json` and `
 admin port. `state` is Tailscale's own (`Running`, `NeedsLogin`, `Stopped`...), or `NotInstalled`
 or `NotRunning`. When Funnel can't be turned on yet, `fixUrl` is the Tailscale page that allows it
 for your network, or `fixCommand` is the one command to run first (on Linux,
-`sudo tailscale set --operator=$USER`, so knurd's user may share a port). Once Funnel is on and
+`sudo tailscale set --operator=<the user knurd runs as>`, `knura` for the Linux service, so knurd's user may share a port). Once Funnel is on and
 `public.url` isn't set, knurd sets it to the Funnel address.
 
 ### Pairing a phone

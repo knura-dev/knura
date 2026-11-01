@@ -64,7 +64,7 @@ const ICONS = [['door', 'Front door'], ['kitchen', 'Kitchen'], ['sofa', 'Living 
 // ---------- state ----------
 let S = {
   screen: 'loading', start: 'new', session: null, settings: null, status: null, tags: [], connections: [], reach: null,
-  name: '', pw: '', pw2: '', showpw: false, busy: false, err: '',
+  name: '', pw: '', pw2: '', scode: '', showpw: false, busy: false, err: '',
   priorKit: null, words: [], fileDone: false, sheetDone: false, c2: '', c5: '', redoBackup: false,
   dev: null, phoneName: 'my-phone', pair: null, reachMode: 'ts', ts: null, haDo: 'notify', haLight: 'light.living_room', funnelFix: null, ownurl: '', tapIssue: null,
   tagSince: null, tag: null, tagname: 'Front door', tagicon: 'door', tapped: false,
@@ -177,6 +177,9 @@ ${needPw ? `<div class="grid2">
   <div><label class="fl" for="pw2">Type it again</label><input id="pw2" class="in" type="${S.showpw ? 'text' : 'password'}" data-in="pw2" value="${esc(S.pw2)}" autocomplete="new-password"><p id="pw2t" class="small muted" style="margin-top:6px">${S.pw2 ? (S.pw === S.pw2 ? 'Matches' : 'Doesn’t match yet') : '&nbsp;'}</p></div>
 </div>
 <button class="btn sm ghost" data-act="showpw" style="align-self:flex-start">${ico(S.showpw ? 'eyeoff' : 'eye', 16)} ${S.showpw ? 'Hide' : 'Show'} password</button>` : ''}
+${needPw && S.session.needsSetupCode ? (S.session.setupCodeWaiting ? `<div><label class="fl" for="scode">Setup code</label><input id="scode" class="in mono" data-in="scode" value="${esc(S.scode)}" maxlength="20" autocomplete="off" spellcheck="false" placeholder="ABCD-EFGH-JKMN">
+  <p class="small muted" style="margin-top:6px">You’re setting Knura up from another device, so it needs the setup code. It’s in Knura’s log, and in the file <code>knurd-setup-code</code> in Knura’s settings folder. On a Raspberry Pi: <code>sudo cat /var/lib/knura/knurd-setup-code</code></p></div>`
+  : `<div class="note warn">${ico('warn', 18)}<div><b>Set the password on the Knura computer itself.</b> Open <code>http://127.0.0.1:8425/setup</code> there. Or restart Knura to get a setup code in its log.</div></div>`) : ''}
 ${errLine()}`;
 }
 
@@ -459,7 +462,7 @@ function s7() {
 // ---------- requirements ----------
 function canNext() {
   switch (S.screen) {
-    case 1: return S.name.trim() && (S.session.passwordSet || (S.pw.length >= 8 && S.pw === S.pw2));
+    case 1: return S.name.trim() && (S.session.passwordSet || (S.pw.length >= 8 && S.pw === S.pw2 && (!S.session.needsSetupCode || (S.session.setupCodeWaiting && S.scode.replace(/[\s-]/g, '').length === 12))));
     case 2: return S.priorKit && !S.redoBackup || (S.fileDone && S.sheetDone && S.c2.trim().toLowerCase() === S.words[1] && S.c5.trim().toLowerCase() === S.words[4]);
     case 3: return !!S.reach;
     case 4: return S.dev === 'reader' || (S.dev === 'phone' && ((S.settings && S.settings.phones) || []).length > 0);
@@ -470,7 +473,7 @@ function canNext() {
 }
 function whyNot() {
   switch (S.screen) {
-    case 1: return S.session.passwordSet ? 'Add a name' : 'Add a password to continue';
+    case 1: return S.session.passwordSet ? 'Add a name' : S.session.needsSetupCode && S.pw.length >= 8 && S.pw === S.pw2 ? 'Add the setup code' : 'Add a password to continue';
     case 2: return 'Download both copies and check two words';
     case 4: return S.dev ? 'Pair a phone to continue' : 'Pick one';
     case 5: return S.tag ? 'Add a name' : 'Tap a tag to continue';
@@ -600,7 +603,7 @@ async function next() {
   try {
     if (S.screen === 1) {
       if (!S.session.passwordSet) {
-        const r = await api('POST', '/v1/password', { password: S.pw });
+        const r = await api('POST', '/v1/password', S.session.needsSetupCode ? { password: S.pw, setupCode: S.scode } : { password: S.pw });
         if (!r.ok) { S.err = why(r); return; }
         S.session = { passwordSet: true, signedIn: true }; S.pw = S.pw2 = '';
       }
@@ -753,6 +756,7 @@ document.addEventListener('input', e => {
     case 'c2': S.c2 = v; break; case 'c5': S.c5 = v; break;
     case 'tagname': S.tagname = v; break; case 'actUrl': S.actUrl = v; break; case 'ownurl': S.ownurl = v; break; case 'haLight': S.haLight = v; break;
     case 'phoneName': S.phoneName = v; break;
+    case 'scode': S.scode = v; break;
     default: return;
   }
   if (t.dataset.in === 'haLight') { render(); return; } // the automation text follows what's typed

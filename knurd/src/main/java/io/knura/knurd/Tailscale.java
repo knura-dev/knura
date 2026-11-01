@@ -135,10 +135,16 @@ final class Tailscale {
             return new Funnel(false, login.group(), null, "Tailscale needs you to allow Funnel for your network");
         }
         if (lower.contains("access denied") || lower.contains("permission denied") || lower.contains("operator")) {
-            return new Funnel(false, null, "sudo tailscale set --operator=$USER",
+            return new Funnel(false, null, "sudo tailscale set --operator=" + operator(),
                     "Tailscale needs permission for Knura's user to share a port");
         }
         return new Funnel(false, null, null, r == null || r.exit == -1 && out.isBlank() ? "tailscale did not answer in time" : firstLine(out));
+    }
+
+    /** The user knurd runs as, for {@code tailscale set --operator}: "knura" for the Linux service. */
+    static String operator() {
+        String user = System.getProperty("user.name", "");
+        return user.matches("[a-z_][a-z0-9_.-]{0,31}") ? user : "$USER";
     }
 
     private record Result(int exit, String out) {}
