@@ -210,7 +210,11 @@ final class BackupCommands {
             }
         }
         for (Map.Entry<String, byte[]> f : contents.files().entrySet()) {
+            // Checked again right where it's written: a path from the backup never leaves the folder.
             Path dest = target.resolve(f.getKey()).normalize();
+            if (!dest.startsWith(target)) {
+                throw new IOException("the backup holds an unsafe path: " + f.getKey());
+            }
             Files.createDirectories(dest.getParent());
             writePrivate(dest, f.getValue());
         }
