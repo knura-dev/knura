@@ -314,9 +314,9 @@ ${S.tapIssue ? `<div class="note warn${an('issue' + S.tapIssue.time)}" role="sta
 ${known.length ? `<div class="small muted">Or use a tag you already have: ${known.map(t => `<button class="btn sm" data-uid="${esc(t.uid)}">${esc(t.label || t.uid)}</button>`).join(' ')}</div>` : ''}`;
   return `
 <div class="head"><div class="kick">Step 5 of 7</div><h1>${S.tapped ? 'It works' : 'Name your tag'}</h1><p>${S.tapped ? 'Your Knura checked the tap and knew it was real.' : 'Give it a name and pick where it goes.'}</p></div>
-${S.tapped ? `<div class="tapzone" style="min-height:200px">
-  <div class="burst"><svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="${P.check}"/></svg></div>
-  <div class="rise" style="animation-delay:.3s"><b style="font-size:20px">Tap verified</b><p class="muted mono small">${esc(S.tag)}</p></div></div>
+${S.tapped ? `<div class="tapzone" style="min-height:240px">
+  <div class="burst${an('burst' + S.tag, 'play')}"><svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="${P.check}"/></svg></div>
+  <div class="${an('verified' + S.tag)}" style="animation-delay:.3s"><b style="font-size:20px">Tap verified</b><p class="muted mono small">${esc(S.tag)}</p></div></div>
 <div class="note${an('refresh')}" style="animation-delay:600ms">${ico('info', 18)}<div><b>Try this:</b> refresh the page on your phone. It says <b>Link already used</b>, because each tap’s link works once. That’s what stops copied links.</div></div>` : ''}
 <div><label class="fl" for="tagname">Name</label><input id="tagname" class="in" data-in="tagname" value="${esc(S.tagname)}" maxlength="40"></div>
 <div><label class="fl">Icon</label><div class="icons">${ICONS.map(([k, l]) => `<button data-icon="${k}" data-label="${l}" aria-pressed="${S.tagicon === k}" title="${l}">${ico(k, 22)}<span>${l.split(' ')[0]}</span></button>`).join('')}</div></div>

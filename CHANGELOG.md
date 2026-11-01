@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Setup page, step 5: the "Tap verified" rings are centred and no longer cut off, and the
+  animation plays once when the tap arrives instead of again each time you pick an icon.
+
 - Setup page, step 3 now sets up Tailscale for you: it checks Tailscale is installed and signed
   in, turns on Funnel for the tap port with one button (`POST /v1/tailscale/funnel`), and saves
   the Funnel address as `public.url`. If Tailscale needs something first, the page shows the
