@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Android app 0.8.1: with a hosted account, tag names are shared both ways. A rename in the app
+  shows on the account's dashboard and a rename there shows in the app on its next refresh. The
+  newest change wins; a rename made offline is sent later and only sticks if the tag wasn't
+  renamed on the dashboard since. Names the app had before stay, unless the dashboard already
+  named that tag. With your own knurd, names stay on the phone as before.
 - Keeping the master key safe. `knurctl backup create` packs the settings folder into one
   passphrase-locked `.knurabackup` file (AES-256-GCM, key from PBKDF2-HMAC-SHA256 with 600,000
   rounds, JDK only, so no gpg), leaving out logs. `backup verify FILE` checks a copy opens and

@@ -114,7 +114,8 @@ you didn't offer. It prints the list when it starts: `the dashboard can choose l
 
 ## Tag names from the dashboard
 
-When a tag has a name on the dashboard, each tap brings it home, and every action gets it as
+When a tag has a name on the dashboard (or in the Android app, which shares names with the
+account), each tap brings it home, and every action gets it as
 `"name"` in the event, next to `"knot"`:
 
 ```json
