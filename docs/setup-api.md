@@ -1,8 +1,29 @@
 # Setup API
 
-The admin API's requests for the setup page: the web page knurd will serve so people can set
-Knura up and change it without a terminal. This document covers the API only; the page itself
-comes in a later change.
+The admin API's requests for the setup page: the web page knurd serves so people can set Knura
+up and change it without a terminal.
+
+## The page
+
+With the admin API on, knurd serves the page at `/setup` (and `/`) on the admin port, so on
+knurd's own computer it is **http://127.0.0.1:8425/setup**. The page's files live in
+`knurd/src/main/resources/io/knura/knurd/setup/` and are served from the jar: `index.html`,
+`app.css`, `app.js` and `words.js` (the 2,048-word BIP-39 English list, used to pick the backup
+passphrase in the browser). They need no sign-in, since they hold no settings; every request the
+page then makes goes through the rules below.
+
+The page loads nothing from the internet. It is sent with
+
+```
+Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline';
+  img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+Referrer-Policy: no-referrer
+```
+
+It keeps only the furthest step reached and whether setup is finished in the browser's
+`localStorage`; everything else comes from knurd each time.
 
 Everything here goes through the admin listener (port 8425), with the same rules as the rest of
 the admin API: this computer or the local network only, never through a proxy or tunnel, and
@@ -67,10 +88,37 @@ Passwords need 8 to 256 characters. Tokens and plaintext mode change the passwor
 
 | Request | Body | Answer |
 | --- | --- | --- |
-| `GET /v1/settings` | | `{"name":"Our house","passwordSet":true}` |
+| `GET /v1/settings` | | `{"name":"Our house","passwordSet":true,"phones":["pixel-9"]}` |
 | `PUT /v1/settings` | `{"name":"Our house"}` | the same |
 
 The name is saved as `knura.name` in `knurd.properties`. `/v1/status` includes it.
+
+`phones` lists the tokens in `admin.provision.tokens`, so the page can see when a phone is paired.
+
+### Recovery kit
+
+| Request | Body | Answer |
+| --- | --- | --- |
+| `POST /v1/backup/file` | `{"passphrase":"six words from the list"}` | the backup file, as a download |
+| `POST /v1/backup/sheet` | | the recovery sheet, an HTML page to print |
+
+The backup file is the same as `knurctl backup create` makes: the settings folder, without logs,
+locked with the passphrase (at least 10 characters). The sheet is the same as `knurctl backup
+sheet`. Both are recorded in `knura-backup.properties`, so `/v1/status` and knurd's start-up
+reminder know the key is backed up. The passphrase is never kept or logged. Both need a caller
+that may change settings, since they carry the master key.
+
+### Reaching knurd
+
+`GET /v1/reach` asks `<public.url>/health` from knurd's computer, as a phone would:
+
+```json
+{"publicUrl":"https://desk.tail1234.ts.net","resolverOwner":null,"reachable":true,"detail":"answered"}
+```
+
+Asking from inside your network can say yes when phones outside still can't get in, for example
+while a new Tailscale Funnel address is spreading. Without `public.url` the answer has
+`"reachable":false` and `"detail":"public.url is not set"`.
 
 ### Tags
 

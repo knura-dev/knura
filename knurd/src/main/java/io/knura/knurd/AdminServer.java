@@ -98,7 +98,15 @@ final class AdminServer implements AutoCloseable {
         }
     }
 
-    private record Answer(int status, String json, String detail) {}
+    /**
+     * What to send back: JSON, or with {@code raw} set, those bytes as {@code type}, offered as a
+     * download named {@code filename} when that is set.
+     */
+    private record Answer(int status, String json, String detail, byte[] raw, String type, String filename) {
+        Answer(int status, String json, String detail) {
+            this(status, json, detail, null, null, null);
+        }
+    }
 
     /**
      * Who is asking: a token's name ("browser" for a signed-in browser, null in plaintext mode),
@@ -213,6 +221,9 @@ final class AdminServer implements AutoCloseable {
         } else if (tokens == null && !loopbackHost(exchange.getRequestHeaders().getFirst("Host"))) {
             answer = new Answer(403, error("forbidden", "in plaintext mode the admin API only answers requests for"
                     + " 127.0.0.1 or localhost"), "Host is not this computer");
+        } else if (manage != null && SetupPage.serves(method, path)) {
+            answer = null;
+            SetupPage.send(exchange, path);
         } else if (forgery != null) {
             answer = new Answer(403, error("forbidden", forgery), "failed the browser request check");
         } else if (manage != null && path.equals(SESSION)) {
@@ -231,7 +242,8 @@ final class AdminServer implements AutoCloseable {
                 answer = new Answer(500, error("error", null), "internal error");
             }
             if (answer.detail() == null) {
-                answer = new Answer(answer.status(), answer.json(), "plaintext: no login");
+                answer = new Answer(answer.status(), answer.json(), "plaintext: no login", answer.raw(), answer.type(),
+                        answer.filename());
             }
         } else if ("/v1/pair".equals(path)) {
             Duration wait = throttle.waitFor(remoteText);
@@ -279,13 +291,36 @@ final class AdminServer implements AutoCloseable {
                 answer = new Answer(401, error("unauthorized", "missing or unknown token"), "bad or missing token");
             }
         }
+        if (answer == null) {
+            return; // the setup page's files, sent already; they hold nothing private, so they aren't audited
+        }
         try {
             audit.record(remoteText, tokenName, method, path, answer.status(), answer.detail());
         } catch (IOException e) {
             LOG.log(Level.ERROR, "could not write the admin audit log " + audit.file() + "; refusing the request", e);
             answer = new Answer(500, error("error", "the audit log can't be written"), null);
         }
-        send(exchange, answer.status(), answer.json());
+        if (answer.raw() != null) {
+            sendRaw(exchange, answer);
+        } else {
+            send(exchange, answer.status(), answer.json());
+        }
+    }
+
+    private static void sendRaw(HttpExchange exchange, Answer answer) throws IOException {
+        Headers headers = exchange.getResponseHeaders();
+        headers.set("Content-Type", answer.type());
+        headers.set("Cache-Control", "no-store");
+        headers.set("X-Content-Type-Options", "nosniff");
+        headers.set("X-Frame-Options", "DENY");
+        headers.set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'");
+        if (answer.filename() != null) {
+            headers.set("Content-Disposition", "attachment; filename=\"" + answer.filename() + "\"");
+        }
+        exchange.sendResponseHeaders(answer.status(), answer.raw().length);
+        try (OutputStream out = exchange.getResponseBody()) {
+            out.write(answer.raw());
+        }
     }
 
     private Answer pair(byte[] body, String remote) {
@@ -538,7 +573,8 @@ final class AdminServer implements AutoCloseable {
     /** Whether a path belongs to the setup page's requests. */
     static boolean isManagePath(String path) {
         return path.equals(SESSION) || path.equals(PASSWORD) || path.equals("/v1/settings")
-                || path.equals("/v1/actions/reload") || path.equals("/v1/connections")
+                || path.equals("/v1/actions/reload") || path.equals("/v1/connections") || path.equals("/v1/reach")
+                || path.startsWith("/v1/backup/")
                 || path.startsWith("/v1/connections/") || path.startsWith("/v1/tags/");
     }
 
@@ -682,6 +718,31 @@ final class AdminServer implements AutoCloseable {
             if (path.equals(PASSWORD)) {
                 return only("POST", method, exchange, () -> changePassword(f, caller, exchange));
             }
+            if (path.equals("/v1/backup/file")) {
+                return only("POST", method, exchange, () -> {
+                    Object pass = f.get("passphrase");
+                    if (!(pass instanceof String p)) {
+                        throw new IllegalArgumentException("passphrase is missing");
+                    }
+                    char[] chars = p.toCharArray();
+                    try {
+                        byte[] file = m.settings().backupFile(chars);
+                        String day = clock.instant().atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString();
+                        return new Answer(200, null, "made a backup file", file, "application/octet-stream",
+                                "knura-backup-" + day + io.knura.core.backup.BackupFile.SUFFIX);
+                    } finally {
+                        java.util.Arrays.fill(chars, '\0');
+                    }
+                });
+            }
+            if (path.equals("/v1/backup/sheet")) {
+                return only("POST", method, exchange, () -> new Answer(200, null, "made a recovery sheet",
+                        m.settings().recoverySheet().getBytes(StandardCharsets.UTF_8), "text/html; charset=utf-8",
+                        "knura-recovery-sheet.html"));
+            }
+            if (path.equals("/v1/reach")) {
+                return only("GET", method, exchange, () -> new Answer(200, reach(), null));
+            }
             if (path.equals("/v1/actions/reload")) {
                 return only("POST", method, exchange, () -> new Answer(200, "{\"knots\":" + m.settings().reload() + "}",
                         "reloaded actions"));
@@ -781,7 +842,36 @@ final class AdminServer implements AutoCloseable {
 
     private String settingsJson() throws IOException {
         Manage m = manage;
-        return "{\"name\":" + Json.quote(m.settings().name()) + ",\"passwordSet\":" + m.password().isSet() + "}";
+        return "{\"name\":" + Json.quote(m.settings().name()) + ",\"passwordSet\":" + m.password().isSet()
+                + ",\"phones\":" + jsonList(m.settings().phones()) + "}";
+    }
+
+    /**
+     * {@code GET /v1/reach}: whether phones on the internet can reach this knurd, by asking for
+     * {@code <public.url>/health} the way a phone would, from outside in.
+     */
+    private String reach() {
+        String url = info.publicUrl();
+        String head = "{\"publicUrl\":" + Json.quote(url) + ",\"resolverOwner\":" + Json.quote(info.resolverOwner());
+        if (url == null) {
+            return head + ",\"reachable\":false,\"detail\":\"public.url is not set\"}";
+        }
+        String detail;
+        boolean ok = false;
+        try {
+            java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(5)).followRedirects(java.net.http.HttpClient.Redirect.NEVER).build();
+            java.net.http.HttpResponse<Void> r = client.send(java.net.http.HttpRequest.newBuilder(URI.create(url + "/health"))
+                    .timeout(Duration.ofSeconds(8)).GET().build(), java.net.http.HttpResponse.BodyHandlers.discarding());
+            ok = r.statusCode() == 200;
+            detail = ok ? "answered" : "answered " + r.statusCode();
+        } catch (IOException e) {
+            detail = "no answer yet";
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            detail = "interrupted";
+        }
+        return head + ",\"reachable\":" + ok + ",\"detail\":" + Json.quote(detail) + "}";
     }
 
     private String connectionsJson() throws IOException {

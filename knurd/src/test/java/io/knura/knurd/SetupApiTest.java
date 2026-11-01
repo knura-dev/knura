@@ -9,6 +9,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.sun.net.httpserver.HttpServer;
 import io.knura.core.admin.AdminTokens;
 import io.knura.core.admin.PrivateFiles;
+import io.knura.core.backup.BackupFile;
+import io.knura.core.backup.BackupRecord;
 import io.knura.core.crypto.Hex;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -161,9 +163,9 @@ class SetupApiTest {
     @Test
     void nameIsSavedInKnurdPropertiesKeepingComments() throws Exception {
         String cookie = cookie(send("POST", "/v1/password", "{\"password\":\"lantern-orbit-42\"}", null));
-        assertEquals("{\"name\":null,\"passwordSet\":true}", send("GET", "/v1/settings", null, cookie).body());
+        assertEquals("{\"name\":null,\"passwordSet\":true,\"phones\":[]}", send("GET", "/v1/settings", null, cookie).body());
         HttpResponse<String> r = send("PUT", "/v1/settings", "{\"name\":\"Our house\"}", cookie);
-        assertEquals("{\"name\":\"Our house\",\"passwordSet\":true}", r.body());
+        assertEquals("{\"name\":\"Our house\",\"passwordSet\":true,\"phones\":[]}", r.body());
         String text = Files.readString(knurdFile);
         assertTrue(text.startsWith("# my settings\nmaster.key=00112233445566778899AABBCCDDEEFF\n"), text);
         assertTrue(text.contains("knura.name=Our house"), text);
@@ -280,7 +282,69 @@ class SetupApiTest {
         }
     }
 
+    @Test
+    void theSetupPageIsServedWithoutSignInAndWithAStrictPolicy() throws Exception {
+        for (String path : new String[] {"/", "/setup", "/setup/app.js", "/setup/app.css", "/setup/words.js", "/setup/icon.svg"}) {
+            HttpResponse<String> r = http.send(HttpRequest.newBuilder(uri(path)).build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, r.statusCode(), path);
+            assertEquals(SetupPage.CSP, r.headers().firstValue("Content-Security-Policy").orElseThrow(), path);
+            assertEquals("nosniff", r.headers().firstValue("X-Content-Type-Options").orElseThrow(), path);
+        }
+        HttpResponse<String> page = http.send(HttpRequest.newBuilder(uri("/setup")).build(), HttpResponse.BodyHandlers.ofString());
+        assertTrue(page.headers().firstValue("Content-Type").orElseThrow().startsWith("text/html"));
+        assertFalse(page.body().contains("http"), "nothing is loaded from the internet");
+        assertEquals(401, http.send(HttpRequest.newBuilder(uri("/setup/knurd.properties")).build(),
+                HttpResponse.BodyHandlers.ofString()).statusCode(), "only the page's own files are served");
+        assertEquals(401, http.send(HttpRequest.newBuilder(uri("/v1/status")).build(),
+                HttpResponse.BodyHandlers.ofString()).statusCode(), "the API itself still needs a sign-in");
+    }
+
+    @Test
+    void theRecoveryKitDownloadsAndIsRecorded() throws Exception {
+        String cookie = cookie(send("POST", "/v1/password", "{\"password\":\"lantern-orbit-42\"}", null));
+        assertEquals(400, send("POST", "/v1/backup/file", "{\"passphrase\":\"short\"}", cookie).statusCode());
+        HttpResponse<byte[]> file = sendBytes("/v1/backup/file", "{\"passphrase\":\"lamp orbit maple tide crow fern\"}", cookie);
+        assertEquals(200, file.statusCode());
+        assertTrue(file.headers().firstValue("Content-Disposition").orElseThrow().contains(".knurabackup\""));
+        BackupFile.Contents contents = BackupFile.open(file.body(), "lamp orbit maple tide crow fern".toCharArray());
+        assertTrue(new String(contents.files().get("knurd.properties"), StandardCharsets.UTF_8)
+                .contains("master.key=00112233445566778899AABBCCDDEEFF"));
+
+        HttpResponse<byte[]> sheet = sendBytes("/v1/backup/sheet", null, cookie);
+        assertEquals(200, sheet.statusCode());
+        assertTrue(sheet.headers().firstValue("Content-Type").orElseThrow().startsWith("text/html"));
+        assertTrue(new String(sheet.body(), StandardCharsets.UTF_8).contains("<html"));
+
+        BackupRecord.Status record = BackupRecord.read(dir, BackupRecord.keyId(Hex.decode("00112233445566778899AABBCCDDEEFF")));
+        assertTrue(record.file().isPresent() && record.sheet().isPresent(), "both copies are recorded");
+        String log = Files.readString(dir.resolve("audit.log"));
+        assertFalse(log.contains("lamp orbit"), "the passphrase is never logged");
+        assertEquals(401, sendBytes("/v1/backup/sheet", null, null).statusCode(), "needs a sign-in");
+        assertEquals(403, http.send(HttpRequest.newBuilder(uri("/v1/backup/sheet")).header("Authorization", "Bearer " + laptop)
+                .POST(HttpRequest.BodyPublishers.noBody()).header(AdminServer.REQUEST_HEADER, "1").build(),
+                HttpResponse.BodyHandlers.ofString()).statusCode(), "read-only tokens can't take the master key");
+    }
+
+    @Test
+    void reachSaysWhenThereIsNoAddress() throws Exception {
+        String cookie = cookie(send("POST", "/v1/password", "{\"password\":\"lantern-orbit-42\"}", null));
+        String reach = send("GET", "/v1/reach", null, cookie).body();
+        assertTrue(reach.contains("\"reachable\":false") && reach.contains("public.url is not set"), reach);
+        Files.writeString(knurdFile, "admin.provision.tokens=fold7\n", java.nio.file.StandardOpenOption.APPEND);
+        String settings = send("GET", "/v1/settings", null, cookie).body();
+        assertTrue(settings.endsWith(",\"passwordSet\":true,\"phones\":[\"fold7\"]}"), settings);
+    }
+
     // ---- helpers ----
+
+    private HttpResponse<byte[]> sendBytes(String path, String json, String session) throws Exception {
+        HttpRequest.Builder b = HttpRequest.newBuilder(uri(path)).header(AdminServer.REQUEST_HEADER, "1")
+                .POST(json == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(json));
+        if (session != null) {
+            b.header("Cookie", Sessions.COOKIE + "=" + session);
+        }
+        return http.send(b.build(), HttpResponse.BodyHandlers.ofByteArray());
+    }
 
     private URI uri(String path) {
         return URI.create("http://127.0.0.1:" + admin.port() + path);

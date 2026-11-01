@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- The setup page. With the admin API on, knurd serves a seven-step setup page at
+  `http://127.0.0.1:8425/setup`: name this Knura and set its password, save the recovery kit
+  (required before the first tag), check that phones can reach `public.url`, pick a phone or
+  reader, tap a first tag and name it, connect Home Assistant, Matter or a web service and send a
+  test. It remembers where you got to, signs in again after a restart, and works on a phone-sized
+  screen. The page is static files inside knurd with a strict Content-Security-Policy and nothing
+  loaded from the internet. New admin requests for it: `POST /v1/backup/file` (a
+  passphrase-locked backup of the settings folder, the same file `knurctl backup create` makes),
+  `POST /v1/backup/sheet` (the printable recovery sheet), `GET /v1/reach` (asks `public.url`
+  for `/health` from this computer) and `phones` in `GET /v1/settings`. Both downloads are
+  recorded like knurctl's, so the backup reminder stops. Tailscale help, pairing a phone from the
+  page and installers come next.
 - The admin API can now change things, for the coming setup page. A browser signs in with a
   password (`POST /v1/password` sets the first one, from the Knura computer only; `POST
   /v1/session` signs in), kept as a PBKDF2-SHA256 hash in `knurd-admin-password` (chmod 600), with
