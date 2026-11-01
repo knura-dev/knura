@@ -88,7 +88,7 @@ Passwords need 8 to 256 characters. Tokens and plaintext mode change the passwor
 
 | Request | Body | Answer |
 | --- | --- | --- |
-| `GET /v1/settings` | | `{"name":"Our house","passwordSet":true,"phones":["pixel-9"]}` |
+| `GET /v1/settings` | | `{"name":"Our house","passwordSet":true,"phones":["pixel-9"],"publicUrl":null}` |
 | `PUT /v1/settings` | `{"name":"Our house"}` | the same |
 
 The name is saved as `knura.name` in `knurd.properties`. `/v1/status` includes it.
@@ -108,12 +108,36 @@ sheet`. Both are recorded in `knura-backup.properties`, so `/v1/status` and knur
 reminder know the key is backed up. The passphrase is never kept or logged. Both need a caller
 that may change settings, since they carry the master key.
 
+### The address phones use
+
+`PUT /v1/settings` also takes `{"publicUrl":"https://desk.tail1234.ts.net"}` and saves it as
+`public.url`, checked the same way as at start-up (https, or http only for this computer).
+`knurctl provision` reads it straight away, so tags set up from then on get the new link. knurd
+itself keeps the address it started with until a restart, which only matters for phone pairing
+and tap.knura.io; `/v1/reach` says `"restart":true` until then.
+
+### Tailscale
+
+| Request | Answer |
+| --- | --- |
+| `GET /v1/tailscale` | `{"state":"Running","loginUrl":null,"dnsName":"desk.tail1234.ts.net","url":"https://desk.tail1234.ts.net","httpsCerts":true,"funnel":false,"detail":null}` |
+| `POST /v1/tailscale/funnel` | the same, plus `fixUrl`, `fixCommand` and `funnelDetail` when it couldn't turn Funnel on |
+
+knurd finds the `tailscale` command on the PATH, or where the Mac and Windows apps install it, and
+only ever runs `tailscale status --json`, `tailscale funnel status --json` and `tailscale funnel
+--bg <listen.port>`, with no input from the request. Funnel shares the tap port only, never the
+admin port. `state` is Tailscale's own (`Running`, `NeedsLogin`, `Stopped`...), or `NotInstalled`
+or `NotRunning`. When Funnel can't be turned on yet, `fixUrl` is the Tailscale page that allows it
+for your network, or `fixCommand` is the one command to run first (on Linux,
+`sudo tailscale set --operator=$USER`, so knurd's user may share a port). Once Funnel is on and
+`public.url` isn't set, knurd sets it to the Funnel address.
+
 ### Reaching knurd
 
 `GET /v1/reach` asks `<public.url>/health` from knurd's computer, as a phone would:
 
 ```json
-{"publicUrl":"https://desk.tail1234.ts.net","resolverOwner":null,"reachable":true,"detail":"answered"}
+{"publicUrl":"https://desk.tail1234.ts.net","resolverOwner":null,"restart":false,"reachable":true,"detail":"answered"}
 ```
 
 Asking from inside your network can say yes when phones outside still can't get in, for example

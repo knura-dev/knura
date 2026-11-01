@@ -115,7 +115,11 @@ final class AdminServer implements AutoCloseable {
     private record Caller(String name, boolean canManage, String session) {}
 
     /** What the setup page needs: the password, browser sessions and the settings it changes. */
-    record Manage(AdminPassword password, Sessions sessions, HomeSettings settings) {}
+    record Manage(AdminPassword password, Sessions sessions, HomeSettings settings, Tailscale tailscale) {
+        Manage(AdminPassword password, Sessions sessions, HomeSettings settings) {
+            this(password, sessions, settings, new Tailscale(null, 0));
+        }
+    }
 
     static final String REQUEST_HEADER = "X-Knura-Request";
     private static final String SESSION = "/v1/session";
@@ -573,7 +577,7 @@ final class AdminServer implements AutoCloseable {
     /** Whether a path belongs to the setup page's requests. */
     static boolean isManagePath(String path) {
         return path.equals(SESSION) || path.equals(PASSWORD) || path.equals("/v1/settings")
-                || path.equals("/v1/actions/reload") || path.equals("/v1/connections") || path.equals("/v1/reach")
+                || path.equals("/v1/actions/reload") || path.equals("/v1/connections") || path.equals("/v1/reach") || path.equals("/v1/tailscale") || path.equals("/v1/tailscale/funnel")
                 || path.startsWith("/v1/backup/")
                 || path.startsWith("/v1/connections/") || path.startsWith("/v1/tags/");
     }
@@ -710,8 +714,16 @@ final class AdminServer implements AutoCloseable {
         try {
             if (path.equals("/v1/settings")) {
                 if ("PUT".equals(method)) {
-                    m.settings().setName(text(f, "name"));
-                    return new Answer(200, settingsJson(), "changed name");
+                    if (!f.containsKey("name") && !f.containsKey("publicUrl")) {
+                        throw new IllegalArgumentException("name or publicUrl is missing");
+                    }
+                    if (f.containsKey("publicUrl")) {
+                        m.settings().setPublicUrl(text(f, "publicUrl"));
+                    }
+                    if (f.containsKey("name")) {
+                        m.settings().setName(text(f, "name"));
+                    }
+                    return new Answer(200, settingsJson(), f.containsKey("publicUrl") ? "changed public.url" : "changed name");
                 }
                 return only("GET", method, exchange, () -> new Answer(200, settingsJson(), null));
             }
@@ -739,6 +751,19 @@ final class AdminServer implements AutoCloseable {
                 return only("POST", method, exchange, () -> new Answer(200, null, "made a recovery sheet",
                         m.settings().recoverySheet().getBytes(StandardCharsets.UTF_8), "text/html; charset=utf-8",
                         "knura-recovery-sheet.html"));
+            }
+            if (path.equals("/v1/tailscale")) {
+                return only("GET", method, exchange, () -> new Answer(200, tailscaleJson(m.tailscale().status(), null), null));
+            }
+            if (path.equals("/v1/tailscale/funnel")) {
+                return only("POST", method, exchange, () -> {
+                    Tailscale.Funnel funnel = m.tailscale().turnOnFunnel();
+                    Tailscale.Status st = m.tailscale().status();
+                    if (funnel.on() && st.funnel() && st.url() != null && m.settings().publicUrl() == null) {
+                        m.settings().setPublicUrl(st.url());
+                    }
+                    return new Answer(200, tailscaleJson(st, funnel), funnel.on() ? "turned on Tailscale Funnel" : "Tailscale Funnel not on");
+                });
             }
             if (path.equals("/v1/reach")) {
                 return only("GET", method, exchange, () -> new Answer(200, reach(), null));
@@ -843,7 +868,19 @@ final class AdminServer implements AutoCloseable {
     private String settingsJson() throws IOException {
         Manage m = manage;
         return "{\"name\":" + Json.quote(m.settings().name()) + ",\"passwordSet\":" + m.password().isSet()
-                + ",\"phones\":" + jsonList(m.settings().phones()) + "}";
+                + ",\"phones\":" + jsonList(m.settings().phones()) + ",\"publicUrl\":" + Json.quote(m.settings().publicUrl())
+                + "}";
+    }
+
+    private static String tailscaleJson(Tailscale.Status s, Tailscale.Funnel f) {
+        String json = "{\"state\":" + Json.quote(s.state()) + ",\"loginUrl\":" + Json.quote(s.loginUrl())
+                + ",\"dnsName\":" + Json.quote(s.dnsName()) + ",\"url\":" + Json.quote(s.url())
+                + ",\"httpsCerts\":" + s.httpsCerts() + ",\"funnel\":" + s.funnel() + ",\"detail\":" + Json.quote(s.detail());
+        if (f != null) {
+            json += ",\"fixUrl\":" + Json.quote(f.fixUrl()) + ",\"fixCommand\":" + Json.quote(f.fixCommand())
+                    + ",\"funnelDetail\":" + Json.quote(f.detail());
+        }
+        return json + "}";
     }
 
     /**
@@ -852,7 +889,14 @@ final class AdminServer implements AutoCloseable {
      */
     private String reach() {
         String url = info.publicUrl();
-        String head = "{\"publicUrl\":" + Json.quote(url) + ",\"resolverOwner\":" + Json.quote(info.resolverOwner());
+        try {
+            url = manage.settings().publicUrl(); // what knurd.properties says now, even before a restart
+        } catch (IOException | IllegalArgumentException e) {
+            // keep the address knurd started with
+        }
+        boolean restart = !java.util.Objects.equals(url, info.publicUrl());
+        String head = "{\"publicUrl\":" + Json.quote(url) + ",\"resolverOwner\":" + Json.quote(info.resolverOwner())
+                + ",\"restart\":" + restart;
         if (url == null) {
             return head + ",\"reachable\":false,\"detail\":\"public.url is not set\"}";
         }

@@ -103,6 +103,24 @@ final class HomeSettings {
         rewrite(knurdFile, PropertiesText.set(read(knurdFile), "knura.name", name.trim()));
     }
 
+    // ---- the address phones use ----
+
+    /** public.url as saved now; knurd itself keeps using the one it started with until a restart. */
+    synchronized String publicUrl() throws IOException {
+        return KnurdConfig.publicUrl(load(knurdFile).getProperty("public.url", "").trim());
+    }
+
+    synchronized void setPublicUrl(String url) throws IOException {
+        String clean = KnurdConfig.publicUrl(url == null ? "" : url.trim());
+        if (clean == null) {
+            throw new IllegalArgumentException("publicUrl is missing");
+        }
+        if (clean.length() > 200) {
+            throw new IllegalArgumentException("publicUrl is too long");
+        }
+        rewrite(knurdFile, PropertiesText.set(read(knurdFile), "public.url", clean));
+    }
+
     // ---- tag labels ----
 
     Map<String, Label> labels() {

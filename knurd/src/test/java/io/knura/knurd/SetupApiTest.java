@@ -163,9 +163,9 @@ class SetupApiTest {
     @Test
     void nameIsSavedInKnurdPropertiesKeepingComments() throws Exception {
         String cookie = cookie(send("POST", "/v1/password", "{\"password\":\"lantern-orbit-42\"}", null));
-        assertEquals("{\"name\":null,\"passwordSet\":true,\"phones\":[]}", send("GET", "/v1/settings", null, cookie).body());
+        assertEquals("{\"name\":null,\"passwordSet\":true,\"phones\":[],\"publicUrl\":null}", send("GET", "/v1/settings", null, cookie).body());
         HttpResponse<String> r = send("PUT", "/v1/settings", "{\"name\":\"Our house\"}", cookie);
-        assertEquals("{\"name\":\"Our house\",\"passwordSet\":true,\"phones\":[]}", r.body());
+        assertEquals("{\"name\":\"Our house\",\"passwordSet\":true,\"phones\":[],\"publicUrl\":null}", r.body());
         String text = Files.readString(knurdFile);
         assertTrue(text.startsWith("# my settings\nmaster.key=00112233445566778899AABBCCDDEEFF\n"), text);
         assertTrue(text.contains("knura.name=Our house"), text);
@@ -332,7 +332,23 @@ class SetupApiTest {
         assertTrue(reach.contains("\"reachable\":false") && reach.contains("public.url is not set"), reach);
         Files.writeString(knurdFile, "admin.provision.tokens=fold7\n", java.nio.file.StandardOpenOption.APPEND);
         String settings = send("GET", "/v1/settings", null, cookie).body();
-        assertTrue(settings.endsWith(",\"passwordSet\":true,\"phones\":[\"fold7\"]}"), settings);
+        assertTrue(settings.endsWith(",\"passwordSet\":true,\"phones\":[\"fold7\"],\"publicUrl\":null}"), settings);
+    }
+
+    @Test
+    void theAddressPhonesUseIsSavedAndCheckedBeforeARestart() throws Exception {
+        String cookie = cookie(send("POST", "/v1/password", "{\"password\":\"lantern-orbit-42\"}", null));
+        assertEquals(400, send("PUT", "/v1/settings", "{\"publicUrl\":\"http://desk.example.com\"}", cookie).statusCode(),
+                "plain http on the internet is refused");
+        HttpResponse<String> r = send("PUT", "/v1/settings", "{\"publicUrl\":\"https://desk.tail1234.ts.net/\"}", cookie);
+        assertEquals(200, r.statusCode(), r.body());
+        assertTrue(r.body().contains("\"publicUrl\":\"https://desk.tail1234.ts.net\""), r.body());
+        assertTrue(Files.readString(knurdFile).contains("public.url=https://desk.tail1234.ts.net\n"));
+        assertTrue(Files.readString(knurdFile).startsWith("# my settings\n"), "comments stay");
+        String reach = send("GET", "/v1/reach", null, cookie).body();
+        assertTrue(reach.contains("\"publicUrl\":\"https://desk.tail1234.ts.net\"") && reach.contains("\"restart\":true"), reach);
+        String ts = send("GET", "/v1/tailscale", null, cookie).body();
+        assertTrue(ts.startsWith("{\"state\":\"NotInstalled\""), ts);
     }
 
     // ---- helpers ----

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Setup page, step 3 now sets up Tailscale for you: it checks Tailscale is installed and signed
+  in, turns on Funnel for the tap port with one button (`POST /v1/tailscale/funnel`), and saves
+  the Funnel address as `public.url`. If Tailscale needs something first, the page shows the
+  link to allow Funnel or the one command to run. Or type your own https address. Step 5 now
+  warns when there's no address yet (a tag set up then can't be tapped from a phone), explains
+  taps that arrived but failed (wrong key, a reused link, a broken link) instead of waiting, and
+  tells you how to test with `knurctl tap` on a USB reader.
+
 - The setup page. With the admin API on, knurd serves a seven-step setup page at
   `http://127.0.0.1:8425/setup`: name this Knura and set its password, save the recovery kit
   (required before the first tag), check that phones can reach `public.url`, pick a phone or
