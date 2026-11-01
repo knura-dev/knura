@@ -33,9 +33,17 @@ object KnurdViews {
             Row("Keys", keys),
             Row("Public URL", publicUrl, mono = !s.isNull("publicUrl")),
             Row("Resolver", resolver),
+            *backupRow(s.optJSONObject("backup")),
             Row("Knots", "${s.optInt("knots")} with actions"),
             Row("Tags seen", s.optInt("tags").toString()),
         ))
+    }
+
+    /** Says when the master key was last backed up, when knurd reports it. */
+    private fun backupRow(b: JSONObject?): Array<Row> {
+        if (b == null) return emptyArray()
+        val days = listOf("file", "sheet").filter { !b.isNull(it) }.map { b.optString(it).take(10) }
+        return arrayOf(Row("Key backup", days.maxOrNull()?.let { "Backed up $it" } ?: "Not backed up yet (knurctl backup create)"))
     }
 
     fun tags(json: JSONObject): Answer {

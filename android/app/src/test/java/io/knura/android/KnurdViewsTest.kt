@@ -18,6 +18,16 @@ class KnurdViewsTest {
     }
 
     @Test
+    fun statusSaysWhenTheKeyWasBackedUp() {
+        val base = """{"status":"up","uptimeSeconds":1,"keys":"master","publicUrl":null,"resolverOwner":null,"knots":0,"tags":0"""
+        val never = KnurdViews.status(JSONObject(base + ""","backup":{"file":null,"sheet":null}}""")).rows
+        assertEquals(KnurdViews.Row("Key backup", "Not backed up yet (knurctl backup create)"), never[4])
+        val done = KnurdViews.status(JSONObject(base + ""","backup":{"file":"2026-10-30T12:00:00Z","sheet":"2026-11-01T09:00:00Z"}}""")).rows
+        assertEquals(KnurdViews.Row("Key backup", "Backed up 2026-11-01"), done[4])
+        assertEquals("older knurd: no backup row", 6, KnurdViews.status(JSONObject("$base}")).rows.size)
+    }
+
+    @Test
     fun tags() {
         assertEquals(listOf(KnurdViews.Row("04DE5F1EACC040", "Last counter 61", mono = true)),
             KnurdViews.tags(JSONObject("""{"tags":[{"uid":"04DE5F1EACC040","lastCounter":61}]}""")).rows)

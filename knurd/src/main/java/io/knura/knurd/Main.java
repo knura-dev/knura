@@ -1,6 +1,7 @@
 package io.knura.knurd;
 
 import io.knura.core.admin.AdminKeystore;
+import io.knura.core.backup.BackupRecord;
 import io.knura.core.log.Logs;
 import io.knura.core.resolver.ResolverClient;
 import io.knura.knurgn.Knurgn;
@@ -13,6 +14,8 @@ import java.security.GeneralSecurityException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.Optional;
+import java.util.function.Supplier;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 
@@ -69,7 +72,7 @@ public final class Main {
         AdminServer admin = null;
         if (config.admin() != null) {
             try {
-                admin = startAdmin(config, counters, recentTaps, knurgn == null ? 0 : knurgn.knotCount());
+                admin = startAdmin(config, configFile, counters, recentTaps, knurgn == null ? 0 : knurgn.knotCount());
             } catch (IOException e) {
                 server.close();
                 System.err.println("knurd: can't start the admin API: " + e.getMessage());
@@ -99,6 +102,11 @@ public final class Main {
         if (knurgn != null) {
             info("knurgN: %d knot(s) with actions, from %s", knurgn.knotCount(), config.actionsFile());
         }
+        Supplier<BackupRecord.Status> backup = backupStatus(config, configFile);
+        if (backup != null && !backup.get().any()) {
+            LOG.log(Level.WARNING, "master.key has no backup yet, and every tag set up with it depends on it."
+                    + " Run 'knurctl backup create' or 'knurctl backup sheet' in " + configFile.toAbsolutePath().getParent());
+        }
         Knurgn actions = knurgn;
         ResolverWatch resolverWatch = watch;
         AdminServer adminServer = admin;
@@ -117,7 +125,18 @@ public final class Main {
     }
 
     /** Starts the admin listener; see {@link AdminServer}. */
-    private static AdminServer startAdmin(KnurdConfig config, CounterStore counters, RecentTaps taps, int knots)
+    /** Reads when this master key was last backed up, or null without a master key. */
+    static Supplier<BackupRecord.Status> backupStatus(KnurdConfig config, Path configFile) {
+        Optional<String> id = config.keys().masterKeyId();
+        if (id.isEmpty()) {
+            return null;
+        }
+        Path folder = configFile.toAbsolutePath().getParent();
+        return () -> BackupRecord.read(folder, id.get());
+    }
+
+    private static AdminServer startAdmin(KnurdConfig config, Path configFile, CounterStore counters, RecentTaps taps,
+            int knots)
             throws IOException {
         KnurdConfig.Admin a = config.admin();
         SSLContext tls = null;
@@ -140,7 +159,7 @@ public final class Main {
         AuditLog audit = new AuditLog(a.auditFile(), Clock.systemUTC());
         KnurdConfig.Resolver resolver = config.resolver();
         AdminServer.Info info = new AdminServer.Info(config.keys().mode(), config.publicUrl(),
-                resolver == null ? null : resolver.owner(), knots, Instant.now());
+                resolver == null ? null : resolver.owner(), knots, Instant.now(), backupStatus(config, configFile));
         NfcRelay nfc = null;
         if (!a.provisionTokens().isEmpty()) {
             String tapBase = resolver == null

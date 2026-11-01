@@ -56,6 +56,17 @@ public final class Main {
                                     run again whenever public.url changes)
               resolver check        show where tap.knura.io sends your taps
 
+            keeping your keys safe (every tag's keys come from master.key):
+              backup                say when this master key was last backed up
+              backup create         pack this settings folder into one passphrase-locked file
+                                    (default ../knura-backup-<date>.knurabackup, or --out FILE)
+              backup verify FILE    check a backup opens and holds this folder's master key
+              backup restore FILE   unpack a backup into --to DIR (default: this folder)
+              backup sheet          write a printable recovery sheet: master.key and your
+                                    tap.knura.io key as short rows with typo checks (--out FILE)
+              backup restore --sheet
+                                    type a recovery sheet back in to rebuild knurd.properties
+
             knurd's admin API (its own port, on this computer or your local network only):
               Two security modes (admin.security in knurd.properties):
                 token      (default) every command logs in with a token from a --creds file
@@ -93,27 +104,35 @@ public final class Main {
               --admin-url URL       admin token add, pair-phone: knurd's admin address to hand out
               --out FILE            admin token add: where to write the creds file
               --limit N             admin taps: how many to show
+              --to DIR              backup restore: the folder to restore into
+              --sheet               backup restore: from a recovery sheet instead of a file
             """;
 
     private static final String CLAIM_PREFIX = "claim:";
-    private static final Set<String> FLAGS = Set.of("--verbose", "--help");
+    private static final Set<String> FLAGS = Set.of("--verbose", "--help", "--sheet");
     private static final Set<String> OPTIONS =
             Set.of("--config", "--base-url", "--from", "--reader", "--wait", "--server", "--resolver",
-                    "--creds", "--admin-url", "--out", "--limit");
+                    "--creds", "--admin-url", "--out", "--limit", "--to");
 
     private final PrintStream out;
     private final Map<String, String> options;
+    private final Prompter prompter;
 
-    private Main(PrintStream out, Map<String, String> options) {
+    private Main(PrintStream out, Map<String, String> options, Prompter prompter) {
         this.out = out;
         this.options = options;
+        this.prompter = prompter;
     }
 
     public static void main(String[] args) {
-        System.exit(run(args, System.out, System.err));
+        System.exit(run(args, System.out, System.err, Prompter.system(System.out)));
     }
 
     static int run(String[] args, PrintStream out, PrintStream err) {
+        return run(args, out, err, Prompter.none());
+    }
+
+    static int run(String[] args, PrintStream out, PrintStream err, Prompter prompter) {
         Map<String, String> options = new HashMap<>();
         List<String> words = new ArrayList<>();
         for (int i = 0; i < args.length; i++) {
@@ -136,7 +155,7 @@ public final class Main {
             out.print(USAGE);
             return command == null && !options.containsKey("--help") ? 2 : 0;
         }
-        Main main = new Main(out, options);
+        Main main = new Main(out, options, prompter);
         try {
             switch (command) {
                 case "readers" -> main.readers();
@@ -146,6 +165,7 @@ public final class Main {
                 case "tap" -> main.tap();
                 case "reset" -> main.reset();
                 case "admin" -> new AdminCommands(out, options, main.configPath()).run(words);
+                case "backup" -> new BackupCommands(out, options, main.configPath(), prompter).run(words);
                 case "resolver" -> {
                     if ("register".equals(subcommand)) {
                         main.resolverRegister();
@@ -176,6 +196,7 @@ public final class Main {
     private static boolean takesWords(String command, int count) {
         return switch (command) {
             case "resolver" -> count < 2;
+            case "backup" -> count < 3;
             case "admin" -> count < 4;
             default -> false;
         };
@@ -203,21 +224,8 @@ public final class Main {
         Path config = configPath();
         byte[] master = new byte[16];
         new SecureRandom().nextBytes(master);
-        String content = """
-                # Settings for knurd and knurctl. Keep this file secret: master.key unlocks every
-                # tag set up with it. If you lose it, tags set up with it can only be verified or
-                # reset with a backup of this file.
-                listen.host=127.0.0.1
-                listen.port=8424
-                # The HTTPS address phones use to reach knurd, e.g. a Tailscale Funnel name.
-                # knurctl provision writes <public.url>/tap onto tags, or a tap.knura.io link that
-                # forwards there once you run: knurctl resolver register
-                #public.url=https://your-computer.your-tailnet.ts.net
-                master.key=%s
-                counters.file=knurd-counters.properties
-                """.formatted(Hex.encode(master));
         try {
-            Files.writeString(config, content, StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+            Files.writeString(config, settingsFile(master), StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
         } catch (FileAlreadyExistsException e) {
             throw new UsageException(config + " already exists; knurctl will not overwrite a master key."
                     + " Delete it first only if no tag uses its key.");
@@ -228,7 +236,41 @@ public final class Main {
             // Not a POSIX file system: leave the default permissions.
         }
         out.println("Wrote " + config.toAbsolutePath() + " with a new master key.");
-        out.println("Back this file up somewhere safe: tags you set up depend on its master.key.");
+        out.println("Every tag you set up depends on it. Back it up now, before your first tag:");
+        out.println("  knurctl backup create    (an encrypted copy of this folder)");
+        out.println("  knurctl backup sheet     (a recovery sheet to print and keep)");
+    }
+
+    /** A new knurd.properties holding {@code master}. */
+    static String settingsFile(byte[] master) {
+        return """
+                # Settings for knurd and knurctl. Keep this file secret: master.key unlocks every
+                # tag set up with it. If you lose it, tags set up with it can only be verified or
+                # reset with a backup (knurctl backup create) or a recovery sheet (knurctl backup sheet).
+                listen.host=127.0.0.1
+                listen.port=8424
+                # The HTTPS address phones use to reach knurd, e.g. a Tailscale Funnel name.
+                # knurctl provision writes <public.url>/tap onto tags, or a tap.knura.io link that
+                # forwards there once you run: knurctl resolver register
+                #public.url=https://your-computer.your-tailnet.ts.net
+                master.key=%s
+                counters.file=knurd-counters.properties
+                """.formatted(Hex.encode(master));
+    }
+
+    /** The resolver lines knurctl resolver register adds to knurd.properties. */
+    static String resolverLines(String resolverUrl, String owner, OwnerKey key) {
+        return """
+
+                # Tap resolver (knurctl resolver register): tags provisioned after registering
+                # carry %s/<resolver.owner>, and the resolver forwards each tap to public.url.
+                # resolver.key proves you own resolver.owner: keep it secret, back it up, and
+                # never share it. Whoever has it can send your tags' taps elsewhere.
+                resolver.url=%s
+                resolver.owner=%s
+                resolver.publicKey=%s
+                resolver.key=%s
+                """.formatted(resolverUrl, resolverUrl, owner, key.publicKeyHex(), key.seedHex());
     }
 
     private void info() throws IOException, ReaderException, UsageException {
@@ -291,6 +333,7 @@ public final class Main {
             if (claim != null) {
                 out.println("Claimed: the tag now has keys only your master key opens. Its claim card no longer works.");
             }
+            BackupCommands.remindIfNotBackedUp(out, configPath(), master);
             out.println();
             out.println("To check it with knurd (start knurd first):");
             out.println("  curl '" + result.tapUrl() + "'");
@@ -445,19 +488,50 @@ public final class Main {
     }
 
     private byte[] masterKeyIfConfigured() throws IOException, UsageException {
-        String hex = config().getProperty("master.key");
-        if (hex == null || hex.isBlank()) {
+        return masterKeyOf(config(), configPath());
+    }
+
+    /**
+     * The master key from {@code master.key}, or alone in the file {@code master.key.file} names
+     * (relative to the settings file's folder), as knurd reads it; null if neither is set.
+     */
+    static byte[] masterKeyOf(Properties config, Path configPath) throws IOException, UsageException {
+        String hex = config.getProperty("master.key", "").trim();
+        String file = config.getProperty("master.key.file", "").trim();
+        String source = "master.key in " + configPath;
+        if (!hex.isEmpty() && !file.isEmpty()) {
+            throw new UsageException("set master.key or master.key.file in " + configPath + ", not both");
+        }
+        if (!file.isEmpty()) {
+            Path keyFile = masterKeyFile(config, configPath);
+            if (!Files.exists(keyFile)) {
+                throw new UsageException("master.key.file not found: " + keyFile);
+            }
+            hex = Files.readString(keyFile, StandardCharsets.UTF_8).trim();
+            source = "master.key.file " + keyFile;
+        }
+        if (hex.isEmpty()) {
             return null;
         }
         try {
-            byte[] key = Hex.decode(hex.trim());
+            byte[] key = Hex.decode(hex);
             if (key.length == 16) {
                 return key;
             }
         } catch (IllegalArgumentException e) {
             // Reported below.
         }
-        throw new UsageException("master.key in " + configPath() + " must be 32 hex digits");
+        throw new UsageException(source + " must be 32 hex digits");
+    }
+
+    /** Where master.key.file points, or null when it isn't set. */
+    static Path masterKeyFile(Properties config, Path configPath) {
+        String file = config.getProperty("master.key.file", "").trim();
+        if (file.isEmpty()) {
+            return null;
+        }
+        Path dir = configPath.toAbsolutePath().getParent();
+        return dir.resolve(file).normalize();
     }
 
     /** Where provision points tags when --base-url isn't given. */
@@ -504,22 +578,13 @@ public final class Main {
             ResolverClient client = newResolverClient(options.getOrDefault("--resolver", ResolverClient.DEFAULT_URL));
             String owner = OwnerIds.generate(new SecureRandom());
             OwnerKey key = OwnerKey.generate();
-            String lines = """
-
-                    # Tap resolver (knurctl resolver register): tags provisioned after registering
-                    # carry %s/<resolver.owner>, and the resolver forwards each tap to public.url.
-                    # resolver.key proves you own resolver.owner: keep it secret, back it up, and
-                    # never share it. Whoever has it can send your tags' taps elsewhere.
-                    resolver.url=%s
-                    resolver.owner=%s
-                    resolver.publicKey=%s
-                    resolver.key=%s
-                    """.formatted(client.baseUrl(), client.baseUrl(), owner, key.publicKeyHex(), key.seedHex());
+            String lines = resolverLines(client.baseUrl(), owner, key);
             String existing = Files.readString(path, StandardCharsets.UTF_8);
             String separator = existing.isEmpty() || existing.endsWith("\n") ? "" : "\n";
             Files.writeString(path, separator + lines, StandardCharsets.UTF_8, StandardOpenOption.APPEND);
             out.println("Your owner ID is " + owner + ". Tags will carry " + client.tapBase(owner) + "?e=...&c=...");
-            out.println("Added it and its key to " + path.toAbsolutePath() + " (back this file up).");
+            out.println("Added it and its key to " + path.toAbsolutePath() + ".");
+            out.println("resolver.key is new, so older backups don't have it: run 'knurctl backup create' again.");
             out.println();
             out.println("Next: restart knurd so it can confirm the owner ID to the resolver, then run");
             out.println("  knurctl resolver register");

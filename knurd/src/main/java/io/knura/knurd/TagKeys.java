@@ -61,6 +61,11 @@ public final class TagKeys {
         return masterKey == null ? "fixed" : "master";
     }
 
+    /** The master key's short ID (see {@link io.knura.core.backup.BackupRecord#keyId}), or empty in fixed mode. */
+    public Optional<String> masterKeyId() {
+        return Optional.ofNullable(masterKey).map(io.knura.core.backup.BackupRecord::keyId);
+    }
+
     public Optional<byte[]> metaReadKey() {
         return Optional.ofNullable(metaReadKey).map(byte[]::clone);
     }

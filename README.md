@@ -51,12 +51,13 @@ Next steps: [tap with a phone](#tapping-with-a-phone), send each tap to a
 [signed webhook](#knurgn) or the [Matter bridge](knurgn-matter/README.md), or run it all on
 [Kubernetes](deploy/README.md).
 
-Keep `master.key` secret and backed up: it is the only way to verify or rewrite your tags. Back
-up `knurd.properties` only somewhere encrypted (a password manager, an encrypted USB stick or an
-encrypted backup), never a plain cloud folder: anyone with the file can make tags yours accept.
-Never restore `knurd-counters.properties` from an older backup: lower counters let tap links that
-were already used work again. If you lose it, start knurd with an empty one and tap each tag once,
-so its counter catches up before anyone can reuse an old link.
+Keep `master.key` secret and backed up: it is the only way to verify or rewrite your tags.
+`knurctl backup create` packs your settings folder into one passphrase-locked file, and
+`knurctl backup sheet` writes a one-page recovery sheet to print; `knurctl backup restore` puts
+either back (see [Back up and move your keys](https://docs.knura.io/home/keys-backup/)). Never
+keep `knurd.properties` unencrypted in a cloud folder: anyone with the file can make tags yours
+accept. Restoring an older `knurd-counters.properties` lets tap links made since that backup work
+once more, so tap each tag once after a restore so its counter catches up.
 
 To run knurd and the Matter bridge on Kubernetes, use the Helm chart and container images in
 [`deploy/`](deploy/README.md). `deploy/kind/test.sh` tries it all on a throwaway local cluster.

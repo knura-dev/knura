@@ -8,6 +8,7 @@ import com.sun.net.httpserver.HttpsParameters;
 import com.sun.net.httpserver.HttpsServer;
 import io.knura.core.admin.AdminTokens;
 import io.knura.core.admin.LocalAddresses;
+import io.knura.core.backup.BackupRecord;
 import io.knura.core.resolver.FlatJson;
 import java.io.IOException;
 import java.io.InputStream;
@@ -24,6 +25,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executors;
+import java.util.function.Supplier;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
 
@@ -73,8 +75,16 @@ final class AdminServer implements AutoCloseable {
             "Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-IP",
             "CF-Connecting-IP", "True-Client-IP", "Tailscale-User-Login", "Tailscale-Funnel-Request");
 
-    /** What /v1/status reports. */
-    record Info(String keyMode, String publicUrl, String resolverOwner, int knots, Instant startedAt) {}
+    /**
+     * What /v1/status reports. {@code backup} reads when the master key was last backed up, or is
+     * null when there is no master key to back up.
+     */
+    record Info(String keyMode, String publicUrl, String resolverOwner, int knots, Instant startedAt,
+            Supplier<BackupRecord.Status> backup) {
+        Info(String keyMode, String publicUrl, String resolverOwner, int knots, Instant startedAt) {
+            this(keyMode, publicUrl, resolverOwner, knots, startedAt, null);
+        }
+    }
 
     private record Answer(int status, String json, String detail) {}
 
@@ -350,7 +360,17 @@ final class AdminServer implements AutoCloseable {
         long uptime = Duration.between(info.startedAt(), clock.instant()).toSeconds();
         return "{\"status\":\"up\",\"uptimeSeconds\":" + uptime + ",\"keys\":" + Json.quote(info.keyMode())
                 + ",\"publicUrl\":" + Json.quote(info.publicUrl()) + ",\"resolverOwner\":" + Json.quote(info.resolverOwner())
-                + ",\"knots\":" + info.knots() + ",\"tags\":" + counters.snapshot().size() + "}";
+                + ",\"knots\":" + info.knots() + ",\"tags\":" + counters.snapshot().size() + backup() + "}";
+    }
+
+    /** {@code ,"backup":{"file":..,"sheet":..}} with ISO times or null, or nothing without a master key. */
+    private String backup() {
+        if (info.backup() == null) {
+            return "";
+        }
+        BackupRecord.Status s = info.backup().get();
+        return ",\"backup\":{\"file\":" + Json.quote(s.file().map(Instant::toString).orElse(null))
+                + ",\"sheet\":" + Json.quote(s.sheet().map(Instant::toString).orElse(null)) + "}";
     }
 
     private String tags() {
