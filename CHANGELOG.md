@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Setup page, step 6: for Home Assistant, choose what the tap does. "Show a notification" (the
+  default, nothing to set up first) or "Turn a light on or off" with your light's entity id. The
+  automation to paste follows your choice.
+
 - Setup page, step 5: the "Tap verified" rings are centred and no longer cut off, and the
   animation plays once when the tap arrives instead of again each time you pick an icon.
 

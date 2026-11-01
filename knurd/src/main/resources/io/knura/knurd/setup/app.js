@@ -66,7 +66,7 @@ let S = {
   screen: 'loading', start: 'new', session: null, settings: null, status: null, tags: [], connections: [], reach: null,
   name: '', pw: '', pw2: '', showpw: false, busy: false, err: '',
   priorKit: null, words: [], fileDone: false, sheetDone: false, c2: '', c5: '', redoBackup: false,
-  dev: null, reachMode: 'ts', ts: null, funnelFix: null, ownurl: '', tapIssue: null,
+  dev: null, reachMode: 'ts', ts: null, haDo: 'notify', haLight: 'light.living_room', funnelFix: null, ownurl: '', tapIssue: null,
   tagSince: null, tag: null, tagname: 'Front door', tagicon: 'door', tapped: false,
   act: null, actUrl: '', secret: null, connId: null, tested: false,
 };
@@ -323,7 +323,7 @@ ${S.tapped ? `<div class="tapzone" style="min-height:240px">
 ${errLine()}`;
 }
 
-const CHOICES = { start: ['new', 'restore', 'hosted'], dev: ['phone', 'reader'], act: ['ha', 'matter', 'web', 'none'], reachMode: ['ts', 'own'] };
+const CHOICES = { start: ['new', 'restore', 'hosted'], dev: ['phone', 'reader'], act: ['ha', 'matter', 'web', 'none'], reachMode: ['ts', 'own'], haDo: ['notify', 'light'] };
 const TAP_ISSUES = {
   rejected: '<b>A tap arrived, but Knura couldn\u2019t check it.</b> The tag was set up with a different master key, maybe from an older Knura. Set it up again with <code>knurctl provision</code> (use <code>knurctl reset</code> first if it belongs to an old setup you still have).',
   replay: '<b>That link was already used.</b> Each tap makes a new link that works once. Tap the tag again instead of reloading the page on your phone.',
@@ -355,10 +355,21 @@ function actPanel() {
 <div><label class="fl" for="actUrl">${label}</label><div class="copyrow"><input id="actUrl" class="in" style="flex:1;min-width:220px" data-in="actUrl" placeholder="${ph}" value="${esc(S.actUrl)}" spellcheck="false"><button class="btn primary" data-act="connect" ${S.busy ? 'disabled' : ''}>${S.busy ? '<span class="spin"></span>' : ''} Connect</button></div><p class="small muted" style="margin-top:6px">${hint}</p></div>`;
   let extra = '';
   if (a === 'ha') {
-    const yaml = `alias: ${S.tagname || 'Knura tag'} tap from Knura\ntriggers:\n  - trigger: webhook\n    webhook_id: ${S.secret || 'YOUR_EXISTING_WEBHOOK_ID'}\n    allowed_methods:\n      - POST\n    local_only: true\nactions:\n  - action: light.toggle\n    target:\n      entity_id: light.living_room`;
+    const light = /^light\.[a-z0-9_]+$/.test(S.haLight.trim()) ? S.haLight.trim() : 'light.living_room';
+    const alias = JSON.stringify((S.tagname || 'Knura tag') + ' tap from Knura');
+    const doIt = S.haDo === 'light'
+      ? `  - action: light.toggle\n    target:\n      entity_id: ${light}`
+      : `  - action: persistent_notification.create\n    data:\n      title: Knura tap\n      message: "{{ trigger.json.data.name | default('A tag') }} was tapped"`;
+    const yaml = `alias: ${alias}\ntriggers:\n  - trigger: webhook\n    webhook_id: ${S.secret || 'YOUR_EXISTING_WEBHOOK_ID'}\n    allowed_methods:\n      - POST\n    local_only: true\nactions:\n${doIt}`;
     extra = `<div style="display:flex;flex-direction:column;gap:10px">
   <b>Add this automation in Home Assistant</b>
-  <p class="small muted">${S.secret ? 'Knura made a secret webhook id for it, shown only now.' : 'This connection already existed, so use the webhook id you saved then.'} In Home Assistant, go to <b>Settings → Automations & scenes → Create automation</b>, choose <b>Edit in YAML</b> from the ⋮ menu, and paste this. Change the light to the one you want.</p>
+  <div class="row" style="flex-wrap:wrap;gap:8px" role="group" aria-label="What should the tap do?">
+    <span class="small muted">When it\u2019s tapped:</span>
+    <button class="btn sm${S.haDo === 'notify' ? ' primary' : ''}" data-set="haDo" data-val="notify" aria-pressed="${S.haDo === 'notify'}">${ico('bell', 15)} Show a notification</button>
+    <button class="btn sm${S.haDo === 'light' ? ' primary' : ''}" data-set="haDo" data-val="light" aria-pressed="${S.haDo === 'light'}">${ico('lamp', 15)} Turn a light on or off</button>
+  </div>
+  ${S.haDo === 'light' ? `<div><label class="fl" for="haLight">The light\u2019s entity id</label><input id="haLight" class="in" data-in="haLight" value="${esc(S.haLight)}" placeholder="light.living_room" autocomplete="off" spellcheck="false"><p class="small muted" style="margin-top:6px">Find it in Home Assistant under Settings \u2192 Devices & services \u2192 Entities. It starts with <code>light.</code></p></div>` : ''}
+  <p class="small muted">${S.secret ? 'Knura made a secret webhook id for it, shown only now.' : 'This connection already existed, so use the webhook id you saved then.'} In Home Assistant, go to <b>Settings → Automations & scenes → Create automation</b>, choose <b>Edit in YAML</b> from the ⋮ menu, and paste this. ${S.haDo === 'light' ? '' : 'The notification shows under the bell in Home Assistant\u2019s sidebar.'}</p>
   <pre class="term" id="yaml">${esc(yaml)}</pre>
   <div class="copyrow"><button class="btn sm" data-copy="yaml">${ico('copy', 15)} Copy</button>${/^https?:\/\//i.test(S.actUrl) ? `<a class="btn sm" href="${esc(S.actUrl)}" target="_blank" rel="noopener">${ico('ha', 15)} Open Home Assistant</a>` : ''}</div></div>`;
   } else if (S.secret) {
@@ -369,8 +380,8 @@ function actPanel() {
 <div class="sub row${an('conn' + a)}" style="padding:14px 16px;flex-wrap:wrap"><div class="tile ok">${ico(a === 'ha' ? 'ha' : a === 'web' ? 'web' : 'matter', 22)}</div><div style="flex:1;min-width:180px"><b>Connected</b><p class="small muted mono" style="word-break:break-all">${esc(S.actUrl)}</p></div><span class="pill ok">${ico('check', 13, 2.4)} ${esc(S.tagname)} uses it</span></div>
 ${extra}
 <div class="sub" style="padding:18px;display:flex;flex-direction:column;gap:14px;align-items:center;text-align:center">
-  <div class="flowline">${ico(S.tagicon, 22)}<div class="wire" style="${S.tested ? '' : 'animation:none;opacity:.35'}"></div><div class="lamp${S.tested ? ' on' : ''}">${ico(a === 'ha' ? 'lamp' : a === 'matter' ? 'house' : 'web', 34)}</div></div>
-  ${S.tested ? `<div class="rise"><b>Sent to ${target.charAt(0).toLowerCase() + target.slice(1)}</b><p class="small muted">${a === 'ha' ? 'Did your light change? If not, check the automation’s trace in Home Assistant.' : 'Check that it arrived.'} Tap ${esc(S.tagname)} for real any time.</p></div>` : `<p class="small muted">Send a pretend tap to check it all works.</p>`}
+  <div class="flowline">${ico(S.tagicon, 22)}<div class="wire" style="${S.tested ? '' : 'animation:none;opacity:.35'}"></div><div class="lamp${S.tested ? ' on' : ''}">${ico(a === 'ha' ? (S.haDo === 'light' ? 'lamp' : 'bell') : a === 'matter' ? 'house' : 'web', 34)}</div></div>
+  ${S.tested ? `<div class="rise"><b>Sent to ${target.charAt(0).toLowerCase() + target.slice(1)}</b><p class="small muted">${a === 'ha' ? (S.haDo === 'light' ? 'Did your light change?' : 'Check the bell in Home Assistant.') + ' If not, check the automation\u2019s trace in Home Assistant.' : 'Check that it arrived.'} Tap ${esc(S.tagname)} for real any time.</p></div>` : `<p class="small muted">Send a pretend tap to check it all works.</p>`}
   <button class="btn sm${S.tested ? '' : ' primary'}" data-act="test">${ico('bolt', 15)} ${S.tested ? 'Send another test' : 'Send a test'}</button>
 </div>`;
 }
@@ -672,9 +683,10 @@ document.addEventListener('input', e => {
   switch (t.dataset.in) { // the only fields a text box may set
     case 'name': S.name = v; break; case 'pw': S.pw = v; break; case 'pw2': S.pw2 = v; break;
     case 'c2': S.c2 = v; break; case 'c5': S.c5 = v; break;
-    case 'tagname': S.tagname = v; break; case 'actUrl': S.actUrl = v; break; case 'ownurl': S.ownurl = v; break;
+    case 'tagname': S.tagname = v; break; case 'actUrl': S.actUrl = v; break; case 'ownurl': S.ownurl = v; break; case 'haLight': S.haLight = v; break;
     default: return;
   }
+  if (t.dataset.in === 'haLight') { render(); return; } // the automation text follows what's typed
   if (t.dataset.in === 'pw' || t.dataset.in === 'pw2') {
     const st = strength(S.pw), m = document.getElementById('pwm'), pt = document.getElementById('pwt'), p2 = document.getElementById('pw2t');
     if (m) { m.style.width = st.w + '%'; m.style.background = st.c; }
@@ -688,7 +700,7 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.dataset && e.target.dataset.in && typeof S.screen === 'number') {
-    if (e.target.id === 'actUrl') connect(); else if (e.target.id === 'ownurl') { if (S.ownurl.trim()) saveUrl(S.ownurl.trim()); } else next();
+    if (e.target.id === 'haLight') return; if (e.target.id === 'actUrl') connect(); else if (e.target.id === 'ownurl') { if (S.ownurl.trim()) saveUrl(S.ownurl.trim()); } else next();
   }
 });
 
