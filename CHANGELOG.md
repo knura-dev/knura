@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- The admin API can now change things, for the coming setup page. A browser signs in with a
+  password (`POST /v1/password` sets the first one, from the Knura computer only; `POST
+  /v1/session` signs in), kept as a PBKDF2-SHA256 hash in `knurd-admin-password` (chmod 600), with
+  an `HttpOnly`, `SameSite=Strict` session cookie. Signed-in browsers, plaintext mode and the
+  tokens in `admin.provision.tokens` may name this Knura (`knura.name`), label tags and give them
+  icons (`knurd-tags.properties`), add, change and remove webhook, Home Assistant and Matter
+  connectors (a new one's secret is made for you and shown once), choose what each tag does, run
+  a tag's actions as a test (`POST /v1/tags/<UID>/test`, counter 0) and reload hand-edited actions
+  files. Changes are written into the usual files, keeping comments, and checked by loading them
+  as knurd would; a bad change is undone and refused. Good changes take effect at once, with no
+  restart. Requests that change something or carry the session cookie need `X-Knura-Request: 1`
+  and a matching `Origin`, so other web sites can't use a signed-in browser. Tag labels are sent
+  with each tap as `"name"`. See docs/setup-api.md.
 - Android app 0.8.1: with a hosted account, tag names are shared both ways. A rename in the app
   shows on the account's dashboard and a rename there shows in the app on its next refresh. The
   newest change wins; a rename made offline is sent later and only sticks if the tag wasn't

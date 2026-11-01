@@ -63,7 +63,8 @@ public final class Main {
         }
         FileCounterStore counters = new FileCounterStore(config.countersFile());
         TapVerifier verifier = new TapVerifier(config.keys(), counters);
-        KnurdServer.TapListener listener = knurgn == null ? (uid, counter) -> 0 : knurgn::onVerifiedTap;
+        LiveActions listener = new LiveActions(knurgn, Clock.systemUTC());
+        HomeSettings settings = new HomeSettings(configFile, config.actionsFile(), listener, Clock.systemUTC());
         KnurdConfig.Resolver resolver = config.resolver();
         KnurdServer server = new KnurdServer(
                 config.host(), config.port(), verifier, listener, resolver == null ? null : resolver.owner());
@@ -72,7 +73,8 @@ public final class Main {
         AdminServer admin = null;
         if (config.admin() != null) {
             try {
-                admin = startAdmin(config, configFile, counters, recentTaps, knurgn == null ? 0 : knurgn.knotCount());
+                admin = startAdmin(config, configFile, counters, recentTaps, knurgn == null ? 0 : knurgn.knotCount(),
+                        settings);
             } catch (IOException e) {
                 server.close();
                 System.err.println("knurd: can't start the admin API: " + e.getMessage());
@@ -107,7 +109,7 @@ public final class Main {
             LOG.log(Level.WARNING, "master.key has no backup yet, and every tag set up with it depends on it."
                     + " Run 'knurctl backup create' or 'knurctl backup sheet' in " + configFile.toAbsolutePath().getParent());
         }
-        Knurgn actions = knurgn;
+        LiveActions actions = listener;
         ResolverWatch resolverWatch = watch;
         AdminServer adminServer = admin;
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -118,13 +120,10 @@ public final class Main {
                 resolverWatch.close();
             }
             server.close();
-            if (actions != null) {
-                actions.close();
-            }
+            actions.close();
         }));
     }
 
-    /** Starts the admin listener; see {@link AdminServer}. */
     /** Reads when this master key was last backed up, or null without a master key. */
     static Supplier<BackupRecord.Status> backupStatus(KnurdConfig config, Path configFile) {
         Optional<String> id = config.keys().masterKeyId();
@@ -135,8 +134,9 @@ public final class Main {
         return () -> BackupRecord.read(folder, id.get());
     }
 
+    /** Starts the admin listener; see {@link AdminServer}. */
     private static AdminServer startAdmin(KnurdConfig config, Path configFile, CounterStore counters, RecentTaps taps,
-            int knots)
+            int knots, HomeSettings settings)
             throws IOException {
         KnurdConfig.Admin a = config.admin();
         SSLContext tls = null;
@@ -169,6 +169,8 @@ public final class Main {
         }
         AdminServer admin = new AdminServer(
                 a.host(), a.port(), tls, tokens, audit, counters, taps, info, Clock.systemUTC(), nfc);
+        AdminPassword password = new AdminPassword(configFile.toAbsolutePath().getParent().resolve(AdminPassword.FILE));
+        admin.manage(new AdminServer.Manage(password, new Sessions(Clock.systemUTC()), settings));
         admin.start();
         info("knurd admin API on %s://%s:%d, for knurctl only: never put this port on the internet",
                 a.tls() ? "https" : "http", a.host(), admin.port());

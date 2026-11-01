@@ -1,0 +1,129 @@
+# Setup API
+
+The admin API's requests for the setup page: the web page knurd will serve so people can set
+Knura up and change it without a terminal. This document covers the API only; the page itself
+comes in a later change.
+
+Everything here goes through the admin listener (port 8425), with the same rules as the rest of
+the admin API: this computer or the local network only, never through a proxy or tunnel, and
+every request written to the audit log. Passwords, session ids, secrets and webhook addresses
+never are.
+
+## Who may use it
+
+| Caller | How it signs in | May change settings |
+| --- | --- | --- |
+| A browser on the setup page | The password, then a session cookie | Yes |
+| Plaintext mode (`admin.security=plaintext`, this computer only) | Nothing | Yes |
+| A token in `admin.provision.tokens` (your phones) | `Authorization: Bearer` | Yes |
+| Any other token | `Authorization: Bearer` | No (403), reading still works |
+
+### Stopping other web sites
+
+A browser sends the session cookie with every request to knurd, even one a different web site
+started. So every request that changes something, and every request that carries a session
+cookie, must have the header `X-Knura-Request: 1`, and if it has an `Origin` header it must be
+knurd's own address. A web page on another site can't add that header without the browser asking
+knurd first, and knurd never agrees. The cookie is also `HttpOnly` and `SameSite=Strict`, and
+`Secure` when the admin API uses TLS.
+
+knurctl and the phone app never send cookies, so their existing requests are unchanged. New
+requests that change settings need the header from them too.
+
+## The password
+
+There is one password, for signing in to the setup page. knurd keeps only a salted
+PBKDF2-SHA256 hash (310,000 rounds) in `knurd-admin-password` next to `knurd.properties`, chmod
+600. If anyone else can read or change that file, every password is refused until you run
+`chmod 600` on it.
+
+The **first** password can only be set from the Knura computer itself (a loopback address), so
+nobody else on your Wi-Fi can get there first. A Raspberry Pi with no screen will get a setup
+code for this instead, in a later change.
+
+Five wrong passwords from one address within 5 minutes lock that address out for 5 minutes.
+
+Sessions are kept in memory only, so restarting knurd signs everyone out. A session ends after 12
+hours without use, or 7 days after signing in. Changing the password signs everyone else out.
+
+## Requests
+
+Bodies are flat JSON objects of strings. Answers are JSON.
+
+### Signing in
+
+| Request | Body | Answer |
+| --- | --- | --- |
+| `GET /v1/session` | | `{"passwordSet":true,"signedIn":false}` |
+| `POST /v1/password` (no password yet, this computer only) | `{"password":"..."}` | `{"signedIn":true}` and a cookie |
+| `POST /v1/session` | `{"password":"..."}` | `{"signedIn":true}` and a cookie; 401 wrong, 409 none set, 429 locked out |
+| `DELETE /v1/session` | | `{"signedIn":false}` |
+| `POST /v1/password` (signed in) | `{"current":"...","password":"..."}` | `{"changed":true}` and a new cookie |
+
+Passwords need 8 to 256 characters. Tokens and plaintext mode change the password without
+`current`.
+
+### This Knura's name
+
+| Request | Body | Answer |
+| --- | --- | --- |
+| `GET /v1/settings` | | `{"name":"Our house","passwordSet":true}` |
+| `PUT /v1/settings` | `{"name":"Our house"}` | the same |
+
+The name is saved as `knura.name` in `knurd.properties`. `/v1/status` includes it.
+
+### Tags
+
+`GET /v1/tags` now lists every tag knurd knows of, from its counters, labels and actions:
+
+```json
+{"tags":[{"uid":"04DE5F1EACC040","lastCounter":61,"label":"Front door","icon":"door","actions":["living-room"]}]}
+```
+
+| Request | Body | What it does |
+| --- | --- | --- |
+| `PUT /v1/tags/<UID>` | `{"label":"Front door","icon":"door"}` | Sets the label and icon. Leave one out to clear it. |
+| `PUT /v1/tags/<UID>/actions` | `{"actions":"living-room,ifttt"}` | Sets which connectors the tag runs, in order. `""` takes its rule away. |
+| `POST /v1/tags/<UID>/test` | | Runs the tag's actions now: `{"started":1}` |
+
+Labels are free text, up to 40 characters, and are sent with each tap as `"name"`. They are kept
+in `knurd-tags.properties`. Icons are short names like `door`, made of lowercase letters,
+digits and `-`.
+
+A test sends the same event a real tap would, with counter 0, which no real tap has (counters
+start at 1). Receivers that drop repeated event ids will only see the first test, since every test
+of a tag has the id `<UID>:0`.
+
+### Connections
+
+| Request | Body | What it does |
+| --- | --- | --- |
+| `GET /v1/connections` | | `{"connections":[{"type":"webhook","id":"ifttt","url":"https://...","usedBy":["04DE5F1EACC040"]}]}` |
+| `PUT /v1/connections/<type>/<id>` | `{"url":"https://..."}` | Adds the connector, or changes its address. |
+| `DELETE /v1/connections/<type>/<id>` | | Removes it and its secret. 409 while a tag still uses it. |
+
+`<type>` is `webhook`, `homeassistant` or `matter`. A new connector gets a fresh secret, which the
+answer shows **once** as `"secret"`: a `whsec_` signing secret, or a 48-character Home Assistant
+webhook id to paste into the automation. Changing the address keeps the secret, and the answer
+has `"secret":null`.
+
+| Request | What it does |
+| --- | --- |
+| `POST /v1/actions/reload` | Reads the actions files again after you edited them by hand: `{"knots":2}` |
+
+## How changes are saved
+
+Changes go into the same files you'd edit by hand, so the page and a text editor always agree:
+`knurd.properties`, the knurgN actions file (`actions.file`) and its secrets file. Only the lines
+that change are touched; comments and everything else stay as they were.
+
+The first time a connector or a tag's actions are set, knurd makes `knurgn.properties` and
+`knurgn-secrets.properties` (chmod 600) next to `knurd.properties`, and adds
+`actions.file=knurgn.properties` to `knurd.properties`.
+
+Every change to the actions files is checked by loading them as knurd does at start-up. If that
+fails, both files are put back as they were and the answer is a 400 with the reason, such as an
+`http://` address on the internet. A change that passes is used straight away, with no restart.
+Actions already on their way finish first.
+
+`knurd.properties` and the secrets file are rewritten in one step and stay chmod 600.
