@@ -215,10 +215,14 @@ label.fl{display:block;font-size:13px;font-weight:500;color:var(--muted);margin:
 
 /* first tap */
 .tapzone{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;min-height:260px;border-radius:22px;background:var(--sub);border:1px solid var(--sub-line);overflow:hidden;text-align:center;padding:24px}
-.burst{width:96px;height:96px;border-radius:50%;background:var(--ok);color:var(--bg);display:flex;align-items:center;justify-content:center;position:relative;animation:pop .6s cubic-bezier(.3,1.6,.5,1) both}
-.burst::before,.burst::after{content:"";position:absolute;inset:-2px;border-radius:50%;border:2px solid var(--ok);animation:wave 1.6s ease-out .2s 2 both}
-.burst::after{animation-delay:.6s}
-.burst path{stroke-dasharray:30;stroke-dashoffset:30;animation:dash .5s .35s ease-out forwards}
+.burst{width:96px;height:96px;margin:36px 0 18px;flex:none;border-radius:50%;background:var(--ok);color:var(--bg);display:flex;align-items:center;justify-content:center;position:relative}
+.burst::before,.burst::after{content:"";position:absolute;inset:-2px;border-radius:50%;border:2px solid var(--ok);opacity:0;pointer-events:none}
+/* .play only on the render where the tap arrives, so picking an icon later doesn't replay it */
+.burst.play{animation:pop .6s cubic-bezier(.3,1.6,.5,1) both}
+.burst.play::before,.burst.play::after{animation:ring 1.6s ease-out .2s 2 both}
+.burst.play::after{animation-delay:.6s}
+.burst.play path{stroke-dasharray:30;stroke-dashoffset:30;animation:dash .5s .35s ease-out forwards}
+@keyframes ring{0%{transform:scale(1);opacity:.8}100%{transform:scale(1.7);opacity:0}}
 @keyframes dash{to{stroke-dashoffset:0}}
 .waiting{width:96px;height:96px;border-radius:50%;border:2px dashed var(--accent-line);display:flex;align-items:center;justify-content:center;color:var(--accent);position:relative}
 .waiting::before{content:"";position:absolute;inset:-2px;border-radius:50%;border:2px solid var(--accent);animation:wave 2s ease-out infinite}
