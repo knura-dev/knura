@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Keeping the master key safe. `knurctl backup create` packs the settings folder into one
+  passphrase-locked `.knurabackup` file (AES-256-GCM, key from PBKDF2-HMAC-SHA256 with 600,000
+  rounds, JDK only, so no gpg), leaving out logs. `backup verify FILE` checks a copy opens and
+  holds this folder's master key; `backup restore FILE` unpacks it into an empty folder, every
+  file chmod 600, and never over an existing settings file. `backup sheet` writes a printable
+  one-page recovery sheet (to `/dev/shm` when it exists, so it never touches the disk) with
+  `master.key` and the tap.knura.io key as short hex rows, each with a two-character check that
+  catches a typo on the row it is in; `backup restore --sheet` types it back in and rebuilds
+  `knurd.properties`. `knurctl backup` says when this master key was last backed up, recorded in
+  `knura-backup.properties` by a short key ID (no secrets). `init` now asks for a backup, and
+  `provision` and knurd's startup log remind you until there is one. knurd's `/v1/status` gains
+  `"backup":{"file":..,"sheet":..}` in master-key mode, and the Android app shows it under Server
+  (Key backup). knurctl now also reads `master.key.file`, like knurd. New in knura-core:
+  `io.knura.core.backup` (`BackupFile`, `RecoverySheet`, `BackupRecord`) and `OwnerKey.fromSeed`.
 - Android app 0.8.0: a Check a tap tile for Quick Settings, and three home screen widgets: Last
   tap, Check a tap and Today (with the 7-day chart). Widgets show what the app last read and
   update whenever it checks the server.

@@ -32,7 +32,17 @@ data class Snapshot(
         val resolverOwner: String?,
         val knots: Int,
         val tags: Int,
+        /** When knurd's master key was last backed up, or null when knurd doesn't say (older knurd, fixed keys). */
+        val backup: Backup? = null,
     )
+
+    /** ISO times of the last backup file and recovery sheet for the current master key, null if never. */
+    data class Backup(val file: String?, val sheet: String?) {
+        val any: Boolean get() = file != null || sheet != null
+
+        /** The newer of the two dates (yyyy-mm-dd), or null. */
+        fun latestDay(): String? = listOfNotNull(file, sheet).maxOrNull()?.take(10)
+    }
 
     data class TagInfo(val uid: String, val lastCounter: Int)
 
@@ -66,6 +76,10 @@ data class Snapshot(
             JSONObject().put("uptimeSeconds", it.uptimeSeconds).put("keys", it.keys)
                 .put("publicUrl", it.publicUrl ?: JSONObject.NULL).put("resolverOwner", it.resolverOwner ?: JSONObject.NULL)
                 .put("knots", it.knots).put("tags", it.tags)
+                .apply {
+                    val b = it.backup
+                    if (b != null) put("backup", JSONObject().put("file", b.file ?: JSONObject.NULL).put("sheet", b.sheet ?: JSONObject.NULL))
+                }
         } ?: JSONObject.NULL)
         .put("tags", JSONObject().put("tags", JSONArray(tags.map { JSONObject().put("uid", it.uid).put("lastCounter", it.lastCounter) })))
         .put("taps", JSONObject().put("taps", JSONArray(taps.map {
@@ -80,7 +94,8 @@ data class Snapshot(
             at = at,
             status = status?.let {
                 Status(it.optLong("uptimeSeconds"), it.optString("keys"), it.nullableString("publicUrl"),
-                    it.nullableString("resolverOwner"), it.optInt("knots"), it.optInt("tags"))
+                    it.nullableString("resolverOwner"), it.optInt("knots"), it.optInt("tags"),
+                    it.optJSONObject("backup")?.let { b -> Backup(b.nullableString("file"), b.nullableString("sheet")) })
             },
             tags = tags?.optJSONArray("tags").objects().map { TagInfo(it.optString("uid"), it.optInt("lastCounter")) },
             taps = taps?.optJSONArray("taps").objects().mapNotNull {

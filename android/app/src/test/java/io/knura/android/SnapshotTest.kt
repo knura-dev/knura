@@ -92,4 +92,13 @@ class SnapshotTest {
         assertEquals("Tap #12 · 2 actions ran", Words.tapDetail(sample().taps[0]))
         assertEquals("Signature did not match", Words.tapDetail(sample().taps[1]))
     }
+
+    @Test
+    fun readsTheBackupDate() {
+        val s = Snapshot.of(now, JSONObject("""{"uptimeSeconds":1,"keys":"master","publicUrl":null,"resolverOwner":null,"knots":0,"tags":0,""" +
+            """"backup":{"file":"2026-10-30T12:00:00Z","sheet":null}}"""), null, null, null)
+        assertEquals("2026-10-30", s.status?.backup?.latestDay())
+        assertEquals(s, Snapshot.fromJson(s.toJson().toString()))
+        assertNull(sample().status?.backup)
+    }
 }

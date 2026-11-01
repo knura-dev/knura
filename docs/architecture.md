@@ -68,6 +68,12 @@ trusts, so it should be small enough to read in one sitting.
 | Admin and phone tokens | `knurctl` creds file / Android Keystore; knurd keeps only SHA-256 | Reading tags and taps, and setting tags up from the phone. |
 | Webhook secrets, Home Assistant ids | `knurgn-secrets.properties` (knurd refuses it if others can read it) | Your own automations. |
 
+Backups (`knurctl backup`, `io.knura.core.backup`): `BackupFile` is a passphrase-locked zip of the
+settings folder (AES-256-GCM, PBKDF2-HMAC-SHA256), `RecoverySheet` writes a key as checked hex rows
+for paper, and `BackupRecord` keeps `knura-backup.properties`, which holds only a short key ID and
+dates so knurctl, knurd and the app can remind you. The backup format and the sheet's check are
+read back by later versions, so treat them as fixed too.
+
 Keys never go to the phone: when the app sets up a tag, knurd works out the keys and sends each
 command through the admin API, and the phone only passes bytes to the tag. No real or
 development keys belong in this repository; tests use NXP's published example keys.

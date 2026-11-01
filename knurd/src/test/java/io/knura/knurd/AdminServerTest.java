@@ -10,6 +10,7 @@ import io.knura.core.admin.AdminKeystore;
 import io.knura.core.admin.AdminTokens;
 import io.knura.core.admin.CertFingerprint;
 import io.knura.core.admin.PrivateFiles;
+import io.knura.core.backup.BackupRecord;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -25,6 +26,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
@@ -161,6 +163,21 @@ class AdminServerTest {
                 + "{\"time\":\"" + t + "\",\"status\":\"ok\",\"uid\":\"04DE5F1EACC040\",\"counter\":61,\"actions\":1}]}",
                 get("/v1/taps", token).body());
         assertEquals(1, get("/v1/taps?limit=1", token).body().split("\"time\"").length - 1);
+    }
+
+    @Test
+    void statusSaysWhenTheMasterKeyWasBackedUp() throws Exception {
+        Instant made = Instant.parse("2026-10-30T12:00:00Z");
+        try (AdminServer withBackup = new AdminServer("127.0.0.1", 0, null, new TokenStore(tokensFile), audit, counters,
+                recent, new AdminServer.Info("master", null, null, 0, clock.instant(),
+                        () -> new BackupRecord.Status(Optional.of(made), Optional.empty())), clock)) {
+            withBackup.start();
+            HttpResponse<String> r = http.send(HttpRequest.newBuilder(
+                            URI.create("http://127.0.0.1:" + withBackup.port() + "/v1/status"))
+                    .header("Authorization", "Bearer " + token).build(), HttpResponse.BodyHandlers.ofString());
+            assertTrue(r.body().endsWith(",\"backup\":{\"file\":\"2026-10-30T12:00:00Z\",\"sheet\":null}}"), r.body());
+        }
+        assertFalse(get("/v1/status", token).body().contains("backup"), "nothing to say without a master key record");
     }
 
     @Test

@@ -892,6 +892,11 @@ class MainActivity : Activity() {
         rows += Triple(R.drawable.ic_ui_lock, "Certificate", if (hosted) "Public certificate" else "Pinned")
         rows += Triple(R.drawable.ic_ui_fingerprint, "Unlock", "Fingerprint or screen lock")
         if (st != null && !hosted) rows += Triple(R.drawable.ic_ui_link, "Resolver", st.resolverOwner?.let { "Owner $it" } ?: "Not registered")
+        val backup = st?.backup
+        if (backup != null && !hosted) {
+            rows += Triple(R.drawable.ic_ui_key, "Key backup",
+                backup.latestDay()?.let { "Backed up $it" } ?: "Not backed up: run knurctl backup create")
+        }
         col.addView(infoCard(rows), ui.lp(top = 10))
 
         val tokens = s?.tokens

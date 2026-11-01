@@ -51,6 +51,44 @@ public final class OwnerKey {
     }
 
     /**
+     * Rebuilds a key from its private seed alone, as written on a recovery sheet. The JDK has no
+     * direct way to get an Ed25519 public key from a seed, so this has its key pair generator draw
+     * the seed as its only randomness, which RFC 8032 key generation does.
+     */
+    public static OwnerKey fromSeed(String seedHex) {
+        byte[] seed = rawKey(seedHex, "resolver.key");
+        try {
+            KeyPairGenerator gen = KeyPairGenerator.getInstance("Ed25519");
+            gen.initialize(NamedParameterSpec.ED25519, new FixedRandom(seed));
+            byte[] spki = gen.generateKeyPair().getPublic().getEncoded();
+            byte[] raw = Arrays.copyOfRange(spki, spki.length - KEY_BYTES, spki.length);
+            return load(seedHex, HexFormat.of().formatHex(raw));
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("this Java has no Ed25519", e);
+        }
+    }
+
+    /** Hands out exactly one seed, then refuses, so a generator can't quietly use other randomness. */
+    private static final class FixedRandom extends java.security.SecureRandom {
+        private static final long serialVersionUID = 1L;
+        private transient byte[] seed;
+
+        FixedRandom(byte[] seed) {
+            this.seed = seed.clone();
+        }
+
+        @Override
+        public void nextBytes(byte[] bytes) {
+            if (seed == null || bytes.length != seed.length) {
+                throw new IllegalStateException("unexpected request for randomness");
+            }
+            System.arraycopy(seed, 0, bytes, 0, bytes.length);
+            Arrays.fill(seed, (byte) 0);
+            seed = null;
+        }
+    }
+
+    /**
      * Loads a key from its hex halves, as stored in knurd.properties. Throws
      * {@link IllegalArgumentException} if they are malformed or don't belong together.
      */

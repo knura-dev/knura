@@ -81,8 +81,16 @@ knurctl init
 This writes `knurd.properties` with a new random **master key**. Every tag you set up gets its own
 keys worked out from it.
 
-**Back this file up somewhere safe and private** (a password manager, an encrypted USB stick).
-Without it you can't verify or reset your tags. Never share it or put it in Git.
+**Back it up now**, before your first tag. Without the master key you can't verify or reset your
+tags, and there is no way to get it back:
+
+```sh
+knurctl backup create    # an encrypted copy of this folder, locked with a passphrase you choose
+knurctl backup sheet     # a one-page recovery sheet to print and keep with your important papers
+```
+
+Copy the backup file off this computer and keep its passphrase in your password manager. Never
+share `knurd.properties` or put it in Git. `knurctl backup` on its own says when you last backed up.
 
 ## 4. Set up a tag
 
@@ -163,7 +171,8 @@ knurctl provision --from knura
 knurctl resolver check        # shows where your taps go
 ```
 
-Back up `knurd.properties` again afterwards: it now holds your resolver key too.
+Back up again afterwards (`knurctl backup create`, and a new `knurctl backup sheet`): your
+settings now hold your resolver key too.
 
 ## 7. Make a tap do something
 
