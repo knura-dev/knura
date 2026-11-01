@@ -256,7 +256,7 @@ unless it is this computer. knurd keeps only each token's SHA-256.
 Once the admin API is on, open **http://127.0.0.1:8425/setup** in a browser on knurd's computer.
 It walks you through seven steps: name this Knura and pick a password for the page, save a
 recovery kit (a passphrase-locked backup file and a printable recovery sheet, both required
-before the first tag), check that phones can reach your `public.url`, pick a phone or USB reader,
+before the first tag), let phones reach it (it installs nothing, but turns on Tailscale Funnel and saves the address for you), pick a phone or USB reader,
 set up and tap your first tag, give it an action (Home Assistant, Matter or a web service) and
 send a test. The first password can only be set from knurd's own computer. Changes go into the
 usual files and take effect without a restart, so the page and a text editor always agree.

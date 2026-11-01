@@ -170,7 +170,7 @@ public final class Main {
         AdminServer admin = new AdminServer(
                 a.host(), a.port(), tls, tokens, audit, counters, taps, info, Clock.systemUTC(), nfc);
         AdminPassword password = new AdminPassword(configFile.toAbsolutePath().getParent().resolve(AdminPassword.FILE));
-        admin.manage(new AdminServer.Manage(password, new Sessions(Clock.systemUTC()), settings));
+        admin.manage(new AdminServer.Manage(password, new Sessions(Clock.systemUTC()), settings, Tailscale.find(config.port())));
         admin.start();
         info("knurd admin API on %s://%s:%d, for knurctl only: never put this port on the internet",
                 a.tls() ? "https" : "http", a.host(), admin.port());

@@ -66,7 +66,7 @@ let S = {
   screen: 'loading', start: 'new', session: null, settings: null, status: null, tags: [], connections: [], reach: null,
   name: '', pw: '', pw2: '', showpw: false, busy: false, err: '',
   priorKit: null, words: [], fileDone: false, sheetDone: false, c2: '', c5: '', redoBackup: false,
-  dev: null,
+  dev: null, reachMode: 'ts', ts: null, funnelFix: null, ownurl: '', tapIssue: null,
   tagSince: null, tag: null, tagname: 'Front door', tagicon: 'door', tapped: false,
   act: null, actUrl: '', secret: null, connId: null, tested: false,
 };
@@ -222,20 +222,52 @@ function s2() {
 ${errLine()}`;
 }
 
+function tsRow(done, busy, title, sub, doneTxt, action) {
+  return `<div class="chk"><div class="state${done ? ' ok' : ''}">${done ? ico('check', 15, 2.6) : busy ? '<div class="spin" style="width:16px;height:16px"></div>' : ''}</div><div class="txt"><b>${title}</b><span>${done ? doneTxt : sub}</span></div>${done ? '' : action}</div>`;
+}
 function s3() {
-  const r = S.reach, live = r && r.reachable;
+  const r = S.reach, live = r && r.reachable, t = S.ts;
+  const installed = t && t.state !== 'NotInstalled', signed = t && t.state === 'Running', funnel = t && t.funnel;
+  const saved = S.settings && S.settings.publicUrl;
+  let tsBlock = '';
+  if (S.reachMode === 'ts') {
+    if (!t) tsBlock = `<div class="row"><div class="spin"></div><span class="muted">Looking for Tailscale…</span></div>`;
+    else {
+      const signAct = t.loginUrl && /^https:\/\/login\.tailscale\.com\//.test(t.loginUrl)
+        ? `<a class="btn sm primary" href="${esc(t.loginUrl)}" target="_blank" rel="noopener">Sign in</a>`
+        : `<span class="small muted">Open the Tailscale app and sign in</span>`;
+      const fix = S.funnelFix;
+      tsBlock = `<div class="sub" style="padding:6px 16px">
+  ${tsRow(installed, false, 'Install Tailscale', 'Download it, open it, and come back here. This page notices by itself.', 'Found Tailscale on this computer.', `<a class="btn sm primary" href="https://tailscale.com/download" target="_blank" rel="noopener">${ico('download', 15)} Download</a>`)}
+  ${tsRow(signed, false, 'Sign in to Tailscale', 'Use Google, Microsoft, Apple or GitHub. It\u2019s free for home use.', 'Signed in' + (t.dnsName ? ' as ' + esc(t.dnsName) : '') + '.', installed ? signAct : '')}
+  ${tsRow(funnel, S.busy === 'funnel', 'Turn on public access', 'Tailscale Funnel shares only Knura\u2019s tap page, never your settings.', 'On. Knura set it up for you.', `<button class="btn sm${signed ? ' primary' : ''}" data-act="funnel" ${signed && !S.busy ? '' : 'disabled'}>Turn on</button>`)}
+</div>
+${fix && !funnel ? `<div class="note warn${an('fix' + (fix.fixUrl || fix.fixCommand || fix.funnelDetail))}">${ico('info', 18)}<div>${fix.fixUrl && /^https:\/\//.test(fix.fixUrl)
+  ? `<b>${esc(fix.funnelDetail || 'Tailscale needs your OK first')}.</b> <a href="${esc(fix.fixUrl)}" target="_blank" rel="noopener">Open this Tailscale page</a>, allow it, then press <b>Turn on</b> again.`
+  : fix.fixCommand ? `<b>${esc(fix.funnelDetail)}.</b> Run this once in a terminal on this computer, then press <b>Turn on</b> again:<pre class="term" style="margin-top:8px">${esc(fix.fixCommand)}</pre>`
+  : `<b>Tailscale said:</b> ${esc(fix.funnelDetail || 'no answer')}`}</div></div>` : ''}
+${funnel && t.url && saved !== t.url ? `<div class="note${an('use')}">${ico('info', 18)}<div>Tailscale\u2019s address is <b>${esc(t.url)}</b>${saved ? `, but Knura is set to use ${esc(saved)}` : ''}. <button class="btn sm primary" data-act="usets" style="margin-left:6px">Use it</button></div></div>` : ''}`;
+    }
+  } else {
+    tsBlock = `<div><label class="fl" for="ownurl">Your https address</label><div class="copyrow"><input id="ownurl" class="in" style="flex:1;min-width:220px" data-in="ownurl" placeholder="https://knura.example.com" value="${esc(S.ownurl)}" autocomplete="off" spellcheck="false"><button class="btn primary" data-act="saveurl" ${S.busy ? 'disabled' : ''}>Save</button></div><p class="small muted" style="margin-top:6px">Forward it to this computer, port 8424, with a real HTTPS certificate.</p></div>`;
+  }
   return `
-<div class="head"><div class="kick">Step 3 of 7</div><h1>Let phones reach your Knura</h1><p>Each tag holds a link. Wherever someone taps it, their phone needs to reach this computer through the internet.</p></div>
+<div class="head"><div class="kick">Step 3 of 7</div><h1>Let phones reach your Knura</h1><p>Each tag holds a link. Wherever someone taps it, their phone needs to reach this computer through the internet. Tailscale does that for free, with nothing to change on your router.</p></div>
 <div class="route" aria-hidden="true"><div class="node">${ico('phone', 16)} Phone</div><div class="wire${live ? '' : ' idle'}"></div>${r && r.resolverOwner ? `<div class="node">${ico('globe', 16)} tap.knura.io</div><div class="wire${live ? '' : ' idle'}"></div>` : ''}<div class="node">${ico('house', 16)} ${esc(S.name || 'Knura')}</div></div>
-${!r ? `<div class="row"><div class="spin"></div><span class="muted">Checking…</span></div>`
-  : !r.publicUrl ? `<div class="note warn${an('nourl')}">${ico('info', 18)}<div><b>Phones can’t reach this Knura yet.</b> It needs a web address phones can open. Guided setup with Tailscale is coming to this page soon; until then, follow <a href="${DOCS}/start-here/first-verified-tap" target="_blank" rel="noopener">Let phones reach knurd</a> and come back. You can carry on meanwhile; taps from your own Wi-Fi need it too.</div></div>`
-  : `<div style="display:flex;flex-direction:column;gap:10px">
-  <label class="fl" style="margin:0">Your Knura’s address</label>
+<div class="opts two">
+  ${opt('reachMode', 'ts', 'globe', 'Use Tailscale', 'Free. This page walks you through it.', 'Recommended')}
+  ${opt('reachMode', 'own', 'web', 'I have my own web address', 'For a domain with its own HTTPS setup.')}
+</div>
+${tsBlock}
+${r && r.publicUrl ? `<div style="display:flex;flex-direction:column;gap:10px">
+  <label class="fl" style="margin:0">Your Knura\u2019s address</label>
   <div class="urlbox"><span class="t">${esc(r.publicUrl)}</span>${live ? '<span class="pill ok">Live</span>' : ''}</div>
-  ${live ? `<div class="note ok${an('live')}">${ico('check', 18, 2.2)}<div><b>Your address answers.</b> Phones can reach your Knura.${r.resolverOwner ? ' Your tags use tap.knura.io links, so they keep working if Knura moves.' : ''}</div></div>`
-    : `<div class="note warn">${ico('info', 18)}<div><b>Your address doesn’t answer yet.</b> A new Tailscale address can take up to 15 minutes. You can keep going and check again later.</div><div class="dotwait" style="margin-top:6px"></div></div>`}
-</div>`}
-${r ? `<button class="btn sm" data-act="reach" style="align-self:flex-start">${ico('reset', 15)} Check again</button>` : ''}`;
+  ${live ? `<div class="note ok${an('live')}">${ico('check', 18, 2.2)}<div><b>Your address answers.</b> Phones can reach your Knura. Tags you set up from now on use this address.${r.resolverOwner ? ' They use tap.knura.io links, so they keep working if Knura moves.' : ''}</div></div>`
+    : `<div class="note warn">${ico('info', 18)}<div><b>Your address doesn\u2019t answer yet.</b> A new Tailscale address can take up to 15 minutes. You can keep going and check again later.</div><div class="dotwait" style="margin-top:6px"></div></div>`}
+  ${r.restart ? `<p class="small muted">Saved. Restart Knura when you finish setup, so tap.knura.io and phone pairing use it too.</p>` : ''}
+  <button class="btn sm" data-act="reach" style="align-self:flex-start">${ico('reset', 15)} Check again</button>
+</div>` : r ? `<p class="small muted">No address yet. You can skip this step and come back, but phones can\u2019t tap your tags until it\u2019s done.</p>` : ''}
+${errLine()}`;
 }
 
 function s4() {
@@ -273,9 +305,12 @@ function s5() {
   <b>2. Tap it with your phone</b>
   <p class="small muted">Like anyone would: unlock the phone and hold it to the tag. No app needed.</p>
 </div>
+${!(S.settings && S.settings.publicUrl) ? `<div class="note warn${an('noaddr')}">${ico('warn', 18)}<div><b>This Knura has no web address yet.</b> A tag set up now gets a link only this computer can open, so a tap from a phone won\u2019t arrive. <button class="btn sm" data-go="3" style="margin-left:4px">Go to step 3</button><br><span class="small">To test anyway with a USB reader: put the tag on the reader, run <code>knurctl tap</code>, and open the link it prints in a browser on this computer.</span></div></div>`
+  : `<p class="small muted">Set a tag up before you added your address? Run <code>knurctl provision</code> on it again so it gets the new link.</p>`}
 <div class="tapzone">
-  <div class="waiting">${ico('nfc', 34)}</div><div><b>Waiting for a tap from a new tag…</b>${S.reach && !S.reach.reachable ? '<p class="small muted" style="margin-top:4px">Phones can’t reach your Knura yet (step 3), so the tap may not arrive.</p>' : ''}</div>
+  <div class="waiting">${ico('nfc', 34)}</div><div><b>Waiting for a tap from a new tag…</b>${S.reach && S.reach.publicUrl && !S.reach.reachable ? '<p class="small muted" style="margin-top:4px">Your address doesn\u2019t answer yet (step 3), so the tap may not arrive.</p>' : ''}</div>
 </div>
+${S.tapIssue ? `<div class="note warn${an('issue' + S.tapIssue.time)}" role="status">${ico('info', 18)}<div>${TAP_ISSUES[S.tapIssue.status]}</div></div>` : ''}
 ${known.length ? `<div class="small muted">Or use a tag you already have: ${known.map(t => `<button class="btn sm" data-uid="${esc(t.uid)}">${esc(t.label || t.uid)}</button>`).join(' ')}</div>` : ''}`;
   return `
 <div class="head"><div class="kick">Step 5 of 7</div><h1>${S.tapped ? 'It works' : 'Name your tag'}</h1><p>${S.tapped ? 'Your Knura checked the tap and knew it was real.' : 'Give it a name and pick where it goes.'}</p></div>
@@ -288,7 +323,12 @@ ${S.tapped ? `<div class="tapzone" style="min-height:200px">
 ${errLine()}`;
 }
 
-const CHOICES = { start: ['new', 'restore', 'hosted'], dev: ['phone', 'reader'], act: ['ha', 'matter', 'web', 'none'] };
+const CHOICES = { start: ['new', 'restore', 'hosted'], dev: ['phone', 'reader'], act: ['ha', 'matter', 'web', 'none'], reachMode: ['ts', 'own'] };
+const TAP_ISSUES = {
+  rejected: '<b>A tap arrived, but Knura couldn\u2019t check it.</b> The tag was set up with a different master key, maybe from an older Knura. Set it up again with <code>knurctl provision</code> (use <code>knurctl reset</code> first if it belongs to an old setup you still have).',
+  replay: '<b>That link was already used.</b> Each tap makes a new link that works once. Tap the tag again instead of reloading the page on your phone.',
+  malformed: '<b>Something opened your tap page with a broken link.</b> Tap the tag itself, not a copied link.',
+};
 const TYPE_OF = { ha: 'homeassistant', web: 'webhook', matter: 'matter' };
 const ID_OF = { ha: 'home-assistant', web: 'web-service', matter: 'matter' };
 function s6() {
@@ -422,6 +462,7 @@ function go(n) {
 function onEnter() {
   if (S.screen === 2) { if (!S.words.length) S.words = pick6(); if (S.priorKit == null) S.priorKit = !!backupDone(); }
   if (S.screen === 3 || S.screen === 5 || S.screen === 7) checkReach();
+  if (S.screen === 3) watchTailscale();
   if (S.screen === 4) watchPhones();
   if (S.screen === 5 && !S.tag) watchTaps();
   if (S.screen === 7) loadAll().then(render);
@@ -429,6 +470,30 @@ function onEnter() {
 async function checkReach() {
   const r = await api('GET', '/v1/reach');
   if (r.ok) { S.reach = r.json; if (S.screen === 3 || S.screen === 7) render(); }
+}
+function watchTailscale() {
+  const tick = async () => {
+    if (S.screen !== 3) return;
+    if (S.reachMode === 'ts' && !S.busy) {
+      const r = await api('GET', '/v1/tailscale');
+      if (r.ok && S.screen === 3) {
+        const was = S.ts && S.ts.funnel;
+        S.ts = r.json;
+        if (r.json.funnel && r.json.url && !(S.settings && S.settings.publicUrl)) { await saveUrl(r.json.url); return later(tick, 5000); }
+        if (r.json.funnel && !was) checkReach();
+        render();
+      }
+    }
+    later(tick, 5000);
+  };
+  tick();
+}
+async function saveUrl(url) {
+  S.busy = true; S.err = ''; render();
+  const r = await api('PUT', '/v1/settings', { publicUrl: url });
+  S.busy = false;
+  if (!r.ok) { S.err = why(r); render(); return; }
+  S.settings = r.json; S.reach = null; render(); checkReach();
 }
 function watchPhones() {
   const tick = async () => {
@@ -447,8 +512,11 @@ function watchTaps() {
     if (S.screen !== 5 || S.tag) return;
     const r = await api('GET', '/v1/taps?limit=20');
     if (r.ok) {
-      const hit = r.json.taps.find(t => t.status === 'ok' && t.time >= S.tagSince);
-      if (hit) { chooseTag(hit.uid, true); return; }
+      const fresh = r.json.taps.filter(t => t.time >= S.tagSince);
+      const hit = fresh.find(t => t.status === 'ok');
+      if (hit) { S.tapIssue = null; chooseTag(hit.uid, true); return; }
+      const bad = fresh.find(t => Object.prototype.hasOwnProperty.call(TAP_ISSUES, t.status));
+      if (bad && (!S.tapIssue || S.tapIssue.time !== bad.time)) { S.tapIssue = { status: bad.status, time: String(bad.time) }; render(); }
     }
     later(tick, 2000);
   };
@@ -573,6 +641,17 @@ document.addEventListener('click', async e => {
       render(); break;
     }
     case 'reach': S.reach = null; render(); checkReach(); break;
+    case 'funnel': {
+      S.busy = 'funnel'; S.funnelFix = null; S.err = ''; render();
+      const r = await api('POST', '/v1/tailscale/funnel');
+      S.busy = false;
+      if (!r.ok) { S.err = why(r); render(); break; }
+      S.ts = r.json; S.funnelFix = r.json.funnel ? null : r.json;
+      if (r.json.funnel) { const st = await api('GET', '/v1/settings'); if (st.ok) S.settings = st.json; S.reach = null; checkReach(); }
+      render(); break;
+    }
+    case 'usets': if (S.ts && S.ts.url) saveUrl(S.ts.url); break;
+    case 'saveurl': if (S.ownurl.trim()) saveUrl(S.ownurl.trim()); else { S.err = 'Add the address first.'; render(); } break;
     case 'connect': connect(); break;
     case 'test': {
       S.tested = false; render();
@@ -593,7 +672,7 @@ document.addEventListener('input', e => {
   switch (t.dataset.in) { // the only fields a text box may set
     case 'name': S.name = v; break; case 'pw': S.pw = v; break; case 'pw2': S.pw2 = v; break;
     case 'c2': S.c2 = v; break; case 'c5': S.c5 = v; break;
-    case 'tagname': S.tagname = v; break; case 'actUrl': S.actUrl = v; break;
+    case 'tagname': S.tagname = v; break; case 'actUrl': S.actUrl = v; break; case 'ownurl': S.ownurl = v; break;
     default: return;
   }
   if (t.dataset.in === 'pw' || t.dataset.in === 'pw2') {
@@ -609,7 +688,7 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.dataset && e.target.dataset.in && typeof S.screen === 'number') {
-    if (e.target.id === 'actUrl') connect(); else next();
+    if (e.target.id === 'actUrl') connect(); else if (e.target.id === 'ownurl') { if (S.ownurl.trim()) saveUrl(S.ownurl.trim()); } else next();
   }
 });
 
