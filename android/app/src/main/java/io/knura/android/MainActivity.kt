@@ -767,7 +767,8 @@ class MainActivity : Activity() {
                     list.addView(row)
                 }
                 col.addView(list, ui.lp(top = 16))
-                col.addView(ui.text("Tap a tag to see its taps or give it a name. Names stay on this phone.", 12.5f, ui.color(R.color.muted)), ui.lp(top = 14))
+                col.addView(ui.text(if (hosted) "Tap a tag to see its taps or give it a name. Names match your account's dashboard."
+                    else "Tap a tag to see its taps or give it a name. Names stay on this phone.", 12.5f, ui.color(R.color.muted)), ui.lp(top = 14))
                 updatedLine(col, s)
             }
         }
@@ -1641,15 +1642,61 @@ class MainActivity : Activity() {
         else -> status.replaceFirstChar { it.uppercase() }
     }
 
-    // ---------------------------------------------------------------- names kept on the phone
+    // ---------------------------------------------------------------- tag names (shared with a hosted account)
 
-    private fun tagNames(): JSONObject = try {
-        JSONObject(prefs.getString("tagNames", "{}") ?: "{}")
+    private fun tagNames(): JSONObject = json(prefs.getString("tagNames", "{}"))
+
+    private fun json(text: String?): JSONObject = try {
+        JSONObject(text ?: "{}")
     } catch (e: org.json.JSONException) {
         JSONObject()
     }
 
     private fun tagName(uid: String): String? = tagNames().optString(uid, "").ifEmpty { null }
+
+    private val namesLock = Any()
+
+    /** Reads the names and the renames still to send, lets [change] edit them, and saves them. */
+    private fun <T> editNames(change: (TagNames) -> T): T = synchronized(namesLock) {
+        val names = TagNames(tagNames(), json(prefs.getString("tagNamesPending", "{}")))
+        val result = change(names)
+        prefs.edit().putString("tagNames", names.names.toString())
+            .putString("tagNamesPending", names.pending.toString()).commit()
+        result
+    }
+
+    /**
+     * Shares tag names with a server that keeps them too (a hosted account): sends renames made on
+     * this phone, then takes the server's names for the rest. The newest change wins; see [TagNames].
+     * Runs on the worker; a rename that can't be sent now waits for the next refresh.
+     */
+    private fun syncNames(knurd: KnurdClient, tags: List<Snapshot.TagInfo>) {
+        if (tags.none { it.shared }) return
+        val uids = tags.map { it.uid }
+        val toSend = editNames { names ->
+            if (!prefs.getBoolean("tagNamesShared", false)) {
+                names.shareOldNames(uids)
+                prefs.edit().putBoolean("tagNamesShared", true).apply()
+            }
+            names.toSend(uids)
+        }
+        val answers = mutableListOf<Pair<TagNames.Send, KnurdClient.Reply>>()
+        try {
+            for (send in toSend) answers += send to knurd.post("/v1/tags/" + send.uid, send.body())
+        } catch (e: IOException) {
+            // Offline partway: the rest wait for the next refresh.
+        }
+        editNames { names ->
+            for ((send, reply) in answers) {
+                when (reply.code) {
+                    200 -> names.sent(send, if (reply.json.isNull("name")) null else reply.json.optString("name"))
+                    404 -> names.dropped(send.uid)
+                }
+            }
+            names.forgetGone(uids)
+            names.adopt(tags)
+        }
+    }
 
     /** A tag's name from this phone, or its UID shortened. */
     private fun tagTitle(uid: String): String = tagName(uid) ?: Words.shortUid(uid)
@@ -1659,17 +1706,22 @@ class MainActivity : Activity() {
 
     private fun renameTag(uid: String) {
         val input = textInput(tagName(uid) ?: "", "Front door")
+        val shared = snapshot?.tags?.firstOrNull { it.uid == uid }?.shared == true
         AlertDialog.Builder(this)
             .setTitle("Name this tag")
-            .setMessage("$uid\n\nThe name stays on this phone.")
+            .setMessage("$uid\n\n" + if (shared) "The name shows on your account's dashboard too." else "The name stays on this phone.")
             .setView(padded(input))
             .setPositiveButton("Save") { _, _ ->
-                val names = tagNames()
-                val name = input.text.toString().trim()
-                if (name.isEmpty()) names.remove(uid) else names.put(uid, name.take(40))
-                prefs.edit().putString("tagNames", names.toString()).apply()
-                Widgets.refresh(this)
-                render()
+                val name = input.text.toString()
+                worker.execute {
+                    editNames { it.rename(uid, name, shared, System.currentTimeMillis()) }
+                    ui {
+                        Widgets.refresh(this)
+                        render()
+                        // Send it now if the app is unlocked; otherwise on the next refresh.
+                        if (shared && session != null) refresh()
+                    }
+                }
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
@@ -1791,7 +1843,8 @@ class MainActivity : Activity() {
                 return@unlock
             }
             snapshot = null
-            prefs.edit().remove("snapshot").apply()
+            // Names stay; a newly paired account gets them as names from before (its own win).
+            prefs.edit().remove("snapshot").remove("tagNamesPending").remove("tagNamesShared").apply()
             link = Link.UNKNOWN
             val fresh = KnurdClient(pairing)
             session = fresh
@@ -1817,7 +1870,7 @@ class MainActivity : Activity() {
         notes = emptyList()
         prefs.edit().remove("notes").remove("link").apply()
         link = Link.UNKNOWN
-        prefs.edit().remove("snapshot").apply()
+        prefs.edit().remove("snapshot").remove("tagNamesPending").remove("tagNamesShared").apply()
         Widgets.refresh(this)
         showHome(null)
     }
@@ -1892,8 +1945,10 @@ class MainActivity : Activity() {
                     } catch (e: IOException) {
                         null
                     }
-                    next = Snapshot.of(Instant.now(), status.json, tags.json.takeIf { tags.code == 200 },
+                    val read = Snapshot.of(Instant.now(), status.json, tags.json.takeIf { tags.code == 200 },
                         taps.json.takeIf { taps.code == 200 }, tokens)
+                    if (tags.code == 200) syncNames(knurd, read.tags)
+                    next = read
                 }
             } catch (e: IOException) {
                 offline = true

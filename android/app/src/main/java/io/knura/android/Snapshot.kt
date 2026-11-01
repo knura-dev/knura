@@ -44,7 +44,11 @@ data class Snapshot(
         fun latestDay(): String? = listOfNotNull(file, sheet).maxOrNull()?.take(10)
     }
 
-    data class TagInfo(val uid: String, val lastCounter: Int)
+    /**
+     * [shared] is true when the server keeps tag names too (a hosted account does, knurd doesn't),
+     * and then [name] is the server's name for the tag, or null for none.
+     */
+    data class TagInfo(val uid: String, val lastCounter: Int, val name: String? = null, val shared: Boolean = false)
 
     data class Tap(val time: Instant, val status: String, val uid: String?, val counter: Int?, val actions: Int) {
         val ok: Boolean get() = status == "ok"
@@ -81,7 +85,10 @@ data class Snapshot(
                     if (b != null) put("backup", JSONObject().put("file", b.file ?: JSONObject.NULL).put("sheet", b.sheet ?: JSONObject.NULL))
                 }
         } ?: JSONObject.NULL)
-        .put("tags", JSONObject().put("tags", JSONArray(tags.map { JSONObject().put("uid", it.uid).put("lastCounter", it.lastCounter) })))
+        .put("tags", JSONObject().put("tags", JSONArray(tags.map {
+            JSONObject().put("uid", it.uid).put("lastCounter", it.lastCounter)
+                .apply { if (it.shared) put("name", it.name ?: JSONObject.NULL) }
+        })))
         .put("taps", JSONObject().put("taps", JSONArray(taps.map {
             JSONObject().put("time", it.time.toString()).put("status", it.status).put("uid", it.uid ?: JSONObject.NULL)
                 .put("actions", it.actions).apply { if (it.counter != null) put("counter", it.counter) }
@@ -97,7 +104,9 @@ data class Snapshot(
                     it.nullableString("resolverOwner"), it.optInt("knots"), it.optInt("tags"),
                     it.optJSONObject("backup")?.let { b -> Backup(b.nullableString("file"), b.nullableString("sheet")) })
             },
-            tags = tags?.optJSONArray("tags").objects().map { TagInfo(it.optString("uid"), it.optInt("lastCounter")) },
+            tags = tags?.optJSONArray("tags").objects().map {
+                TagInfo(it.optString("uid"), it.optInt("lastCounter"), it.nullableString("name"), it.has("name"))
+            },
             taps = taps?.optJSONArray("taps").objects().mapNotNull {
                 val time = try {
                     Instant.parse(it.optString("time"))
