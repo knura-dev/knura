@@ -19,6 +19,7 @@ final class LiveActions implements KnurdServer.TapListener, AutoCloseable {
     private final Clock clock;
     private volatile Function<String, String> labels = uid -> null;
     private final Map<String, Last> last = new ConcurrentHashMap<>();
+    private volatile Metrics metrics;
 
     /**
      * How a connector's latest action ended: {@code outcome} is {@code delivered}, {@code refused}
@@ -35,9 +36,22 @@ final class LiveActions implements KnurdServer.TapListener, AutoCloseable {
 
     private void watch(Knurgn k) {
         if (k != null) {
-            k.watch(r -> last.put(r.connectorId(), new Last(clock.instant(), r.outcome().name().toLowerCase(java.util.Locale.ROOT),
-                    r.detail(), r.event().counter() == 0)));
+            k.watch(r -> {
+                String outcome = r.outcome().name().toLowerCase(java.util.Locale.ROOT);
+                boolean test = r.event().counter() == 0;
+                last.put(r.connectorId(), new Last(clock.instant(), outcome, r.detail(), test));
+                Metrics m = metrics;
+                if (m != null && !test) {
+                    m.action(outcome);
+                }
+            });
         }
+    }
+
+    /** Also counts how each real (not test) action ends, for the Prometheus page. */
+    void countActionsIn(Metrics metrics) {
+        this.metrics = metrics;
+        metrics.knots(this::knotCount);
     }
 
     /** How each connector's latest action ended, by connector id. */

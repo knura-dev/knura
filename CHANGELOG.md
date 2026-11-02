@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- knurd: optional **Prometheus metrics** at `/metrics` on a port of its own (`metrics.port`, off
+  by default; `metrics.listen.host` defaults to 127.0.0.1). Taps by result, tap check time,
+  actions started and how they ended, plus JVM health (memory, threads, garbage collection, CPU,
+  open files). Totals only, no tag UIDs or names. Same network rules as the admin port. See
+  docs/metrics.md.
 - Dashboard: **Settings → Open this page from other devices**, so a phone or laptop on the home
   Wi-Fi can open the dashboard over HTTPS. Shows the address, a QR code, and the certificate's
   SHA-256 fingerprint to check against the browser's warning. Turning it off keeps the Wi-Fi
