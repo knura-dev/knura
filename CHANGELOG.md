@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Android app 0.8.4: the Settings button uses the same gear icon as the dashboards.
 - Dashboard: **Keys and backup** (download a backup file with a new six-word passphrase, or the
   recovery sheet; how to restore), **Logs** (the end of `log.file`, filtered by level or text,
   followed live, downloaded, or copied for a bug report with tag UIDs and addresses hidden), and
