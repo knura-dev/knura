@@ -272,7 +272,10 @@ After setup, **http://127.0.0.1:8425/** is Knura's dashboard, signed in with the
 genuine taps and your last tap. **Tags** lists every tag with its week of taps; each tag's page
 renames it, changes its icon, switches its actions on and off and sends a test. **Taps** is the
 full history (a year is kept, in `knurd-taps.log`), filtered by tag or result, and downloads as
-CSV or JSON. **Settings** renames this Knura and changes the password.
+CSV or JSON. **Actions** adds Home Assistant, a Matter bridge or a webhook, shows whether each
+one answered its last tap, and sends a test to just that one. **Phones and readers** pairs a phone
+with a QR code, removes one, and lists the `knurctl` commands for USB readers. **Settings** renames
+this Knura and changes the password.
 
 Both pages are a few static files inside knurd. They load nothing from the internet and run
 under a strict Content-Security-Policy. See [docs/setup-api.md](docs/setup-api.md).

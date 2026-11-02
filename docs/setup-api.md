@@ -177,7 +177,11 @@ Linux with firewalld or ufw, or null. The code holds no token: the app swaps it 
 /v1/pair` on the Wi-Fi listener, pinning the certificate by `fp`. `GET /v1/settings` lists the
 phone under `phones` once that has happened.
 
-It answers 409 with `status` saying what to fix first: `no_address` (no `public.url` yet, step
+`DELETE /v1/phones/<name>` removes a paired phone: its token stops working at once and it comes off
+`admin.provision.tokens`, so it can't set tags up any more. Tags it set up keep working. It answers
+404 for a name that isn't a paired phone, such as a token made with `knurctl admin token add`.
+
+Pairing answers 409 with `status` saying what to fix first: `no_address` (no `public.url` yet, step
 3), `no_network` (no home network address), `name_taken`, `no_master_key` or `plaintext`
 (`admin.security=plaintext` has no logins).
 
@@ -257,15 +261,22 @@ taps are kept, in memory.
 
 | Request | Body | What it does |
 | --- | --- | --- |
-| `GET /v1/connections` | | `{"connections":[{"type":"webhook","id":"ifttt","url":"https://...","usedBy":["04DE5F1EACC040"]}]}` |
+| `GET /v1/connections` | | `{"connections":[{"type":"webhook","id":"ifttt","url":"https://...","usedBy":["04DE5F1EACC040"],"last":null}]}` |
 | `PUT /v1/connections/<type>/<id>` | `{"url":"https://..."}` | Adds the connector, or changes its address. |
 | `DELETE /v1/connections/<type>/<id>` | | Removes it and its secret. 409 while a tag still uses it. |
 | `POST /v1/connections/<type>/<id>/secret` | | Replaces its secret with a new one, shown once as `"secret"`. The old one stops working at once. |
+| `POST /v1/connections/<type>/<id>/test` | | Sends one test event to just this connector, once, and waits: `{"id":"ifttt","result":"delivered","detail":"HTTP 204"}`. `result` is `delivered`, `refused` or `failed`. |
 
 `<type>` is `webhook`, `homeassistant` or `matter`. A new connector gets a fresh secret, which the
 answer shows **once** as `"secret"`: a `whsec_` signing secret, or a 48-character Home Assistant
 webhook id to paste into the automation. Changing the address keeps the secret, and the answer
 has `"secret":null`.
+
+`last` is how the connector's latest action ended since knurd started, from a tap or a test, or
+null: `{"time":"2026-11-02T07:13:00Z","result":"delivered","detail":"HTTP 204","test":false}`.
+`result` is `delivered`, `refused` (it answered no; not retried) or `expired` (it didn't answer
+after every retry). A test event has counter 0, which no real tap has, and names the first tag
+that uses the connector, or `00000000000000` when none does.
 
 | Request | What it does |
 | --- | --- |

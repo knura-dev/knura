@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Dashboard: **Actions** page (add Home Assistant, a Matter bridge or a webhook; edit; remove;
+  make a new secret; "Send a test" to one action; whether each one answered its last tap) and
+  **Phones and readers** page (pair a phone with a QR code, remove one, USB reader commands).
+  Home's health check now says when an action isn't answering. New `POST
+  /v1/connections/<type>/<id>/test`, `DELETE /v1/phones/<name>`, and `last` in
+  `GET /v1/connections`.
 - **Tag names sync between the Knura app and your own knurd**, like they already did with a hosted
   account: a rename on the dashboard shows in the app, and a rename in the app shows on the
   dashboard. The newest change wins. `GET /v1/tags` adds `name` and `nameChanged`, and the app's

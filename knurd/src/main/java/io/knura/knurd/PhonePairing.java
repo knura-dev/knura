@@ -94,6 +94,23 @@ final class PhonePairing {
     }
 
     /**
+     * Removes a paired phone: its token stops working at once and it may no longer set tags up.
+     * Tags it set up keep working. Whether there was such a phone.
+     */
+    synchronized boolean remove(String name) throws IOException {
+        if (tokens == null || !AdminTokens.isValidName(name) || !settings.phones().contains(name)) {
+            return false;
+        }
+        tokens.remove(name);
+        settings.removePhone(name);
+        NfcRelay nfc = server == null ? null : server.nfc();
+        if (nfc != null) {
+            nfc.disallow(name);
+        }
+        return true;
+    }
+
+    /**
      * Gets knurd ready for a phone named {@code name} and makes its pairing code.
      *
      * @param address the home network address to put in the code, or null for the likely one

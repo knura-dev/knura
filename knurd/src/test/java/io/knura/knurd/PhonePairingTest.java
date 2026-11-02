@@ -139,6 +139,25 @@ class PhonePairingTest {
     }
 
     @Test
+    void aRemovedPhoneStopsWorkingAtOnce() throws Exception {
+        HttpResponse<String> r = send("POST", "/v1/phones/pair", "{\"name\":\"pixel-9\"}");
+        Map<String, String> q = query((String) FlatJson.parse(r.body().replaceAll(",\"qr\":\\[[^\\]]*\\]", "")
+                .replaceAll(",\"addresses\":\\[[^\\]]*\\]", "")).get("link"));
+        String token = (String) FlatJson.parse(wifi("POST", "/v1/pair", "{\"code\":\"" + q.get("code") + "\"}", null, q.get("fp"))[1])
+                .get("token");
+        assertEquals("200", wifi("GET", "/v1/status", null, token, q.get("fp"))[0]);
+
+        assertEquals(404, send("DELETE", "/v1/phones/laptop", null).statusCode(), "a token that isn't a phone stays");
+        assertEquals(404, send("DELETE", "/v1/phones/no-such", null).statusCode());
+        HttpResponse<String> gone = send("DELETE", "/v1/phones/pixel-9", null);
+        assertEquals(200, gone.statusCode(), gone.body());
+        assertEquals("[]", field(send("GET", "/v1/settings", null).body(), "phones"));
+        assertEquals("401", wifi("GET", "/v1/status", null, token, q.get("fp"))[0], "its token no longer works");
+        assertFalse(Files.readString(knurdFile).contains("pixel-9"), "and it's off admin.provision.tokens");
+        assertTrue(Files.readString(dir.resolve("tokens.properties")).contains("laptop="), "other tokens stay");
+    }
+
+    @Test
     void anotherAddressAndASecondPhoneReuseTheListener() throws Exception {
         String first = send("POST", "/v1/phones/pair", "{\"name\":\"pixel-9\"}").body();
         HttpResponse<String> r = send("POST", "/v1/phones/pair", "{\"name\":\"fold7\",\"address\":\"10.0.0.7\"}");

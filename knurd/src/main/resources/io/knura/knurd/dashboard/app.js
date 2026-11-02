@@ -153,7 +153,7 @@ async function api(method, path, body) {
   if (r.status === 401 && S.screen !== 'signin' && path !== '/v1/session' && path !== '/v1/password') { S.screen = 'signin'; render(); }
   return { ok: r.ok, status: r.status, json };
 }
-const why = r => (r.json && r.json.detail) ? r.json.detail.charAt(0).toUpperCase() + r.json.detail.slice(1) + '.' : 'Something went wrong (' + r.status + ').';
+const why = r => (r.json && r.json.detail) ? r.json.detail.charAt(0).toUpperCase() + r.json.detail.slice(1) + (/[.!?]$/.test(r.json.detail) ? '' : '.') : 'Something went wrong (' + r.status + ').';
 
 async function loadAll() {
   const [st, set, tg, cn, tp, dy] = await Promise.all([api('GET', '/v1/status'), api('GET', '/v1/settings'), api('GET', '/v1/tags'),
@@ -216,7 +216,8 @@ function checks() {
   else out.push({ tone: 'bad', icon: 'globe', t: 'Phones can’t reach this computer', s: r.publicUrl.replace(/^https?:\/\//, '') + ' didn’t answer (' + (r.detail || 'no answer') + '). If you use Tailscale, check that it’s running.', fix: ['recheck', 'Check again'] });
   if (st.resolverOwner) out.push({ tone: 'ok', icon: 'link', t: 'tap.knura.io forwards your taps', s: 'Tags made with the tap.knura.io link reach you here' });
   const used = S.tags.filter(t => t.actions && t.actions.length).length;
-  if (!S.conns.length) out.push({ tone: 'warn', icon: 'bolt', t: 'No actions yet', s: 'Taps are checked, but nothing happens when a tag is tapped.', fix: ['/setup', 'Add an action'] });
+  if (!S.conns.length) out.push({ tone: 'warn', icon: 'bolt', t: 'No actions yet', s: 'Taps are checked, but nothing happens when a tag is tapped.', fix: ['#actions', 'Add an action'] });
+  else if (S.conns.some(c => connState(c)[0] === 'bad')) { const bad = S.conns.filter(c => connState(c)[0] === 'bad'); out.push({ tone: 'bad', icon: 'bolt', t: bad.map(c => c.id).join(', ') + (bad.length === 1 ? ' isn’t answering' : ' aren’t answering'), s: connState(bad[0])[2], fix: ['#actions', 'See actions'] }); }
   else out.push({ tone: 'ok', icon: 'bolt', t: S.conns.length + (S.conns.length === 1 ? ' action' : ' actions') + ' ready', s: S.conns.map(c => c.id).join(', ') + ' · used by ' + used + (used === 1 ? ' tag' : ' tags') });
   if (st.backup) {
     const b = st.backup, last = [b.file, b.sheet].filter(Boolean).sort().pop();
@@ -226,16 +227,16 @@ function checks() {
   }
   const phones = (S.settings && S.settings.phones) || [];
   out.push(phones.length ? { tone: 'ok', icon: 'phone', t: phones.length === 1 ? 'A phone is paired' : phones.length + ' phones are paired', s: phones.join(', ') + ' can add tags' }
-    : { tone: 'mut', icon: 'phone', t: 'No phone paired', s: 'Add tags with a USB reader and knurctl, or pair a phone in setup.', fix: ['/setup', 'Pair a phone'] });
+    : { tone: 'mut', icon: 'phone', t: 'No phone paired', s: 'Add tags with a USB reader and knurctl, or pair a phone.', fix: ['#phones', 'Pair a phone'] });
   return out;
 }
 const toneIcon = t => t === 'ok' ? 'check' : t === 'warn' || t === 'bad' ? 'warn' : 'info';
 P.info = 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 11v5M12 8h.01';
 const needs = () => checks().filter(c => c.tone === 'warn' || c.tone === 'bad');
-const fixBtn = (c, primary) => !c.fix ? '' : c.fix[0].startsWith('/') ? `<a class="btn sm${primary ? ' primary' : ''}" href="${c.fix[0]}">${c.fix[1]}</a>` : `<button class="btn sm${primary ? ' primary' : ''}" data-act="${c.fix[0]}">${c.fix[1]}</button>`;
+const fixBtn = (c, primary) => !c.fix ? '' : /^[/#]/.test(c.fix[0]) ? `<a class="btn sm${primary ? ' primary' : ''}" href="${c.fix[0]}">${c.fix[1]}</a>` : `<button class="btn sm${primary ? ' primary' : ''}" data-act="${c.fix[0]}">${c.fix[1]}</button>`;
 
 // ---------- shell ----------
-const NAV = [['home','Home','home'],['tags','Tags','tag'],['taps','Taps','list'],['config','Settings','gear','end']];
+const NAV = [['home','Home','home'],['tags','Tags','tag'],['taps','Taps','list'],['actions','Actions','bolt'],['phones','Phones and readers','phone'],['config','Settings','gear','end']];
 const greet = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; };
 const homeName = () => (S.settings && S.settings.name) || (S.status && S.status.name) || 'Knura';
 function shell(route, title, body, extra = '') {
@@ -468,10 +469,199 @@ function addTagModal() {
       const box = bg.querySelector('.modal');
       box.innerHTML = w.dataset.way === 'phone'
         ? (phones.length ? `${mhead('Add a tag with the app')}<ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:10px;font-size:14.5px"><li>Open the Knura app on <span class="mono">${esc(phones[0])}</span>.</li><li>Tap <b>Add a tag</b> and hold a blank tag to the back of the phone.</li><li>Keep it still until the app says it’s done.</li><li>Tap it once. It shows up here under Tags, ready to name.</li></ol><button class="btn" data-x style="align-self:flex-start">Close</button>`
-          : `${mhead('Pair a phone first')}<p class="muted" style="font-size:14px">The Knura app sets tags up for this computer once it’s paired. Pairing takes a minute in setup.</p><div class="row"><a class="btn primary" href="/setup">Pair a phone in setup</a><button class="btn" data-x>Close</button></div>`)
+          : `${mhead('Pair a phone first')}<p class="muted" style="font-size:14px">The Knura app sets tags up for this computer once it’s paired. Pairing takes a minute.</p><div class="row"><a class="btn primary" href="#phones" data-x>Pair a phone</a><button class="btn" data-x>Close</button></div>`)
         : `${mhead('Add a tag with a USB reader')}<p class="muted" style="font-size:14px">Plug in the reader, then run this in a terminal, in Knura’s settings folder. Put a blank tag on the reader when it asks.</p><div class="term"><span class="p">$</span> knurctl provision</div><p class="muted" style="font-size:13px">Tap it once afterwards and it shows up here under Tags, ready to name.</p><div class="row"><button class="btn sm" data-act-m="copy-prov">${ico('copy', 14)}Copy</button><button class="btn sm" data-x>Close</button></div>`;
     });
   });
+}
+
+// ---------- actions ----------
+Object.assign(P, {
+  trash:'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
+  reset:'M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4'
+});
+const KINDS = { homeassistant: ['Home Assistant', 'bolt'], matter: ['Matter bridge', 'matter'], webhook: ['Webhook', 'link'] };
+// Only our own type names ever reach the page.
+const kindOf = c => KINDS[Object.keys(KINDS).find(k => k === c.type)] || ['Action', 'bolt'];
+const slug = v => String(v).toLowerCase().trim().replace(/[^a-z0-9_-]+/g, '-').replace(/^[-_]+|[-_]+$/g, '').slice(0, 32);
+const connBy = (type, id) => S.conns.find(c => c.type === type && c.id === id);
+// knurgN reports Java's names for network errors; say them in words.
+const plain = d => !d ? '' : /ConnectTimeout|HttpTimeout|timed out/i.test(d) ? 'no answer in time. Is the address right, and is it running?'
+  : /ConnectException|refused/i.test(d) ? 'the connection was refused. Is it running?'
+  : /UnknownHost|UnresolvedAddress/i.test(d) ? 'that address doesn’t exist' : d;
+const OUTCOME = { delivered: 'Delivered', refused: 'Refused', expired: 'Didn’t get through', failed: 'Didn’t get through' };
+function connState(c) {
+  const l = c.last;
+  if (!l) return ['mut', 'Not used yet', 'No tap or test since Knura started'];
+  const ok = l.result === 'delivered';
+  const word = (l.test ? 'Test ' : 'Tap ') + (OUTCOME[Object.keys(OUTCOME).find(k => k === l.result)] || 'ended').toLowerCase();
+  return ok ? ['ok', 'Working', word + ' ' + ago(l.time)] : ['bad', 'Not answering', word + ' ' + ago(l.time) + (l.detail ? ': ' + plain(l.detail) : '')];
+}
+function vActions() {
+  const used = c => (c.usedBy || []).map(u => tagName(tagByUid(u) || { uid: u }));
+  const body = `
+    <section class="g flow" aria-label="Where a tap goes">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px;width:120px;text-align:center"><span style="width:60px;height:60px;border-radius:50%;background:var(--chip);border:1px solid var(--glass-line);display:flex;align-items:center;justify-content:center">${ico('nfc', 26)}</span><span style="font-size:13.5px;font-weight:600">A tag is tapped</span></div>
+      <span class="ln" aria-hidden="true" style="background:linear-gradient(90deg,var(--track),var(--accent))"></span>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px;width:170px;text-align:center"><span style="width:72px;height:72px;border-radius:24px;background:var(--accent-tint);border:1px solid var(--accent-line);display:flex;align-items:center;justify-content:center;box-shadow:0 0 44px -8px rgba(242,140,58,.7)">${MARK(36)}</span><span style="font-size:13.5px;font-weight:600">Knura checks it is genuine</span></div>
+      <span class="ln" aria-hidden="true" style="background:linear-gradient(90deg,var(--accent),var(--track))"></span>
+      <div style="display:flex;flex-direction:column;gap:8px">${Object.values(KINDS).map(([n, i]) => `<span class="g row" style="padding:9px 14px;border-radius:16px;font-size:13.5px;gap:10px"><span style="color:var(--accent-text)">${ico(i, 17)}</span>${n}</span>`).join('')}</div>
+    </section>
+    <div class="row" style="justify-content:space-between;flex-wrap:wrap;padding:0 4px"><h2 style="font-size:17px;font-weight:600">Your actions</h2><button class="btn primary" data-act="add-conn">${ico('plus', 16, 2.2)}Add an action</button></div>
+    ${S.conns.length ? `<div class="grid3">${S.conns.map((c, i) => {
+      const [tone, word, sub] = connState(c), [kind, icon] = kindOf(c), u = used(c);
+      return `<section class="g panel" aria-label="${esc(c.id)}">
+        <div class="row"><span class="tile" style="width:46px;height:46px;border-radius:14px">${ico(icon, 22)}</span><span style="flex:1;min-width:0"><span class="mono" style="display:block;font-size:15px;font-weight:600">${esc(c.id)}</span><span class="muted" style="font-size:12.5px">${kind}</span></span>
+        <span class="row" style="gap:7px;font-size:12.5px;font-weight:600;color:var(--${tone === 'ok' ? 'ok' : tone === 'bad' ? 'bad' : 'muted'})">${tone === 'ok' ? '<span class="dotlive"></span>' : tone === 'bad' ? '<span class="dotbad"></span>' : ''}${word}</span></div>
+        <dl class="kv"><dt>Address</dt><dd class="mono" style="font-size:13px">${esc(c.url || '')}</dd><dt>Last</dt><dd style="font-size:13px;${tone === 'bad' ? 'color:var(--bad)' : ''}">${esc(sub)}</dd><dt>Tags</dt><dd style="font-size:13px">${u.length ? esc(u.join(', ')) : '<span class="muted">None yet. Turn it on from a tag’s page.</span>'}</dd></dl>
+        <div class="row" style="flex-wrap:wrap;gap:8px;margin-top:auto"><button class="btn sm primary" data-conn="${i}" data-do="test">${ico('play', 14)}Send a test</button><button class="btn sm" data-conn="${i}" data-do="edit">${ico('edit', 14)}Edit</button>
+        <button class="iconbtn" style="margin-left:auto" aria-label="Remove ${esc(c.id)}" data-conn="${i}" data-do="remove">${ico('trash', 18)}</button></div>
+      </section>`; }).join('')}</div>`
+      : `<div class="g empty">No actions yet. Add Home Assistant, a Matter bridge or a webhook, then turn it on for a tag.</div>`}
+    <p class="muted" style="font-size:12.5px;padding:0 4px">Choose which tags run which actions on each tag’s page. A test sends a pretend tap (tap number 0) that only this action gets. Actions are kept in <span class="mono">knurgn.properties</span> on this computer, and their secrets in <span class="mono">knurgn-secrets.properties</span>.</p>`;
+  return shell('actions', 'Actions', body);
+}
+function haYaml(secret, tag) {
+  return `alias: ${JSON.stringify((tag || 'Knura tag') + ' tap from Knura')}\ntriggers:\n  - trigger: webhook\n    webhook_id: ${secret || 'YOUR_WEBHOOK_ID'}\n    allowed_methods:\n      - POST\n    local_only: true\nactions:\n  - action: persistent_notification.create\n    data:\n      title: Knura tap\n      message: "{{ trigger.json.data.name | default('A tag') }} was tapped"`;
+}
+const CONN_FORM = {
+  homeassistant: { title: 'Home Assistant', id: 'home-assistant', label: 'Home Assistant’s address', ph: 'http://192.168.1.50:8123', hint: 'Use its IP address, not homeassistant.local. It’s in Home Assistant under Settings → System → Network.' },
+  matter: { title: 'Matter bridge', id: 'matter', label: 'The Matter bridge’s address', ph: 'http://127.0.0.1:5541/tap', hint: 'The bridge runs on this computer and puts your tags in Apple Home, Google Home or Alexa as buttons.' },
+  webhook: { title: 'webhook', id: 'web-service', label: 'The service’s webhook address', ph: 'https://maker.ifttt.com/trigger/…', hint: 'Works with IFTTT, Zapier, n8n, Node-RED or your own code. It must start with https://. Each tap is sent as signed JSON.' }
+};
+function connForm(type, c) {
+  const f = CONN_FORM[Object.keys(CONN_FORM).find(k => k === type)];
+  if (!f) return '';
+  return `<form data-mform="conn" data-type="${type}" style="display:flex;flex-direction:column;gap:10px">${mhead(c ? 'Edit ' + esc(c.id) : 'Add ' + (type === 'webhook' ? 'a ' : '') + f.title)}
+    <label class="fl" for="cn" style="margin:0">Name</label><input class="in mono" id="cn" maxlength="32" value="${esc(c ? c.id : f.id)}" ${c ? 'readonly' : ''} autocomplete="off" spellcheck="false">
+    <label class="fl" for="cu" style="margin:0">${f.label}</label><input class="in mono" id="cu" value="${esc(c ? c.url : '')}" placeholder="${f.ph}" autocomplete="off" spellcheck="false">
+    <p class="muted" style="font-size:12.5px">${f.hint}</p><div class="err" id="cerr" hidden></div>
+    <div class="row"><button class="btn primary">${c ? 'Save' : 'Add'}</button><button type="button" class="btn" data-x>Cancel</button></div></form>`;
+}
+function addConnModal() {
+  modal(`${mhead('Add an action')}<div class="choice">
+    <button data-kind="homeassistant"><span class="tile" style="width:40px;height:40px;border-radius:12px">${ico('bolt', 20)}</span><b>Home Assistant</b><span>Run an automation when a tag is tapped</span></button>
+    <button data-kind="matter"><span class="tile" style="width:40px;height:40px;border-radius:12px">${ico('matter', 20)}</span><b>Matter</b><span>Tags as buttons in Apple Home or Google Home</span></button>
+    <button data-kind="webhook"><span class="tile" style="width:40px;height:40px;border-radius:12px">${ico('link', 20)}</span><b>Webhook</b><span>Send each tap to another service</span></button></div>`, bg => {
+    bg.addEventListener('click', ev => {
+      const k = ev.target.closest('[data-kind]'); if (!k) return;
+      const box = bg.querySelector('.modal'); box.innerHTML = connForm(k.dataset.kind); const i = box.querySelector('#cu'); i && i.focus();
+    });
+  });
+}
+// After adding (or making a new secret): what to do with the secret, shown only now.
+function secretModal(c, secret) {
+  if (c.type === 'homeassistant') {
+    const yaml = haYaml(secret);
+    return modal(`${mhead('Add this automation in Home Assistant')}
+      <p class="muted" style="font-size:13.5px">Knura made a secret webhook id for <span class="mono">${esc(c.id)}</span>, shown only now. In Home Assistant, go to <b>Settings → Automations & scenes → Create automation</b>, choose <b>Edit in YAML</b> from the ⋮ menu, and paste this. Change the action to whatever the tap should do.</p>
+      <pre class="term" id="yaml" style="margin:0;white-space:pre-wrap">${esc(yaml)}</pre>
+      <div class="row" style="flex-wrap:wrap"><button class="btn sm primary" data-m="copy-yaml">${ico('copy', 14)}Copy</button><button class="btn sm" data-x>Done</button></div>`, bg => {
+      bg.addEventListener('click', ev => { if (ev.target.closest('[data-m="copy-yaml"]')) copy(yaml, 'Automation'); });
+    });
+  }
+  modal(`${mhead('Signing secret')}
+    <p class="muted" style="font-size:13.5px">Shown only now. ${c.type === 'matter' ? 'Put it in the Matter bridge’s settings.' : 'Only needed by services that check signatures. Most can ignore it.'}</p>
+    <div class="term mono" style="word-break:break-all">${esc(secret)}</div>
+    <div class="row"><button class="btn sm primary" data-m="copy-secret">${ico('copy', 14)}Copy</button><button class="btn sm" data-x>Done</button></div>`, bg => {
+    bg.addEventListener('click', ev => { if (ev.target.closest('[data-m="copy-secret"]')) copy(secret, 'Secret'); });
+  });
+}
+function editConnModal(c) {
+  modal(connForm(c.type, c) + `<div class="sub" style="padding:12px 14px;display:flex;flex-direction:column;gap:8px;margin-top:12px">
+    <b style="font-size:14px">${c.type === 'homeassistant' ? 'Lost the webhook id?' : 'Lost the signing secret?'}</b>
+    <span class="muted" style="font-size:12.5px">${c.type === 'homeassistant' ? 'Make a new one, then paste the automation into Home Assistant again. The old id stops working.' : 'Make a new one, then give it to the service again. The old one stops working.'}</span>
+    <button class="btn sm" data-m="new-secret" style="align-self:flex-start">${ico('reset', 14)}Make a new ${c.type === 'homeassistant' ? 'webhook id' : 'secret'}</button></div>`, bg => {
+    bg.addEventListener('click', async ev => {
+      if (!ev.target.closest('[data-m="new-secret"]')) return;
+      if (!confirm('Make a new one? Whatever uses the old one stops working until you update it.')) return;
+      const r = await api('POST', `/v1/connections/${c.type}/${c.id}/secret`);
+      if (!r.ok) return toast(why(r));
+      secretModal(c, r.json.secret);
+    });
+  });
+}
+async function testConn(c) {
+  toast('Sending a test to ' + c.id + '…');
+  const r = await api('POST', `/v1/connections/${c.type}/${c.id}/test`);
+  if (!r.ok) return toast(why(r));
+  const cn = await api('GET', '/v1/connections'); if (cn.ok) S.conns = cn.json.connections;
+  render();
+  toast(r.json.result === 'delivered' ? c.id + ' got the test' + (c.type === 'homeassistant' ? '. Check Home Assistant.' : '.') : c.id + ' didn’t get it' + (r.json.detail ? ': ' + plain(r.json.detail) : ''));
+}
+async function removeConn(c) {
+  if ((c.usedBy || []).length) {
+    return modal(`${mhead('Turn it off first')}<p class="muted" style="font-size:14px"><span class="mono">${esc(c.id)}</span> is still on for ${esc(c.usedBy.map(u => tagName(tagByUid(u) || { uid: u })).join(', '))}. Turn it off on ${c.usedBy.length === 1 ? 'that tag’s page' : 'those tags’ pages'}, then remove it.</p><button class="btn" data-x style="align-self:flex-start">OK</button>`);
+  }
+  if (!confirm('Remove ' + c.id + '? Its address and secret are deleted.')) return;
+  const r = await api('DELETE', `/v1/connections/${c.type}/${c.id}`);
+  if (!r.ok) return toast(why(r));
+  S.conns = S.conns.filter(x => x !== c); render(); toast('Removed ' + c.id);
+}
+
+// ---------- phones and readers ----------
+function qrSvg(rows) {
+  if (!Array.isArray(rows) || !rows.length || !rows.every(r => typeof r === 'string' && /^[01]+$/.test(r) && r.length === rows.length)) return '';
+  const n = rows.length, q = 4;
+  let d = '';
+  rows.forEach((row, y) => { for (let x = 0; x < n; x++) if (row[x] === '1') d += `M${x + q} ${y + q}h1v1h-1z`; });
+  return `<svg viewBox="0 0 ${n + 2 * q} ${n + 2 * q}" width="200" height="200" shape-rendering="crispEdges" role="img" aria-label="Pairing code for the Knura app" style="display:block;border-radius:12px"><rect width="100%" height="100%" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+}
+function vPhones() {
+  const phones = (S.settings && S.settings.phones) || [], p = S.pair;
+  const others = p ? (p.addresses || []).filter(a => a !== p.address) : [];
+  const body = `
+    <div class="grid3" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr))">
+      <section class="g panel" aria-labelledby="ph">
+        <div class="panel-head"><h2 id="ph">Phones</h2><span class="muted" style="font-size:12.5px">Add tags and check taps with the Knura app</span></div>
+        ${phones.map((x, i) => `<div class="sub row" style="padding:12px 14px"><span class="tile plain" style="width:40px;height:40px;border-radius:12px">${ico('phone', 20)}</span><span style="flex:1;min-width:0"><span class="mono" style="display:block;font-size:14px">${esc(x)}</span><span class="muted" style="font-size:12.5px">Paired · can add tags</span></span><button class="iconbtn" aria-label="Remove ${esc(x)}" data-phone="${i}">${ico('trash', 18)}</button></div>`).join('') || '<p class="muted" style="font-size:13.5px">No phones yet.</p>'}
+        ${p ? `<div style="padding:16px;border-radius:20px;background:var(--accent-tint);border:1px solid var(--accent-line);display:flex;flex-direction:column;align-items:center;gap:12px">
+            <span style="align-self:flex-start;font-size:14px;font-weight:600">In the Knura app, tap <b>Scan pairing code</b> and point the camera at this. The phone will be called <span class="mono">${esc(p.name)}</span>.</span>
+            ${qrSvg(p.qr)}
+            <span class="row muted" style="font-size:12.5px;gap:8px"><span class="dotlive"></span>Waiting for the phone. This page notices by itself.</span>
+            <span class="muted" style="font-size:12.5px;text-align:center">The code works once, for 15 minutes. The phone must be on the same Wi-Fi as this computer: the app connects to <span class="mono">${esc(p.url || '')}</span>.</span>
+            ${p.firewall ? `<span class="muted" style="font-size:12.5px;align-self:flex-start">The app can’t connect? This computer’s firewall may be blocking it. Run this, then scan again:</span><div class="term" style="align-self:stretch">${esc(p.firewall)}</div>` : ''}
+            ${others.length ? `<span class="muted" style="font-size:12.5px;align-self:flex-start">This computer has more than one network address. If the app can’t connect, try another:</span><div class="row" style="flex-wrap:wrap;gap:6px;align-self:flex-start">${others.map((a, i) => `<button class="btn sm" data-addr="${i}">${esc(a)}</button>`).join('')}</div>` : ''}
+            <button class="btn sm" data-act="pair-cancel">Cancel</button></div>`
+          : `<form data-form="pair" style="display:flex;flex-direction:column;gap:8px"><label class="fl" for="pn" style="margin:0">New phone’s name</label><div class="row" style="gap:8px"><input class="in mono" id="pn" maxlength="32" placeholder="my-phone" autocomplete="off" spellcheck="false"><button class="btn primary"${S.busy === 'pair' ? ' disabled' : ''}>${S.busy === 'pair' ? 'Getting ready…' : 'Show pairing code'}</button></div>
+            <p class="muted" style="font-size:12.5px">The first time, Knura makes a security certificate and starts answering on your home Wi-Fi. That takes a few seconds.</p></form>`}
+        <p class="muted" style="font-size:12.5px">A removed phone can’t reach this Knura or add tags any more. Tags it added keep working.</p>
+      </section>
+      <section class="g panel" aria-labelledby="rd">
+        <div class="panel-head"><h2 id="rd">USB readers</h2><span class="muted" style="font-size:12.5px">For adding tags at the computer</span></div>
+        <div class="sub row" style="padding:12px 14px;align-items:flex-start"><span class="tile plain" style="width:40px;height:40px;border-radius:12px">${ico('usb', 20)}</span><span style="flex:1;min-width:0;font-size:13.5px">Knura works with the ACR122U and other PC/SC readers. Plug one in, open a terminal in Knura’s settings folder, and use <span class="mono">knurctl</span>.</span></div>
+        <dl class="kv"><dt class="mono">knurctl provision</dt><dd style="font-size:13px">Set up a blank tag on the reader</dd><dt class="mono">knurctl tap</dt><dd style="font-size:13px">Check a tag: prints the link it makes</dd><dt class="mono">knurctl info</dt><dd style="font-size:13px">Show what’s on a tag</dd></dl>
+        <div class="row" style="flex-wrap:wrap;gap:8px"><button class="btn" data-act="add-tag">${ico('plus', 16, 2.2)}Add a tag</button></div>
+      </section>
+    </div>`;
+  return shell('phones', 'Phones and readers', body);
+}
+let pairT;
+function watchPair() {
+  clearTimeout(pairT);
+  const tick = async () => {
+    if (!S.pair) return;
+    const r = await api('GET', '/v1/settings');
+    if (r.ok && (r.json.phones || []).includes(S.pair.name)) { const n = S.pair.name; S.pair = null; S.settings = r.json; render(); toast(n + ' is paired'); return; }
+    pairT = setTimeout(tick, 3000);
+  };
+  pairT = setTimeout(tick, 3000);
+}
+async function pairPhone(name, address) {
+  if (!name) return toast('Give the phone a name, like my-phone.');
+  S.busy = 'pair'; render();
+  const body = { name }; if (address) body.address = address;
+  const r = await api('POST', '/v1/phones/pair', body);
+  S.busy = false;
+  if (!r.ok) { S.pair = null; render(); return toast(why(r)); }
+  S.pair = r.json; render(); watchPair();
+}
+async function removePhone(name) {
+  if (!confirm('Remove ' + name + '? It can’t reach this Knura any more. Tags it added keep working.')) return;
+  const r = await api('DELETE', '/v1/phones/' + encodeURIComponent(name));
+  if (!r.ok) return toast(why(r));
+  const st = await api('GET', '/v1/settings'); if (st.ok) S.settings = st.json;
+  render(); toast('Removed ' + name);
 }
 
 // ---------- router ----------
@@ -493,6 +683,8 @@ function viewFor(route) {
   switch (route) {
     case 'tags': return vTags;
     case 'taps': return vTaps;
+    case 'actions': return vActions;
+    case 'phones': return vPhones;
     case 'config': return vConfig;
     default: return vHome;
   }
@@ -511,7 +703,8 @@ function poll() {
     const a = document.activeElement;
     if (document.getElementById('modal-root').firstChild || (a && (a.tagName === 'INPUT' || a.tagName === 'SELECT'))) return;
     const before = S.taps.length && S.taps[0].time;
-    const [tp, tg, st, dy] = await Promise.all([api('GET', '/v1/taps?limit=1000'), api('GET', '/v1/tags'), api('GET', '/v1/status'), api('GET', '/v1/taps/days?days=14')]);
+    const [tp, tg, st, dy, cn] = await Promise.all([api('GET', '/v1/taps?limit=1000'), api('GET', '/v1/tags'), api('GET', '/v1/status'), api('GET', '/v1/taps/days?days=14'), api('GET', '/v1/connections')]);
+    if (cn.ok) S.conns = cn.json.connections;
     if (tp.ok) S.taps = tp.json.taps;
     if (tg.ok) S.tags = tg.json.tags;
     if (st.ok) S.status = st.json;
@@ -532,9 +725,16 @@ async function putLabel(t, label, icon) {
   t.label = label || null; t.icon = icon || null; return true;
 }
 app.addEventListener('click', async e => {
-  const b = e.target.closest('[data-act],[data-range],[data-toggle],[data-res]');
+  const b = e.target.closest('[data-act],[data-range],[data-toggle],[data-res],[data-conn],[data-phone],[data-addr]');
   if (!b) { if (S.notif && !e.target.closest('.pop')) { S.notif = false; render(); } return; }
   const t = curTag();
+  if (b.dataset.conn) {
+    const c = S.conns[Math.trunc(+b.dataset.conn)]; if (!c) return; // only connectors knurd listed
+    const what = ['test', 'edit', 'remove'].find(x => x === b.dataset.do);
+    return what === 'test' ? testConn(c) : what === 'edit' ? editConnModal(c) : what === 'remove' ? removeConn(c) : undefined;
+  }
+  if (b.dataset.phone) { const n = ((S.settings && S.settings.phones) || [])[Math.trunc(+b.dataset.phone)]; return n ? removePhone(n) : undefined; }
+  if (b.dataset.addr) { const a = S.pair && (S.pair.addresses || []).filter(x => x !== S.pair.address)[Math.trunc(+b.dataset.addr)]; return a ? pairPhone(S.pair.name, a) : undefined; }
   if (b.dataset.range) { S.range = ['today', 'week', '14'].find(x => x === b.dataset.range) || 'week'; return render(); }
   if (b.dataset.res) { S.tapRes = ['all', 'ok', 'stopped'].find(x => x === b.dataset.res) || 'all'; return render(); }
   if (b.dataset.toggle && t) {
@@ -555,6 +755,8 @@ app.addEventListener('click', async e => {
     case 'reload': location.reload(); return;
     case 'recheck': S.reach = null; render(); await Promise.all([loadAll(), loadReach()]); render(); return toast('Checked again just now');
     case 'add-tag': return addTagModal();
+    case 'add-conn': return addConnModal();
+    case 'pair-cancel': S.pair = null; clearTimeout(pairT); return render();
     case 'test-tag': {
       const r = await api('POST', '/v1/tags/' + t.uid + '/test');
       return toast(r.ok ? (r.json.started ? 'Test sent to ' + (t.actions || []).join(', ') + '. Check that it arrived.' : 'Nothing to run: turn an action on first.') : why(r));
@@ -605,6 +807,7 @@ app.addEventListener('submit', async e => {
     if (!r.ok) { S.authErr = r.status === 401 ? 'That password is wrong.' : why(r); return render(); }
     S.authErr = ''; S.session.signedIn = true; await start();
   }
+  if (f === 'pair') return pairPhone(slug(document.getElementById('pn').value));
   if (f === 'rename' && t) {
     const v = document.getElementById('nn').value.trim();
     if (await putLabel(t, v, t.icon)) { S.renaming = false; render(); toast(v ? 'Saved. Taps now carry the name ' + v + '.' : 'Name cleared'); }
@@ -617,6 +820,22 @@ mroot.addEventListener('click', e => {
 mroot.addEventListener('submit', async e => {
   e.preventDefault();
   const f = e.target.dataset.mform;
+  if (f === 'conn') {
+    const type = Object.keys(CONN_FORM).find(k => k === e.target.dataset.type); if (!type) return;
+    const id = slug(document.getElementById('cn').value), url = document.getElementById('cu').value.trim(), err = document.getElementById('cerr');
+    const fail = m => { err.hidden = false; err.textContent = m; };
+    if (!id) return fail('Give it a name, like living-room.');
+    if (!url) return fail('Add the address first.');
+    const existing = connBy(type, id), isEdit = document.getElementById('cn').readOnly;
+    if (existing && !isEdit) return fail('There’s already an action called ' + id + '. Pick another name.');
+    const r = await api('PUT', `/v1/connections/${type}/${id}`, { url });
+    if (!r.ok) return fail(why(r));
+    const cn = await api('GET', '/v1/connections'); if (cn.ok) S.conns = cn.json.connections;
+    closeModal(); render();
+    const c = connBy(type, id) || { type, id };
+    if (r.json.secret) return secretModal(c, r.json.secret);
+    return toast('Saved ' + id);
+  }
   if (f === 'home') {
     const r = await api('PUT', '/v1/settings', { name: document.getElementById('hn').value.trim() });
     if (!r.ok) return toast(why(r));

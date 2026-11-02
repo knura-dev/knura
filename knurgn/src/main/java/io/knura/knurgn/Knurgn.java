@@ -61,6 +61,7 @@ public final class Knurgn implements AutoCloseable {
     private final Consumer<Report> reports;
     private final ScheduledExecutorService scheduler;
     private final ExecutorService workers = Executors.newVirtualThreadPerTaskExecutor();
+    private volatile Consumer<Report> watcher = r -> {};
 
     public Knurgn(List<Knot> knots, Clock clock) {
         this(knots, List.of(), clock);
@@ -97,6 +98,41 @@ public final class Knurgn implements AutoCloseable {
 
     public int knotCount() {
         return knots.size();
+    }
+
+    /**
+     * Also tells {@code watcher} how each action ended, besides logging it, so knurd's dashboard
+     * can show whether each connector is answering. It runs on the delivery thread, so keep it quick.
+     */
+    public void watch(Consumer<Report> watcher) {
+        this.watcher = watcher == null ? r -> {} : watcher;
+    }
+
+    /**
+     * Sends one test event to the connector {@code id} now, once, without retrying, and waits for
+     * its answer: the dashboard's "Send a test" for one connector. The event has counter 0, which
+     * no real tap has. Returns null when there is no such connector.
+     */
+    public Delivery tryConnector(String id, String uid, String name) {
+        Connector connector = connectors.get(id);
+        if (connector == null) {
+            return null;
+        }
+        TapEvent event = TapEvent.of(uid, 0, uid, clock.instant(), name);
+        Delivery delivery;
+        try {
+            delivery = connector.deliver(event, MAX_ATTEMPT);
+        } catch (RuntimeException e) {
+            LOG.log(Level.ERROR, "connector " + id + " failed unexpectedly", e);
+            delivery = Delivery.refused("connector error");
+        }
+        Outcome outcome = switch (delivery.status()) {
+            case DELIVERED -> Outcome.DELIVERED;
+            case REFUSED -> Outcome.REFUSED;
+            case FAILED -> Outcome.EXPIRED;
+        };
+        report(event, connector, outcome, 1, delivery.detail());
+        return delivery;
     }
 
     /** The ids of every connector in the config, sorted. */
@@ -220,7 +256,13 @@ public final class Knurgn implements AutoCloseable {
     }
 
     private void report(TapEvent event, Connector connector, Outcome outcome, int attempts, String detail) {
-        reports.accept(new Report(event, connector.id(), outcome, attempts, detail));
+        Report r = new Report(event, connector.id(), outcome, attempts, detail);
+        reports.accept(r);
+        try {
+            watcher.accept(r);
+        } catch (RuntimeException e) {
+            LOG.log(Level.WARNING, "could not record how action " + connector.id() + " ended", e);
+        }
     }
 
     private static void log(Report r) {
