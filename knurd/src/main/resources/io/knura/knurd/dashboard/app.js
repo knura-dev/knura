@@ -129,7 +129,8 @@ Object.assign(P, {
 });
 // The same icons the setup page offers, plus a few more.
 const ICONS = [['door','Front door'],['kitchen','Kitchen'],['sofa','Living room'],['bed','Bedroom'],['garage','Garage'],['office','Office'],['pantry','Pantry'],['car','Car'],['box','Storage'],['lamp','Lamp'],['mail','Mailbox'],['gate','Gate'],['coffee','Coffee'],['lock','Lock'],['house','House']];
-const iconOf = t => (t && t.icon && P[t.icon]) ? t.icon : 'tag';
+// Only our own icon names ever reach the page, never text from knurd or the page itself.
+const iconOf = t => (t && ICONS.some(x => x[0] === t.icon)) ? t.icon : 'tag';
 
 // ---------- state ----------
 const S = {
@@ -482,8 +483,19 @@ function render() {
   if (S.screen === 'signin') { app.innerHTML = vSignin(); const p = document.getElementById('pw'); p && p.focus(); return; }
   const route = (location.hash || '#home').slice(1);
   document.title = homeName() + ' · Knura';
-  app.innerHTML = route.startsWith('tag-') ? vTag(route.slice(4).toUpperCase())
-    : ({ home: vHome, tags: vTags, taps: vTaps, config: vConfig }[route] || vHome)();
+  const uid = route.startsWith('tag-') && /^[0-9A-Fa-f]{14}$/.test(route.slice(4)) ? route.slice(4).toUpperCase() : null;
+  app.innerHTML = route.startsWith('tag-') ? vTag(uid || '')
+    : viewFor(route)();
+}
+// A plain switch, not a lookup by the page address, so an address like #constructor can't pick
+// something that isn't a page.
+function viewFor(route) {
+  switch (route) {
+    case 'tags': return vTags;
+    case 'taps': return vTaps;
+    case 'config': return vConfig;
+    default: return vHome;
+  }
 }
 let lastRoute = '', wasNarrow = narrow();
 window.addEventListener('resize', () => { if (narrow() !== wasNarrow) { wasNarrow = narrow(); render(); } });
@@ -513,7 +525,7 @@ function poll() {
 
 // ---------- events ----------
 const app = document.getElementById('app');
-const curTag = () => { const h = location.hash.slice(1); return h.startsWith('tag-') ? tagByUid(h.slice(4).toUpperCase()) : null; };
+const curTag = () => { const h = location.hash.slice(1); return h.startsWith('tag-') ? tagByUid(h.slice(4).toUpperCase()) || null : null; };
 async function putLabel(t, label, icon) {
   const r = await api('PUT', '/v1/tags/' + t.uid, { label: label || '', icon: icon || '' });
   if (!r.ok) { toast(why(r)); return false; }
@@ -523,10 +535,11 @@ app.addEventListener('click', async e => {
   const b = e.target.closest('[data-act],[data-range],[data-toggle],[data-res]');
   if (!b) { if (S.notif && !e.target.closest('.pop')) { S.notif = false; render(); } return; }
   const t = curTag();
-  if (b.dataset.range) { S.range = b.dataset.range; return render(); }
-  if (b.dataset.res) { S.tapRes = b.dataset.res; return render(); }
+  if (b.dataset.range) { S.range = ['today', 'week', '14'].find(x => x === b.dataset.range) || 'week'; return render(); }
+  if (b.dataset.res) { S.tapRes = ['all', 'ok', 'stopped'].find(x => x === b.dataset.res) || 'all'; return render(); }
   if (b.dataset.toggle && t) {
-    const id = b.dataset.toggle, cur = t.actions || [];
+    const c = S.conns.find(x => x.id === b.dataset.toggle); if (!c) return; // only connectors knurd listed
+    const id = c.id, cur = t.actions || [];
     const next = cur.includes(id) ? cur.filter(x => x !== id) : cur.concat(id);
     b.setAttribute('aria-checked', String(!cur.includes(id)));
     const r = await api('PUT', '/v1/tags/' + t.uid + '/actions', { actions: next.join(',') });
@@ -546,12 +559,15 @@ app.addEventListener('click', async e => {
       const r = await api('POST', '/v1/tags/' + t.uid + '/test');
       return toast(r.ok ? (r.json.started ? 'Test sent to ' + (t.actions || []).join(', ') + '. Check that it arrived.' : 'Nothing to run: turn an action on first.') : why(r));
     }
-    case 'taps-for': S.tapTag = b.dataset.uid; S.tapWhen = 'all'; return;
+    case 'taps-for': S.tapTag = t ? t.uid : 'all'; S.tapWhen = 'all'; return;
     case 'rename': S.renaming = true; render(); { const i = document.getElementById('nn'); i && (i.focus(), i.select()); } return;
     case 'rename-cancel': S.renaming = false; return render();
     case 'icon':
       return modal(`${mhead('Choose an icon')}<div class="icons">${ICONS.map(([o, l]) => `<button aria-label="${l}" title="${l}" aria-pressed="${t.icon === o}" data-pick="${o}">${ico(o, 24)}</button>`).join('')}</div>`, bg => {
-        bg.addEventListener('click', async ev => { const p = ev.target.closest('[data-pick]'); if (!p) return; if (await putLabel(t, t.label, p.dataset.pick)) { closeModal(); render(); toast('Icon changed'); } });
+        bg.addEventListener('click', async ev => {
+          const p = ev.target.closest('[data-pick]'), pick = p && ICONS.find(x => x[0] === p.dataset.pick); // only our own icons
+          if (pick && await putLabel(t, t.label, pick[0])) { closeModal(); render(); toast('Icon changed'); }
+        });
       });
     case 'dl-csv': {
       const rows = tapRows(), q = v => /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
@@ -571,8 +587,8 @@ function save(name, text, type) {
   toast('Downloaded ' + name);
 }
 app.addEventListener('change', e => {
-  if (e.target.id === 'tt') { S.tapTag = e.target.value; return render(); }
-  if (e.target.id === 'tw') { S.tapWhen = e.target.value; return render(); }
+  if (e.target.id === 'tt') { const tag = tagByUid(e.target.value); S.tapTag = tag ? tag.uid : 'all'; return render(); }
+  if (e.target.id === 'tw') { S.tapWhen = ['1', '7', '30', 'all'].find(x => x === e.target.value) || '7'; return render(); }
 });
 app.addEventListener('input', e => {
   if (e.target.id === 'q') { S.q = e.target.value; const pos = e.target.selectionStart; render(); const n = document.getElementById('q'); n.focus(); n.setSelectionRange(pos, pos); }
