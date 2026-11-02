@@ -157,6 +157,7 @@ final class AdminServer implements AutoCloseable {
     private volatile NfcRelay nfc;
     private volatile HttpsServer wifi;
     private volatile Manage manage;
+    private volatile boolean browserOnWifi = true;
     /** Whether an address is this computer; tests swap it to act as another device on the network. */
     java.util.function.Predicate<InetAddress> thisComputer = InetAddress::isLoopbackAddress;
     /** The time zone the dashboard's days are counted in; tests pin it. */
@@ -233,6 +234,18 @@ final class AdminServer implements AutoCloseable {
         this.nfc = relay;
     }
 
+    /**
+     * Whether browsers may open the dashboard through the Wi-Fi listener. When it's off the
+     * listener still answers the Knura app and knurctl, which sign in with tokens.
+     */
+    void setBrowserOnWifi(boolean on) {
+        this.browserOnWifi = on;
+    }
+
+    boolean browserOnWifi() {
+        return browserOnWifi;
+    }
+
     /** Turns on the setup page's requests; call before {@link #start}. */
     void manage(Manage manage) {
         this.manage = manage;
@@ -274,6 +287,12 @@ final class AdminServer implements AutoCloseable {
         if (!LocalAddresses.isLocalNetwork(remote)) {
             answer = new Answer(403, error("forbidden", "the admin API only answers this computer and the local network"),
                     "not a local address");
+        } else if (!browserOnWifi && wifi != null && exchange.getHttpContext().getServer() == wifi
+                && (session != null || SetupPage.serves(method, path) || path.equals(SESSION) || path.equals(PASSWORD))) {
+            answer = new Answer(403, null, "browser on Wi-Fi is off",
+                    ("Opening Knura's page from other devices is turned off.\n\nTurn it on in Settings, on the Knura"
+                            + " computer itself (http://127.0.0.1:" + port() + "/).\n").getBytes(StandardCharsets.UTF_8),
+                    "text/plain; charset=utf-8", null);
         } else if (proxied(exchange.getRequestHeaders()) != null) {
             answer = new Answer(403, error("forbidden", "the admin API must not be reached through a proxy or tunnel"),
                     "came through a proxy (" + proxied(exchange.getRequestHeaders()) + ")");
@@ -698,7 +717,7 @@ final class AdminServer implements AutoCloseable {
 
     /** Whether a path belongs to the setup page's requests. */
     static boolean isManagePath(String path) {
-        return path.equals(SESSION) || path.equals(PASSWORD) || path.equals("/v1/settings")
+        return path.equals(SESSION) || path.equals(PASSWORD) || path.equals("/v1/settings") || path.equals("/v1/settings/other-devices")
                 || path.equals("/v1/actions/reload") || path.equals("/v1/connections") || path.equals("/v1/reach") || path.equals("/v1/logs") || path.equals("/v1/tailscale") || path.equals("/v1/tailscale/funnel")
                 || path.equals("/v1/phones/pair") || path.startsWith("/v1/phones/")
                 || path.startsWith("/v1/backup/")
@@ -869,6 +888,25 @@ final class AdminServer implements AutoCloseable {
         }
         String[] parts = path.substring(1).split("/", -1);
         try {
+            if (path.equals("/v1/settings/other-devices")) {
+                if ("PUT".equals(method)) {
+                    if (!(f.get("on") instanceof Boolean on)) {
+                        throw new IllegalArgumentException("on must be true or false");
+                    }
+                    if (m.phones() == null) {
+                        return new Answer(404, error("not_found", null), null);
+                    }
+                    try {
+                        m.phones().browserOnWifi(on);
+                    } catch (PhonePairing.NotReady e) {
+                        return new Answer(409, error(e.code, e.getMessage()), "can't open the page to other devices: "
+                                + e.code);
+                    }
+                    return new Answer(200, otherDevicesJson(m), on ? "opened the page to other devices"
+                            : "closed the page to other devices");
+                }
+                return only("GET", method, exchange, () -> new Answer(200, otherDevicesJson(m), null));
+            }
             if (path.equals("/v1/settings")) {
                 if ("PUT".equals(method)) {
                     if (!f.containsKey("name") && !f.containsKey("publicUrl") && !f.containsKey("logLevel")) {
@@ -1077,6 +1115,33 @@ final class AdminServer implements AutoCloseable {
                 + ",\"folder\":" + Json.quote(m.settings().folder().toString())
                 + ",\"codeClone\":" + Json.quote(clone == null ? null : clone.toString())
                 + "}";
+    }
+
+    /**
+     * {@code GET /v1/settings/other-devices}: whether browsers on the home network can open this
+     * page, the addresses to open, a QR code of the first, and the certificate fingerprint to
+     * check before accepting the browser's warning.
+     */
+    private String otherDevicesJson(Manage m) throws IOException {
+        PhonePairing.OtherDevices o = m.phones() == null ? null : m.phones().otherDevices();
+        if (o == null) {
+            return "{\"on\":false,\"urls\":[],\"fingerprint\":null,\"qr\":null,\"firewall\":null}";
+        }
+        String qr = "null";
+        if (!o.urls().isEmpty()) {
+            boolean[][] code = io.knura.core.admin.QrCode.encode(o.urls().get(0) + "/");
+            StringBuilder b = new StringBuilder("[");
+            for (int y = 0; y < code.length; y++) {
+                StringBuilder row = new StringBuilder();
+                for (boolean dark : code[y]) {
+                    row.append(dark ? '1' : '0');
+                }
+                b.append(y == 0 ? "" : ",").append('"').append(row).append('"');
+            }
+            qr = b.append(']').toString();
+        }
+        return "{\"on\":" + o.on() + ",\"urls\":" + jsonList(o.urls()) + ",\"fingerprint\":" + Json.quote(o.fingerprint())
+                + ",\"qr\":" + qr + ",\"firewall\":" + Json.quote(o.firewall()) + "}";
     }
 
     /** The most log lines one request may ask for. */

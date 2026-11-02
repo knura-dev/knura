@@ -172,6 +172,51 @@ final class PhonePairing {
                 now.plus(AdminTokens.PAIR_TIME), firewallHint(url.getPort()));
     }
 
+    /**
+     * Whether browsers on the home network can open the dashboard ({@code on}), the addresses
+     * they'd use, the certificate's SHA-256 fingerprint to check, and the firewall command, if any.
+     */
+    record OtherDevices(boolean on, List<String> urls, String fingerprint, String firewall) {}
+
+    /** Where other devices stand now, or null when this Knura has no logins (plaintext mode). */
+    synchronized OtherDevices otherDevices() throws IOException {
+        if (tokens == null) {
+            return null;
+        }
+        if (!LocalAddresses.isLoopbackName(admin.host()) && !admin.host().equals("0.0.0.0") && admin.tls()) {
+            // Set up by hand to answer the network on the admin port itself: always open.
+            return new OtherDevices(true, List.of("https://" + hostPart(admin.host()) + ":" + admin.port()), fingerprint,
+                    firewallHint(admin.port()));
+        }
+        int port = server.lanPort();
+        boolean on = port > 0 && server.browserOnWifi();
+        List<String> urls = port == 0 ? List.of()
+                : homeAddresses.get().stream().map(a -> "https://" + hostPart(a) + ":" + port).toList();
+        return new OtherDevices(on, urls, port == 0 ? null : fingerprint, port == 0 ? null : firewallHint(port));
+    }
+
+    /**
+     * Lets browsers on the home network open the dashboard, or stops them. Turning it on makes
+     * the certificate and starts the Wi-Fi listener if they aren't there yet. Turning it off
+     * leaves the listener up for paired phones, which sign in with tokens.
+     */
+    synchronized void browserOnWifi(boolean on) throws IOException, NotReady {
+        if (tokens == null) {
+            throw new NotReady("plaintext", "This Knura's admin API has no logins (admin.security=plaintext), so it"
+                    + " only answers this computer. Set admin.security=token and admin.tokens.file in knurd.properties,"
+                    + " then restart Knura.");
+        }
+        if (on && server.lanPort() == 0) {
+            if (homeAddresses.get().isEmpty()) {
+                throw new NotReady("no_network", "This computer isn't on a home network (no 192.168.x.x, 10.x.x.x or"
+                        + " 172.16-31.x.x address), so other devices can't reach it. Connect it to your Wi-Fi or router.");
+            }
+            ensureWifiListener();
+        }
+        settings.setBrowserOnWifi(on);
+        server.setBrowserOnWifi(on);
+    }
+
     /** Where tags set up through a phone point: the resolver link, or public.url as saved now. */
     private String tapBase() throws IOException {
         if (resolver != null) {

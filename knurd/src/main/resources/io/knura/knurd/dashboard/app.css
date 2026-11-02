@@ -83,6 +83,9 @@ label.fl{display:block;font-size:13px;color:var(--muted);margin:0 0 6px}
 .dash{border:1px dashed var(--input-line);border-radius:20px}
 .term{background:var(--term);color:#D5DDE6;border-radius:12px;padding:10px 12px;font:13px/1.6 "JetBrains Mono",ui-monospace,monospace;overflow-wrap:anywhere}
 .term .p{color:#F28C3A}
+.lan-more{display:flex;gap:18px;align-items:flex-start;padding:4px 16px 16px 68px}
+.lan-qr{display:flex;flex-direction:column;align-items:center;gap:6px;flex:none}
+.term.fp{font-size:12px;letter-spacing:.02em}.term.fp b{color:#F28C3A;font-weight:600}
 .meter{height:6px;border-radius:999px;background:var(--track)}
 .meter>div{height:6px;border-radius:999px;background:linear-gradient(90deg,var(--accent-2),var(--accent))}
 .sw{flex:none;width:52px;height:32px;border-radius:999px;border:0;padding:3px;background:var(--track);cursor:pointer;display:flex;justify-content:flex-start;transition:background .18s}
@@ -232,6 +235,7 @@ dl.kv dt{color:var(--muted)}dl.kv dd{margin:0;overflow-wrap:anywhere}
 .modal{max-width:520px;max-height:calc(100vh - 32px);overflow-y:auto}
 @media (max-width:980px){.two{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:760px){
+.lan-more{flex-direction:column;align-items:stretch;padding:4px 14px 14px}.lan-qr{align-self:center}
 .shell{padding-block:16px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 .rail{left:max(16px,env(safe-area-inset-left,0px));right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px))}
 .hero h2{font-size:21px}

@@ -56,6 +56,7 @@ class PhonePairingTest {
     private LiveActions live;
     private int lanPort;
     private String cookie;
+    private String wifiCookie;
 
     @BeforeEach
     void start() throws Exception {
@@ -136,6 +137,49 @@ class PhonePairingTest {
         assertEquals("200", wifi("GET", "/v1/settings", null, token, q.get("fp"))[0]);
         assertEquals("409", wifi("POST", "/v1/phones/pair", "{\"name\":\"pixel-9\"}", token, q.get("fp"))[0],
                 "that name is taken now");
+    }
+
+    @Test
+    void theDashboardCanBeOpenedFromOtherDevicesAndClosedAgain() throws Exception {
+        String before = send("GET", "/v1/settings/other-devices", null).body();
+        assertEquals("false", field(before, "on"), before);
+        assertEquals("[]", field(before, "urls"));
+
+        // Turning it on makes the certificate and starts the Wi-Fi listener, with no phone paired.
+        HttpResponse<String> on = send("PUT", "/v1/settings/other-devices", "{\"on\":true}");
+        assertEquals(200, on.statusCode(), on.body());
+        assertEquals("true", field(on.body(), "on"));
+        assertEquals("[\"https://127.0.0.1:" + lanPort + "\",\"https://10.0.0.7:" + lanPort + "\"]", field(on.body(), "urls"));
+        assertTrue(on.body().contains("\"qr\":[\""), "a QR code of the first address");
+        String fp = (String) FlatJson.parse("{\"f\":" + field(on.body(), "fingerprint") + "}").get("f");
+        assertEquals(64, fp.replace(":", "").length(), fp);
+        assertEquals("true", props(Files.readString(knurdFile)).getProperty("admin.lan.browser"));
+
+        // A browser on the Wi-Fi gets the page and can sign in with the page password.
+        assertEquals("200", wifi("GET", "/", null, null, fp)[0]);
+        String[] signIn = wifi("POST", "/v1/session", "{\"password\":\"lantern-orbit-42\"}", null, fp);
+        assertEquals("200", signIn[0], signIn[1]);
+
+        // A phone pairs as before.
+        HttpResponse<String> r = send("POST", "/v1/phones/pair", "{\"name\":\"pixel-9\"}");
+        Map<String, String> q = query((String) FlatJson.parse(r.body().replaceAll(",\"qr\":\\[[^\\]]*\\]", "")
+                .replaceAll(",\"addresses\":\\[[^\\]]*\\]", "")).get("link"));
+        String token = (String) FlatJson.parse(wifi("POST", "/v1/pair", "{\"code\":\"" + q.get("code") + "\"}", null, fp)[1])
+                .get("token");
+
+        // Off: browsers on the Wi-Fi get nothing, signed in or not; the app's token still works.
+        HttpResponse<String> off = send("PUT", "/v1/settings/other-devices", "{\"on\":false}");
+        assertEquals("false", field(off.body(), "on"), off.body());
+        assertEquals("false", props(Files.readString(knurdFile)).getProperty("admin.lan.browser"));
+        assertEquals("403", wifi("GET", "/", null, null, fp)[0]);
+        assertEquals("403", wifi("GET", "/setup", null, null, fp)[0]);
+        assertEquals("403", wifi("POST", "/v1/session", "{\"password\":\"lantern-orbit-42\"}", null, fp)[0]);
+        wifiCookie = "made-up-session";
+        assertEquals("403", wifi("GET", "/v1/settings", null, null, fp)[0], "a browser's cookie doesn't get in either");
+        wifiCookie = null;
+        assertEquals("200", wifi("GET", "/v1/status", null, token, fp)[0], "the paired phone keeps working");
+        assertEquals(200, send("GET", "/", null).statusCode(), "this computer always can");
+        assertEquals(400, send("PUT", "/v1/settings/other-devices", "{\"on\":\"yes\"}").statusCode());
     }
 
     @Test
@@ -248,6 +292,9 @@ class PhonePairingTest {
         c.setRequestProperty(AdminServer.REQUEST_HEADER, "1");
         if (token != null) {
             c.setRequestProperty("Authorization", "Bearer " + token);
+        }
+        if (wifiCookie != null) {
+            c.setRequestProperty("Cookie", Sessions.COOKIE + "=" + wifiCookie);
         }
         if (json != null) {
             c.setDoOutput(true);
