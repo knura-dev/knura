@@ -84,6 +84,20 @@ public final class Main {
         RecentTaps recentTaps = config.admin() == null ? new RecentTaps(Clock.systemUTC())
                 : new RecentTaps(Clock.systemUTC(), configFile.toAbsolutePath().getParent().resolve(RecentTaps.FILE));
         server.recordTapsTo(recentTaps);
+        MetricsServer metricsServer = null;
+        if (config.metrics() != null) {
+            Metrics metrics = new Metrics();
+            server.countTapsIn(metrics);
+            listener.countActionsIn(metrics);
+            try {
+                metricsServer = new MetricsServer(config.metrics().host(), config.metrics().port(), metrics);
+            } catch (IOException e) {
+                server.close();
+                System.err.println("knurd: can't listen on metrics.port " + config.metrics().port() + ": " + e.getMessage());
+                System.exit(1);
+                return;
+            }
+        }
         AdminServer admin = null;
         if (config.admin() != null) {
             try {
@@ -91,6 +105,9 @@ public final class Main {
                         settings);
             } catch (IOException e) {
                 server.close();
+                if (metricsServer != null) {
+                    metricsServer.close();
+                }
                 System.err.println("knurd: can't start the admin API: " + e.getMessage());
                 System.exit(1);
                 return;
@@ -100,6 +117,11 @@ public final class Main {
         info(
                 "knurd listening on http://%s:%d (counters in %s)",
                 config.host(), server.port(), config.countersFile());
+        if (metricsServer != null) {
+            metricsServer.start();
+            info("Prometheus metrics on http://%s:%d/metrics (metrics.port): keep this port off the internet",
+                    config.metrics().host(), metricsServer.port());
+        }
         if (config.publicUrl() != null) {
             info("Phones reach knurd at %s/tap", config.publicUrl());
         } else {
@@ -132,12 +154,16 @@ public final class Main {
         LiveActions actions = listener;
         ResolverWatch resolverWatch = watch;
         AdminServer adminServer = admin;
+        MetricsServer metricsListener = metricsServer;
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             if (adminServer != null) {
                 adminServer.close();
             }
             if (resolverWatch != null) {
                 resolverWatch.close();
+            }
+            if (metricsListener != null) {
+                metricsListener.close();
             }
             server.close();
             actions.close();

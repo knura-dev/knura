@@ -45,6 +45,7 @@ public final class KnurdServer implements AutoCloseable {
     private final TapListener listener;
     private final TapThrottle throttle;
     private volatile RecentTaps recentTaps;
+    private volatile Metrics metrics;
 
     /** Hears about taps that verified and were seen for the first time. */
     @FunctionalInterface
@@ -101,6 +102,11 @@ public final class KnurdServer implements AutoCloseable {
         this.recentTaps = taps;
     }
 
+    /** Also counts each tap for the Prometheus page. Call before {@link #start}. */
+    void countTapsIn(Metrics metrics) {
+        this.metrics = metrics;
+    }
+
     public void start() {
         server.start();
     }
@@ -123,7 +129,11 @@ public final class KnurdServer implements AutoCloseable {
         java.net.InetAddress remote = exchange.getRemoteAddress().getAddress();
         String address = remote.getHostAddress();
         boolean local = remote.isLoopbackAddress();
+        Metrics m = metrics;
         if (!throttle.allows(address, local)) {
+            if (m != null) {
+                m.tap(Metrics.Extra.THROTTLED);
+            }
             exchange.getResponseHeaders().set("Retry-After", Long.toString(TapThrottle.WINDOW.toSeconds()));
             sendJson(exchange, 429, "{\"status\":\"too_many_requests\"}");
             return;
@@ -138,6 +148,9 @@ public final class KnurdServer implements AutoCloseable {
                 result = verifier.verify(params);
             } catch (RuntimeException e) {
                 LOG.log(Level.ERROR, "tap verification failed", e);
+                if (m != null) {
+                    m.tap(Metrics.Extra.ERROR);
+                }
                 if (html) {
                     sendHtml(exchange, 500, TapPage.error());
                 } else {
@@ -145,6 +158,10 @@ public final class KnurdServer implements AutoCloseable {
                 }
                 return;
             }
+        }
+        long took = System.nanoTime() - started;
+        if (m != null) {
+            m.tap(result.status(), took);
         }
         boolean ok = result.status() == TapResult.Status.OK;
         if (!ok) {
@@ -159,13 +176,16 @@ public final class KnurdServer implements AutoCloseable {
                     result.uid() == null ? "-" : result.uid(),
                     result.uid() == null ? "-" : Integer.toString(result.counter()),
                     local ? "this computer" : address,
-                    Long.toString((System.nanoTime() - started) / 1_000_000),
+                    Long.toString(took / 1_000_000),
                     result.detail() == null ? "" : ": " + result.detail());
         }
         int actionsStarted = 0;
         if (result.status() == TapResult.Status.OK) {
             try {
                 actionsStarted = listener.onVerifiedTap(result.uid(), result.counter());
+                if (m != null) {
+                    m.actionsStarted(actionsStarted);
+                }
                 LOG.log(Level.DEBUG, "tap {0}:{1} started {2} action(s)",
                         result.uid(), Integer.toString(result.counter()), actionsStarted);
             } catch (RuntimeException e) {

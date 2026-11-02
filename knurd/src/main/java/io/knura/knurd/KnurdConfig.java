@@ -31,7 +31,8 @@ import java.util.TreeSet;
  * address phones use to reach knurd, without a trailing slash, or null when it is not set.
  * {@code resolver} is null unless this knurd is registered with a tap resolver such as
  * tap.knura.io ({@code knurctl resolver register}). {@code admin} is null unless the admin API
- * is turned on with {@code admin.tokens.file} or {@code admin.security=plaintext}.
+ * is turned on with {@code admin.tokens.file} or {@code admin.security=plaintext}. {@code metrics}
+ * is null unless {@code metrics.port} turns on the Prometheus page.
  */
 public record KnurdConfig(
         String host,
@@ -41,7 +42,8 @@ public record KnurdConfig(
         Path actionsFile,
         String publicUrl,
         Resolver resolver,
-        Admin admin) {
+        Admin admin,
+        MetricsListener metrics) {
     public static final String DEFAULT_HOST = "127.0.0.1";
     public static final int DEFAULT_PORT = 8424;
     public static final int DEFAULT_ADMIN_PORT = 8425;
@@ -77,6 +79,12 @@ public record KnurdConfig(
             return keystore != null && lanPort == 0;
         }
     }
+
+    /**
+     * Where the Prometheus {@code /metrics} page listens ({@code metrics.listen.host} and {@code
+     * metrics.port}). Like the admin port, it is this computer or the local network, never the internet.
+     */
+    public record MetricsListener(String host, int port) {}
 
     /** The Wi-Fi listener's port when the setup page turns it on. */
     public static final int DEFAULT_LAN_PORT = 8426;
@@ -127,6 +135,7 @@ public record KnurdConfig(
         String actions = p.getProperty("actions.file", "").trim();
         String publicUrl = publicUrl(p.getProperty("public.url", "").trim());
         Admin admin = admin(p, baseDir, port);
+        MetricsListener metrics = metrics(p, port, admin);
         if (admin != null && !admin.provisionTokens().isEmpty()) {
             if (!"master".equals(keys.mode())) {
                 throw new IllegalArgumentException("admin.provision.tokens needs master.key: knurd works out each"
@@ -145,7 +154,39 @@ public record KnurdConfig(
                 actions.isEmpty() ? null : baseDir.resolve(actions),
                 publicUrl,
                 resolver(p, publicUrl),
-                admin);
+                admin,
+                metrics);
+    }
+
+    /**
+     * The metrics.* settings, or null when metrics.port isn't set. The port must differ from every
+     * other knurd port, and the host follows the admin port's rules: an IP address on this computer
+     * or the local network (or every interface, for containers).
+     */
+    static MetricsListener metrics(Properties p, int tapPort, Admin admin) {
+        String portText = p.getProperty("metrics.port", "").trim();
+        if (portText.isEmpty()) {
+            if (!p.getProperty("metrics.listen.host", "").isBlank()) {
+                throw new IllegalArgumentException("metrics.listen.host needs metrics.port, which turns the metrics page on");
+            }
+            return null;
+        }
+        int port;
+        try {
+            port = Integer.parseInt(portText);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("metrics.port must be a number", e);
+        }
+        if (port < 1 || port > 65535) {
+            throw new IllegalArgumentException("metrics.port must be a port number from 1 to 65535");
+        }
+        if (port == tapPort || admin != null && (port == admin.port() || port == admin.lanPort())) {
+            throw new IllegalArgumentException("metrics.port must differ from listen.port, admin.listen.port and"
+                    + " admin.lan.port: the metrics page gets a port of its own");
+        }
+        String host = p.getProperty("metrics.listen.host", DEFAULT_HOST).trim();
+        localHost("metrics.listen.host", host, "the metrics page");
+        return new MetricsListener(host, port);
     }
 
     /**
@@ -268,22 +309,27 @@ public record KnurdConfig(
      * localhost), so a DNS answer can't move the admin API onto a public address.
      */
     private static boolean adminHost(String host) {
+        return localHost("admin.listen.host", host, "the admin API");
+    }
+
+    /** Checks a listener's host setting {@code key} the same way, and says whether it is loopback. */
+    private static boolean localHost(String key, String host, String what) {
         if (LocalAddresses.isLoopbackName(host)) {
             return true;
         }
         if (!host.matches("[0-9.]+|[0-9A-Fa-f:]*:[0-9A-Fa-f:.]*")) {
-            throw new IllegalArgumentException("admin.listen.host must be an IP address such as 127.0.0.1 or"
+            throw new IllegalArgumentException(key + " must be an IP address such as 127.0.0.1 or"
                     + " 192.168.1.20, not a name: " + host);
         }
         InetAddress address;
         try {
             address = InetAddress.getByName(host);
         } catch (UnknownHostException e) {
-            throw new IllegalArgumentException("admin.listen.host is not a valid IP address: " + host, e);
+            throw new IllegalArgumentException(key + " is not a valid IP address: " + host, e);
         }
         if (!address.isAnyLocalAddress() && !LocalAddresses.isLocalNetwork(address)) {
-            throw new IllegalArgumentException("admin.listen.host " + host + " is a public internet address; the"
-                    + " admin API listens only on this computer or your local network");
+            throw new IllegalArgumentException(key + " " + host + " is a public internet address; "
+                    + what + " listens only on this computer or your local network");
         }
         return address.isLoopbackAddress();
     }

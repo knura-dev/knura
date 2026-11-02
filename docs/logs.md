@@ -3,7 +3,7 @@
 knurd and knura-link write a line for everything that matters: each tap and whether it passed,
 each action and whether Home Assistant or your webhook took it, and problems reaching the tap
 resolver or the hosted account. This page shows where to find those lines and how to get more
-of them.
+of them. For charts and alerts over time, see [Metrics for Prometheus](metrics.md).
 
 Knura never logs keys, admin or home link tokens, claim codes, or the MAC and encrypted data from
 a tag's link. Every line passes through a filter that hides anything shaped like one, so a log is
