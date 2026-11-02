@@ -700,7 +700,7 @@ final class AdminServer implements AutoCloseable {
     static boolean isManagePath(String path) {
         return path.equals(SESSION) || path.equals(PASSWORD) || path.equals("/v1/settings")
                 || path.equals("/v1/actions/reload") || path.equals("/v1/connections") || path.equals("/v1/reach") || path.equals("/v1/tailscale") || path.equals("/v1/tailscale/funnel")
-                || path.equals("/v1/phones/pair")
+                || path.equals("/v1/phones/pair") || path.startsWith("/v1/phones/")
                 || path.startsWith("/v1/backup/")
                 || path.startsWith("/v1/connections/") || path.startsWith("/v1/tags/");
     }
@@ -925,6 +925,15 @@ final class AdminServer implements AutoCloseable {
             if (path.equals("/v1/phones/pair")) {
                 return only("POST", method, exchange, () -> pairPhone(m, f));
             }
+            if (parts.length == 3 && parts[1].equals("phones")) {
+                String name = parts[2];
+                return only("DELETE", method, exchange, () -> {
+                    if (m.phones() == null || !m.phones().remove(name)) {
+                        return new Answer(404, error("not_found", "no phone named " + name), null);
+                    }
+                    return new Answer(200, "{\"removed\":" + Json.quote(name) + "}", "removed phone " + name);
+                });
+            }
             if (path.equals("/v1/reach")) {
                 return only("GET", method, exchange, () -> new Answer(200, reach(), null));
             }
@@ -934,6 +943,19 @@ final class AdminServer implements AutoCloseable {
             }
             if (path.equals("/v1/connections")) {
                 return only("GET", method, exchange, () -> new Answer(200, connectionsJson(), null));
+            }
+            if (parts.length == 5 && parts[1].equals("connections") && parts[4].equals("test")) {
+                String type = parts[2];
+                String id = parts[3];
+                if (!HomeSettings.TYPES.contains(type)) {
+                    return new Answer(404, error("not_found", null), null);
+                }
+                return only("POST", method, exchange, () -> {
+                    io.knura.knurgn.Delivery d = m.settings().testConnection(type, id);
+                    return new Answer(200, "{\"id\":" + Json.quote(id) + ",\"result\":"
+                            + Json.quote(d.status().name().toLowerCase(Locale.ROOT)) + ",\"detail\":" + Json.quote(d.detail())
+                            + "}", "test for " + type + " " + id + ": " + d.status().name().toLowerCase(Locale.ROOT));
+                });
             }
             if (parts.length == 5 && parts[1].equals("connections") && parts[4].equals("secret")) {
                 String type = parts[2];
@@ -1123,9 +1145,13 @@ final class AdminServer implements AutoCloseable {
     private String connectionsJson() throws IOException {
         StringBuilder json = new StringBuilder("{\"connections\":[");
         String sep = "";
+        Map<String, LiveActions.Last> last = manage.settings().lastResults();
         for (HomeSettings.Connection c : manage.settings().connections()) {
+            LiveActions.Last l = last.get(c.id());
             json.append(sep).append("{\"type\":").append(Json.quote(c.type())).append(",\"id\":").append(Json.quote(c.id()))
                     .append(",\"url\":").append(Json.quote(c.url())).append(",\"usedBy\":").append(jsonList(c.usedBy()))
+                    .append(",\"last\":").append(l == null ? "null" : "{\"time\":\"" + l.time() + "\",\"result\":"
+                            + Json.quote(l.outcome()) + ",\"detail\":" + Json.quote(l.detail()) + ",\"test\":" + l.test() + "}")
                     .append('}');
             sep = ",";
         }

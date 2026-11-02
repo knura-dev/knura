@@ -1,7 +1,11 @@
 package io.knura.knurd;
 
+import io.knura.knurgn.Delivery;
 import io.knura.knurgn.Knurgn;
 import java.time.Clock;
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
@@ -14,11 +18,40 @@ final class LiveActions implements KnurdServer.TapListener, AutoCloseable {
     private final AtomicReference<Knurgn> current;
     private final Clock clock;
     private volatile Function<String, String> labels = uid -> null;
+    private final Map<String, Last> last = new ConcurrentHashMap<>();
+
+    /**
+     * How a connector's latest action ended: {@code outcome} is {@code delivered}, {@code refused}
+     * or {@code expired}, and {@code test} says whether it was a test. Kept in memory only.
+     */
+    record Last(Instant time, String outcome, String detail, boolean test) {}
 
     /** @param initial the engine from the actions file, or null when there is none yet */
     LiveActions(Knurgn initial, Clock clock) {
         this.current = new AtomicReference<>(initial);
         this.clock = clock;
+        watch(initial);
+    }
+
+    private void watch(Knurgn k) {
+        if (k != null) {
+            k.watch(r -> last.put(r.connectorId(), new Last(clock.instant(), r.outcome().name().toLowerCase(java.util.Locale.ROOT),
+                    r.detail(), r.event().counter() == 0)));
+        }
+    }
+
+    /** How each connector's latest action ended, by connector id. */
+    Map<String, Last> last() {
+        return Map.copyOf(last);
+    }
+
+    /**
+     * Sends one test event to connector {@code id} and waits for its answer, or null when there is
+     * no such connector. {@code uid} names the tag the event is for.
+     */
+    Delivery tryConnector(String id, String uid) {
+        Knurgn k = current.get();
+        return k == null ? null : k.tryConnector(id, uid, labels.apply(uid));
     }
 
     /** Where to find the name the owner gave each tag, sent along with each tap. */
@@ -48,6 +81,7 @@ final class LiveActions implements KnurdServer.TapListener, AutoCloseable {
 
     /** Starts using {@code next}; the old engine is closed in the background. */
     void replace(Knurgn next) {
+        watch(next);
         Knurgn old = current.getAndSet(next);
         if (old != null) {
             Thread.ofVirtual().name("knurgn-retire").start(old::close);

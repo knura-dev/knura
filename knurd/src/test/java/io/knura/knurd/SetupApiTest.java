@@ -193,7 +193,7 @@ class SetupApiTest {
         assertEquals("{\"tags\":[{\"uid\":\"" + UID + "\",\"lastCounter\":null,\"label\":\"Front door\",\"name\":\"Front door\","
                 + "\"nameChanged\":" + clock.millis() + ",\"icon\":\"door\",\"actions\":[\"desk-hook\"]}]}", send("GET", "/v1/tags", null, cookie).body());
         assertEquals("{\"connections\":[{\"type\":\"webhook\",\"id\":\"desk-hook\",\"url\":\"" + url + "2\",\"usedBy\":[\""
-                + UID + "\"]}]}", send("GET", "/v1/connections", null, cookie).body());
+                + UID + "\"],\"last\":null}]}", send("GET", "/v1/connections", null, cookie).body());
 
         assertEquals("{\"started\":1}", send("POST", "/v1/tags/" + UID + "/test", null, cookie).body());
         String body = received.poll(10, TimeUnit.SECONDS);
@@ -254,6 +254,30 @@ class SetupApiTest {
         return http.send(HttpRequest.newBuilder(uri(path)).header("Authorization", "Bearer " + phone)
                 .method(method, json == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(json)).build(),
                 HttpResponse.BodyHandlers.ofString());
+    }
+
+    @Test
+    void aConnectorCanBeTestedAndShowsHowItsLastActionEnded() throws Exception {
+        String cookie = cookie(send("POST", "/v1/password", "{\"password\":\"lantern-orbit-42\"}", null));
+        String url = "http://127.0.0.1:" + hook.getAddress().getPort() + "/hook";
+        assertEquals(404, send("POST", "/v1/connections/webhook/desk-hook/test", null, cookie).statusCode(), "not added yet");
+        send("PUT", "/v1/connections/webhook/desk-hook", "{\"url\":\"" + url + "\"}", cookie);
+        assertTrue(send("GET", "/v1/connections", null, cookie).body().contains("\"last\":null"), "never ran yet");
+
+        HttpResponse<String> test = send("POST", "/v1/connections/webhook/desk-hook/test", null, cookie);
+        assertEquals("{\"id\":\"desk-hook\",\"result\":\"delivered\",\"detail\":\"HTTP 204\"}", test.body());
+        String body = received.poll(10, TimeUnit.SECONDS);
+        assertTrue(body != null && body.contains("\"counter\":0") && body.contains("00000000000000"),
+                "a test event for a made-up tag, as no tag uses it yet: " + body);
+        String conns = send("GET", "/v1/connections", null, cookie).body();
+        assertTrue(conns.contains("\"result\":\"delivered\",\"detail\":\"HTTP 204\",\"test\":true}"), conns);
+
+        hook.stop(0); // nothing answers now
+        HttpResponse<String> down = send("POST", "/v1/connections/webhook/desk-hook/test", null, cookie);
+        assertEquals(200, down.statusCode());
+        assertFalse(down.body().contains("\"delivered\""), "the answer says it didn't get through: " + down.body());
+        assertEquals(405, send("GET", "/v1/connections/webhook/desk-hook/test", null, cookie).statusCode());
+        assertEquals(404, send("POST", "/v1/connections/nope/desk-hook/test", null, cookie).statusCode());
     }
 
     @Test

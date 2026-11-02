@@ -372,6 +372,26 @@ final class HomeSettings {
         return live.knotCount();
     }
 
+    /**
+     * Sends one test event to a connector and waits for its answer, for the dashboard's "Send a
+     * test". The event names the first tag that uses the connector, or a made-up all-zero UID.
+     */
+    io.knura.knurgn.Delivery testConnection(String type, String id) throws IOException {
+        Connection c = connections().stream().filter(x -> x.type().equals(type) && x.id().equals(id)).findFirst()
+                .orElseThrow(() -> new NotFound("no " + type + " connector named " + id));
+        String uid = c.usedBy().isEmpty() ? "00000000000000" : c.usedBy().get(0);
+        io.knura.knurgn.Delivery d = live.tryConnector(id, uid);
+        if (d == null) {
+            throw new NotFound("knurd hasn't loaded " + id + " yet; reload the actions");
+        }
+        return d;
+    }
+
+    /** How each connector's latest action ended. */
+    Map<String, LiveActions.Last> lastResults() {
+        return live.last();
+    }
+
 
     // ---- backups ----
 
@@ -440,6 +460,18 @@ final class HomeSettings {
             java.util.Collections.sort(names);
             rewrite(knurdFile, PropertiesText.set(read(knurdFile), "admin.provision.tokens", String.join(",", names)));
         }
+    }
+
+    /** Takes a phone off admin.provision.tokens; whether it was there. */
+    synchronized boolean removePhone(String name) throws IOException {
+        List<String> names = new java.util.ArrayList<>(split(load(knurdFile).getProperty("admin.provision.tokens")));
+        if (!names.remove(name)) {
+            return false;
+        }
+        String text = read(knurdFile);
+        rewrite(knurdFile, names.isEmpty() ? PropertiesText.remove(text, "admin.provision.tokens")
+                : PropertiesText.set(text, "admin.provision.tokens", String.join(",", names)));
+        return true;
     }
 
     /** admin.tls.keystore as saved, resolved against the settings folder, or null. */

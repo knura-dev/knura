@@ -112,6 +112,11 @@ final class NfcRelay {
         tokens.add(tokenName);
     }
 
+    /** Stops a token setting tags up, as when a phone is removed; no restart needed. */
+    void disallow(String tokenName) {
+        tokens.remove(tokenName);
+    }
+
     /** The names allowed now. */
     Set<String> allowed() {
         return Set.copyOf(tokens);
