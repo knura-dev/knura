@@ -45,7 +45,7 @@ data class Snapshot(
     }
 
     /**
-     * [shared] is true when the server keeps tag names too (a hosted account does, knurd doesn't),
+     * [shared] is true when the server keeps tag names too (a hosted account does, and so does knurd since it got a dashboard),
      * and then [name] is the server's name for the tag, or null for none.
      */
     data class TagInfo(val uid: String, val lastCounter: Int, val name: String? = null, val shared: Boolean = false)

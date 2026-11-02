@@ -1642,7 +1642,7 @@ class MainActivity : Activity() {
         else -> status.replaceFirstChar { it.uppercase() }
     }
 
-    // ---------------------------------------------------------------- tag names (shared with a hosted account)
+    // ---------------------------------------------------------------- tag names (shared with the server)
 
     private fun tagNames(): JSONObject = json(prefs.getString("tagNames", "{}"))
 
@@ -1666,7 +1666,7 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Shares tag names with a server that keeps them too (a hosted account): sends renames made on
+     * Shares tag names with a server that keeps them too (knurd or a hosted account): sends renames made on
      * this phone, then takes the server's names for the rest. The newest change wins; see [TagNames].
      * Runs on the worker; a rename that can't be sent now waits for the next refresh.
      */
@@ -1709,7 +1709,7 @@ class MainActivity : Activity() {
         val shared = snapshot?.tags?.firstOrNull { it.uid == uid }?.shared == true
         AlertDialog.Builder(this)
             .setTitle("Name this tag")
-            .setMessage("$uid\n\n" + if (shared) "The name shows on your account's dashboard too." else "The name stays on this phone.")
+            .setMessage("$uid\n\n" + if (shared) "The name shows on the dashboard too." else "The name stays on this phone.")
             .setView(padded(input))
             .setPositiveButton("Save") { _, _ ->
                 val name = input.text.toString()

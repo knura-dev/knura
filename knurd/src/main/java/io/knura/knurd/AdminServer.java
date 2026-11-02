@@ -693,6 +693,9 @@ final class AdminServer implements AutoCloseable {
 
     // ---- the setup page ----
 
+    /** {@code POST /v1/tags/<UID>}: the Knura app sharing a tag's new name. */
+    private static final java.util.regex.Pattern APP_RENAME = java.util.regex.Pattern.compile("/v1/tags/[0-9A-Fa-f]{14}");
+
     /** Whether a path belongs to the setup page's requests. */
     static boolean isManagePath(String path) {
         return path.equals(SESSION) || path.equals(PASSWORD) || path.equals("/v1/settings")
@@ -710,6 +713,12 @@ final class AdminServer implements AutoCloseable {
     static String forgeryProblem(Headers headers, String method, String path, boolean hasCookie) {
         if (!isManagePath(path) && !hasCookie) {
             return null; // knurctl and the phone app, which never send cookies
+        }
+        if (!hasCookie && "POST".equals(method) && APP_RENAME.matcher(path).matches() && bearer(headers) != null) {
+            // The Knura app renaming a tag, the same request it sends a hosted account, which has
+            // no such header. It carries a token, not a cookie, and another web site can't make
+            // the browser send a token, so it can't be forged. Every other change needs the header.
+            return null;
         }
         boolean changes = !"GET".equals(method) && !"HEAD".equals(method);
         if (!changes && !hasCookie) {
@@ -955,6 +964,10 @@ final class AdminServer implements AutoCloseable {
             }
             if (parts.length == 3 && parts[1].equals("tags")) {
                 String uid = HomeSettings.uid(parts[2]);
+                if ("POST".equals(method)) {
+                    return syncName(m, uid, f);
+                }
+                exchange.getResponseHeaders().set("Allow", "PUT, POST");
                 return only("PUT", method, exchange, () -> {
                     m.settings().setLabel(uid, optionalText(f, "label"), optionalText(f, "icon"));
                     return new Answer(200, "{\"uid\":" + Json.quote(uid) + "}", "labelled " + uid);
@@ -1119,6 +1132,30 @@ final class AdminServer implements AutoCloseable {
         return json.append("]}").toString();
     }
 
+    /** A rename from the Knura app: {@code {"name": "..", "changedAt": <ms>}}; the newest change wins. */
+    private Answer syncName(Manage m, String uid, Map<String, Object> f) throws IOException {
+        if (!knownTag(m, uid)) {
+            return new Answer(404, error("not_found", "knurd doesn't know this tag"), null);
+        }
+        Object name = f.get("name");
+        Object at = f.get("changedAt");
+        if (!(name instanceof String n)) {
+            throw new IllegalArgumentException("name is missing");
+        }
+        if (!(at instanceof Number t)) {
+            throw new IllegalArgumentException("changedAt is missing");
+        }
+        HomeSettings.Named standing = m.settings().syncName(uid, n, t.longValue());
+        return new Answer(200, "{\"uid\":" + Json.quote(uid) + ",\"name\":" + Json.quote(standing.name())
+                + ",\"nameChanged\":" + (standing.changedAt() == 0 ? "null" : Long.toString(standing.changedAt())) + "}",
+                "named " + uid + " from the app");
+    }
+
+    private boolean knownTag(Manage m, String uid) throws IOException {
+        return counters.snapshot().containsKey(uid) || m.settings().labels().containsKey(uid)
+                || m.settings().tagActions().containsKey(uid);
+    }
+
     /** Every tag knurd knows of, from its counters, labels and actions, with all three. */
     private String manageTags() {
         Map<String, Integer> seen = counters.snapshot();
@@ -1140,6 +1177,10 @@ final class AdminServer implements AutoCloseable {
             json.append(sep).append("{\"uid\":").append(Json.quote(uid))
                     .append(",\"lastCounter\":").append(seen.containsKey(uid) ? seen.get(uid).toString() : "null")
                     .append(",\"label\":").append(Json.quote(l == null ? null : l.label()))
+                    // The Knura app reads "name" (and shares renames back) the same way it does
+                    // with a hosted account.
+                    .append(",\"name\":").append(Json.quote(l == null ? null : l.label()))
+                    .append(",\"nameChanged\":").append(l == null || l.named() == 0 ? "null" : Long.toString(l.named()))
                     .append(",\"icon\":").append(Json.quote(l == null ? null : l.icon()))
                     .append(",\"actions\":").append(jsonList(actions.getOrDefault(uid, List.of()))).append('}');
             sep = ",";

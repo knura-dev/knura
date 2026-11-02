@@ -198,7 +198,8 @@ while a new Tailscale Funnel address is spreading. Without `public.url` the answ
 `GET /v1/tags` now lists every tag knurd knows of, from its counters, labels and actions:
 
 ```json
-{"tags":[{"uid":"04DE5F1EACC040","lastCounter":61,"label":"Front door","icon":"door","actions":["living-room"]}]}
+{"tags":[{"uid":"04DE5F1EACC040","lastCounter":61,"label":"Front door","name":"Front door",
+  "nameChanged":1762045200000,"icon":"door","actions":["living-room"]}]}
 ```
 
 | Request | Body | What it does |
@@ -206,6 +207,17 @@ while a new Tailscale Funnel address is spreading. Without `public.url` the answ
 | `PUT /v1/tags/<UID>` | `{"label":"Front door","icon":"door"}` | Sets the label and icon. Leave one out to clear it. |
 | `PUT /v1/tags/<UID>/actions` | `{"actions":"living-room,ifttt"}` | Sets which connectors the tag runs, in order. `""` takes its rule away. |
 | `POST /v1/tags/<UID>/test` | | Runs the tag's actions now: `{"started":1}` |
+| `POST /v1/tags/<UID>` | `{"name":"Front door","changedAt":1762045200000}` | The Knura app sharing a rename made at `changedAt` (ms). Answers with the name that stands: `{"uid":..,"name":..,"nameChanged":..}`. |
+
+**Names in the Knura app.** `name` is the label again, and `nameChanged` is when it last changed
+(ms, or null when not known). The app reads them and shows the dashboard's names, and a rename in
+the app is sent back with `POST /v1/tags/<UID>`, so the app and the dashboard show the same names.
+When both change, the newest change wins: the app's rename is kept only if the tag wasn't renamed
+after that time. A future `changedAt` counts as now, and an empty name takes the label off. This is
+the same request and rule a hosted account uses, so the app needs nothing special for knurd. Only
+paired phones' tokens may send it; unlike other changes it needs no `X-Knura-Request` header,
+because it carries a token, never a cookie. The time is kept in `knurd-tags.properties` as
+`<UID>.named`.
 
 Labels are free text, up to 40 characters, and are sent with each tap as `"name"`. They are kept
 in `knurd-tags.properties`. Icons are short names like `door`, made of lowercase letters,
