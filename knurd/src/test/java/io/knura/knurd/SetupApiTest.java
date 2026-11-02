@@ -284,7 +284,8 @@ class SetupApiTest {
 
     @Test
     void theSetupPageIsServedWithoutSignInAndWithAStrictPolicy() throws Exception {
-        for (String path : new String[] {"/", "/setup", "/setup/app.js", "/setup/app.css", "/setup/words.js", "/setup/icon.svg"}) {
+        for (String path : new String[] {"/", "/dashboard/app.js", "/dashboard/app.css", "/setup", "/setup/app.js", "/setup/app.css",
+                "/setup/words.js", "/setup/icon.svg"}) {
             HttpResponse<String> r = http.send(HttpRequest.newBuilder(uri(path)).build(), HttpResponse.BodyHandlers.ofString());
             assertEquals(200, r.statusCode(), path);
             assertEquals(SetupPage.CSP, r.headers().firstValue("Content-Security-Policy").orElseThrow(), path);
@@ -293,6 +294,9 @@ class SetupApiTest {
         HttpResponse<String> page = http.send(HttpRequest.newBuilder(uri("/setup")).build(), HttpResponse.BodyHandlers.ofString());
         assertTrue(page.headers().firstValue("Content-Type").orElseThrow().startsWith("text/html"));
         assertFalse(page.body().contains("http"), "nothing is loaded from the internet");
+        HttpResponse<String> dash = http.send(HttpRequest.newBuilder(uri("/")).build(), HttpResponse.BodyHandlers.ofString());
+        assertTrue(dash.body().contains("/dashboard/app.js"), "the dashboard is at /");
+        assertFalse(dash.body().contains("http"), "nothing is loaded from the internet");
         assertEquals(401, http.send(HttpRequest.newBuilder(uri("/setup/knurd.properties")).build(),
                 HttpResponse.BodyHandlers.ofString()).statusCode(), "only the page's own files are served");
         assertEquals(401, http.send(HttpRequest.newBuilder(uri("/v1/status")).build(),

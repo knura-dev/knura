@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Dashboard** at http://127.0.0.1:8425/, signed in with the setup page's password: Home (is
+  everything working, health checks that link to the fix, a genuine-taps chart, your last tap),
+  Tags (each tag's week of taps; rename, icon, switch actions on and off, send a test), Taps (the
+  history, filtered by result, tag and time, downloads as CSV or JSON) and Settings (rename, change
+  the password, light or dark). The setup page's last step opens it, and so does the desktop app.
+- Taps are kept for a year in `knurd-taps.log` when the admin API is on, so the history survives
+  restarts. `GET /v1/taps` takes `uid=` and `result=ok|stopped` and up to 1000 taps; new
+  `GET /v1/taps/days` counts them per day.
 - **Installers** with Java included (docs/install.md), built for each release by the new
   Installers workflow: `.deb` for Ubuntu/Debian and Raspberry Pi (x86-64 and ARM64) and `.rpm` for
   Fedora, which run Knura as a `knura` system service with settings in `/var/lib/knura`; `.msi`

@@ -80,7 +80,9 @@ public final class Main {
         KnurdConfig.Resolver resolver = config.resolver();
         KnurdServer server = new KnurdServer(
                 config.host(), config.port(), verifier, listener, resolver == null ? null : resolver.owner());
-        RecentTaps recentTaps = new RecentTaps(Clock.systemUTC());
+        // With the admin API on, the dashboard shows tap history, so keep it across restarts.
+        RecentTaps recentTaps = config.admin() == null ? new RecentTaps(Clock.systemUTC())
+                : new RecentTaps(Clock.systemUTC(), configFile.toAbsolutePath().getParent().resolve(RecentTaps.FILE));
         server.recordTapsTo(recentTaps);
         AdminServer admin = null;
         if (config.admin() != null) {

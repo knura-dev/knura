@@ -15,8 +15,9 @@ import java.util.Optional;
 
 /**
  * The "Knura" app the Windows and Mac installers put in the Start menu or Applications folder. It
- * makes sure knurd runs in the background, starting each time you sign in, then opens the setup
- * page in your browser. Opening it again just opens the page.
+ * makes sure knurd runs in the background, starting each time you sign in, then opens the
+ * dashboard in your browser, which goes to the setup page until Knura is set up. Opening it again
+ * just opens the page.
  *
  * <ul>
  *   <li>Windows: settings in {@code %LOCALAPPDATA%\KnuraData}; starts at sign-in through the
@@ -28,7 +29,7 @@ import java.util.Optional;
  * <p>{@code Knura --no-start-at-sign-in} undoes the sign-in start, as before uninstalling.
  */
 public final class Desktop {
-    static final String SETUP = "http://127.0.0.1:8425/setup";
+    static final String SETUP = "http://127.0.0.1:8425/";
     static final String LABEL = "io.knura.knurd";
     private static final String RUN_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 

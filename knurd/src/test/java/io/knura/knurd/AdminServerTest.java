@@ -132,7 +132,7 @@ class AdminServerTest {
                 HttpResponse.BodyHandlers.ofString());
         assertEquals(405, post.statusCode());
         assertEquals(400, get("/v1/taps?limit=0", token).statusCode());
-        assertEquals(400, get("/v1/taps?limit=201", token).statusCode());
+        assertEquals(400, get("/v1/taps?limit=1001", token).statusCode());
         assertEquals(400, get("/v1/taps?limit=x", token).statusCode());
     }
 
@@ -163,6 +163,20 @@ class AdminServerTest {
                 + "{\"time\":\"" + t + "\",\"status\":\"ok\",\"uid\":\"04DE5F1EACC040\",\"counter\":61,\"actions\":1}]}",
                 get("/v1/taps", token).body());
         assertEquals(1, get("/v1/taps?limit=1", token).body().split("\"time\"").length - 1);
+
+        assertEquals(1, get("/v1/taps?result=ok", token).body().split("\"time\"").length - 1);
+        assertEquals(2, get("/v1/taps?result=stopped", token).body().split("\"time\"").length - 1);
+        assertEquals(2, get("/v1/taps?uid=04de5f1eacc040", token).body().split("\"time\"").length - 1);
+        assertEquals("{\"taps\":[]}", get("/v1/taps?uid=04000000000000", token).body());
+        assertEquals(400, get("/v1/taps?uid=nope", token).statusCode());
+        assertEquals(400, get("/v1/taps?result=maybe", token).statusCode());
+
+        admin.zone = ZoneOffset.UTC;
+        String days = get("/v1/taps/days?days=2", token).body();
+        assertTrue(days.contains("\"days\":[{\"day\":\"2026-10-14\",\"ok\":0,\"stopped\":0},"
+                + "{\"day\":\"2026-10-15\",\"ok\":1,\"stopped\":2}]"), days);
+        assertTrue(days.contains("\"tags\":{\"04DE5F1EACC040\":[0,1]}"), days);
+        assertEquals(400, get("/v1/taps/days?days=91", token).statusCode());
     }
 
     @Test

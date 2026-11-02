@@ -8,21 +8,26 @@ import java.io.OutputStream;
 import java.util.Map;
 
 /**
- * The setup page's own files, served by the admin listener: one HTML page, its stylesheet and
- * its scripts, all inside knurd's jar. Nothing is loaded from the internet, so the page works with
- * no connection and can't be changed by anyone else's server. The files hold no settings; the page
- * reads and changes those through the admin API once you sign in.
+ * The web pages knurd serves on the admin listener: the setup wizard at {@code /setup} and the
+ * dashboard at {@code /}. Each is one HTML page, its stylesheet and its script, all inside knurd's
+ * jar. Nothing is loaded from the internet, so the pages work with no connection and can't be
+ * changed by anyone else's server. The files hold no settings; the pages read and change those
+ * through the admin API once you sign in.
  */
 final class SetupPage {
-    private static final String ROOT = "/io/knura/knurd/setup/";
-    private static final Map<String, String> FILES = Map.of(
-            "/", "index.html",
-            "/setup", "index.html",
-            "/setup/", "index.html",
-            "/setup/app.css", "app.css",
-            "/setup/app.js", "app.js",
-            "/setup/words.js", "words.js",
-            "/setup/icon.svg", "icon.svg");
+    private static final String ROOT = "/io/knura/knurd/";
+    private static final Map<String, String> FILES = Map.ofEntries(
+            Map.entry("/", "dashboard/index.html"),
+            Map.entry("/dashboard", "dashboard/index.html"),
+            Map.entry("/dashboard/", "dashboard/index.html"),
+            Map.entry("/dashboard/app.css", "dashboard/app.css"),
+            Map.entry("/dashboard/app.js", "dashboard/app.js"),
+            Map.entry("/setup", "setup/index.html"),
+            Map.entry("/setup/", "setup/index.html"),
+            Map.entry("/setup/app.css", "setup/app.css"),
+            Map.entry("/setup/app.js", "setup/app.js"),
+            Map.entry("/setup/words.js", "setup/words.js"),
+            Map.entry("/setup/icon.svg", "setup/icon.svg"));
     static final String CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline';"
             + " img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none';"
             + " form-action 'none'";

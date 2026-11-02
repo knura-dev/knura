@@ -456,7 +456,7 @@ function s7() {
 <div class="done-hero"><div class="tile ok pop" style="width:64px;height:64px;border-radius:20px">${ico('check', 34, 2.4)}</div><div class="head"><div class="kick">Step 7 of 7</div><h1>${esc(S.name || 'Knura')} is set up</h1><p>Knura keeps checking taps as long as it’s running on this computer.</p></div></div>
 <div class="sub summary" style="padding:6px 16px"><div class="checks">${items.map(([i, t, s, ok], n) => `<div class="chk" style="animation-delay:${200 + n * 160}ms"><div class="tile${ok ? ' ok' : ''}" style="width:38px;height:38px;border-radius:12px">${ico(i, 18)}</div><div class="txt"><b>${esc(t)}</b><span>${esc(s)}</span></div><div class="state ${ok ? 'ok' : ''}">${ok ? `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="${P.check}" style="animation-delay:${400 + n * 160}ms"/></svg>` : '<div class="dotwait"></div>'}</div></div>`).join('')}</div></div>
 <div class="note rise" style="animation-delay:900ms">${ico('info', 18)}<div>Taps only work while this computer is on and awake. If it sleeps, change that in its power settings.</div></div>
-<div class="row" style="flex-wrap:wrap;gap:10px"><button class="btn primary" data-act="finish">Done ${ico('check', 16, 2)}</button><button class="btn" data-act="another">${ico('plus', 16)} Add another tag</button></div>`;
+<div class="row" style="flex-wrap:wrap;gap:10px"><button class="btn primary" data-act="finish">Open the dashboard ${ico('next', 16, 2)}</button><button class="btn" data-act="another">${ico('plus', 16)} Add another tag</button></div>`;
 }
 
 // ---------- requirements ----------
@@ -743,7 +743,7 @@ document.addEventListener('click', async e => {
       later(() => { S.tested = true; render(); }, 600); break;
     }
     case 'another': S.tag = null; S.tapped = false; S.tagSince = null; S.tagname = 'Kitchen'; S.tagicon = 'kitchen'; S.act = null; S.connId = null; S.tested = false; store.set('done', ''); go(5); break;
-    case 'finish': store.set('done', '1'); toast('All done. You can close this page.'); break;
+    case 'finish': store.set('done', '1'); location.href = '/'; break;
     case 'signout': await api('DELETE', '/v1/session'); S.session.signedIn = false; S.screen = 'signin'; render(); break;
     case 'reload': location.reload(); break;
   }
