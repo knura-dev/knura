@@ -19,6 +19,7 @@ const P = {
   link:'M10 14a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-.5.5M14 10a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l.5-.5',
   bolt:'M13 3L5 13.5h6L10 21l8-10.5h-6z', matter:'M12 3v6M12 15v6M3 12h6M15 12h6',
   key:'M8 11a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zM11.5 11.5L21 2M17 6l3 3M14.5 8.5l2 2',
+  wifi:'M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.5 16a5 5 0 0 1 7 0M12 19.5h.01',
   copy:'M9 9h11v11H9zM5 15H4V4h11v1', download:'M12 3v12M7 10l5 5 5-5M4 21h16',
   search:'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-4-4',
   nfc:'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM9 9.5a4 4 0 0 1 0 5M6.8 7.3a7 7 0 0 1 0 9.4',
@@ -166,6 +167,8 @@ async function loadAll() {
   if (dy.ok) S.days = dy.json;
   const tk = await api('GET', '/v1/tokens');
   S.tokens = tk.ok && Array.isArray(tk.json.tokens) ? tk.json.tokens.filter(t => typeof t === 'string') : null;
+  const od = await api('GET', '/v1/settings/other-devices');
+  S.lan = od.ok ? od.json : null;
   if (location.hash === '#logs') await loadLogs();
 }
 async function loadReach() {
@@ -442,6 +445,7 @@ function vConfig() {
     <span class="label" style="padding:0 6px">Reach</span>
     <section class="g set-list" aria-label="Reach">
       ${row('globe', 'Public address', addr ? '<span class="mono">' + esc(addr.replace(/^https?:\/\//, '')) + '</span>' : 'Not set, so phones can’t reach this computer yet', '<button class="btn sm" data-act="change-url">Change</button>')}
+      ${lanRows(row)}
       ${row('link', 'tap.knura.io', st.resolverOwner ? 'Forwards taps from tags with the tap.knura.io link' : 'Not used', '')}
     </section>
     <span class="label" style="padding:0 6px">Sign-in</span>
@@ -467,6 +471,33 @@ function vConfig() {
     </section>` : ''}
   </div>`;
   return shell('config', 'Settings', body);
+}
+
+// The certificate's SHA-256 fingerprint in pairs, as browsers show it: AB:12:...
+function fingerprintPairs(f) {
+  const hex = typeof f === 'string' ? f.replace(/[^0-9a-f]/gi, '').toUpperCase() : '';
+  return hex.length === 64 ? hex.match(/../g) : null;
+}
+const onThisComputer = () => /^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname);
+function lanRows(row) {
+  const l = S.lan;
+  if (!l) return '';
+  const urls = Array.isArray(l.urls) ? l.urls.filter(u => typeof u === 'string' && /^https:\/\/[0-9a-z.:\[\]-]+$/i.test(u)) : [];
+  const on = l.on === true && urls.length > 0;
+  const sw = `<button class="sw" role="switch" aria-checked="${on}" aria-label="Open this page from other devices" data-act="lan"><span></span></button>`;
+  const head = row('wifi', 'Open this page from other devices', on ? 'On your Wi-Fi at <span class="mono">' + esc(urls[0]) + '</span>' : 'Off. Only this computer can open it.', sw);
+  if (!on) return head;
+  const fp = fingerprintPairs(l.fingerprint);
+  const qr = onThisComputer() ? qrSvg(l.qr, 'Code for opening this page on a phone', 168) : '';
+  return head + `<div class="lan-more">
+    <div class="lan-qr">${qr ? `<div>${qr}</div><span class="muted" style="font-size:12.5px">Scan with the phone’s camera</span>` : ''}</div>
+    <div style="display:flex;flex-direction:column;gap:10px;min-width:0;flex:1">
+      <p style="font-size:13.5px;line-height:1.55;margin:0">On a phone or another computer on the same Wi-Fi, open <span class="mono">${esc(urls[0])}</span>${urls.length > 1 ? ' (or ' + urls.slice(1).map(u => '<span class="mono">' + esc(u) + '</span>').join(', ') + ')' : ''} and sign in with the page password.</p>
+      <p class="muted" style="font-size:13px;line-height:1.55;margin:0">The first time, the browser warns that the connection isn’t private. That’s because this computer made its own certificate, instead of buying one from a company. Before you continue, open the certificate details from the warning and check that its <b>SHA-256 fingerprint</b> starts like this. If it doesn’t, stop: you’re not talking to your Knura.</p>
+      ${fp ? `<div class="term fp" aria-label="Certificate fingerprint"><b>${fp.slice(0, 8).join(':')}</b>:${fp.slice(8).join(':')}</div>` : ''}
+      ${l.firewall ? `<p class="muted" style="font-size:12.5px;margin:0">Page doesn’t load? This computer’s firewall may block it. Run <span class="mono">${esc(l.firewall)}</span></p>` : ''}
+      <p class="muted" style="font-size:12.5px;margin:0">Only devices on your home network can open it. Phones away from home still can’t.</p>
+    </div></div>`;
 }
 
 // ---------- modals ----------
@@ -612,12 +643,12 @@ async function removeConn(c) {
 }
 
 // ---------- phones and readers ----------
-function qrSvg(rows) {
+function qrSvg(rows, label = 'Pairing code for the Knura app', size = 200) {
   if (!Array.isArray(rows) || !rows.length || !rows.every(r => typeof r === 'string' && /^[01]+$/.test(r) && r.length === rows.length)) return '';
   const n = rows.length, q = 4;
   let d = '';
   rows.forEach((row, y) => { for (let x = 0; x < n; x++) if (row[x] === '1') d += `M${x + q} ${y + q}h1v1h-1z`; });
-  return `<svg viewBox="0 0 ${n + 2 * q} ${n + 2 * q}" width="200" height="200" shape-rendering="crispEdges" role="img" aria-label="Pairing code for the Knura app" style="display:block;border-radius:12px"><rect width="100%" height="100%" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+  return `<svg viewBox="0 0 ${n + 2 * q} ${n + 2 * q}" width="${size}" height="${size}" shape-rendering="crispEdges" role="img" aria-label="${esc(label)}" style="display:block;border-radius:12px"><rect width="100%" height="100%" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
 }
 function vPhones() {
   const phones = (S.settings && S.settings.phones) || [], p = S.pair;
@@ -886,6 +917,15 @@ app.addEventListener('click', async e => {
   }
   switch (b.dataset.act) {
     case 'eye': { const i = document.getElementById(b.dataset.for), show = i.type === 'password'; i.type = show ? 'text' : 'password'; b.innerHTML = ico(show ? 'eyeoff' : 'eye', 19); b.setAttribute('aria-label', show ? 'Hide password' : 'Show password'); return; }
+    case 'lan': {
+      const on = !(S.lan && S.lan.on === true);
+      if (!on && !onThisComputer() && !confirm('Turn it off? This browser isn’t on the Knura computer, so it will stop working here. You can turn it back on from the Knura computer.')) return;
+      if (on) toast('Turning it on. The first time, Knura makes a certificate, which takes a few seconds.');
+      const r = await api('PUT', '/v1/settings/other-devices', { on });
+      if (!r.ok) return toast(why(r));
+      S.lan = r.json; render();
+      return toast(on ? 'Other devices on your Wi-Fi can open this page now' : 'Only this computer can open this page now');
+    }
     case 'theme': setTheme(curTheme() === 'dark' ? 'light' : 'dark'); return render();
     case 'notif': S.notif = !S.notif; return render();
     case 'reload': location.reload(); return;

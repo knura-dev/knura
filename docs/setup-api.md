@@ -190,6 +190,25 @@ Linux with firewalld or ufw, or null. The code holds no token: the app swaps it 
 /v1/pair` on the Wi-Fi listener, pinning the certificate by `fp`. `GET /v1/settings` lists the
 phone under `phones` once that has happened.
 
+### Opening the page from other devices
+
+| Request | Body | Answer |
+| --- | --- | --- |
+| `GET /v1/settings/other-devices` | | `{"on":true,"urls":["https://192.168.1.40:8426"],"fingerprint":"3fa2…","qr":["1110…"],"firewall":null}` |
+| `PUT /v1/settings/other-devices` | `{"on":true}` or `{"on":false}` | the same |
+
+`on` says whether browsers on the home network can open the dashboard and setup page through the
+Wi-Fi listener (`admin.lan.port`). Turning it on makes the certificate and starts the listener if
+pairing a phone hasn't already; it answers 409 `no_network` when this computer has no home network
+address, and 409 `plaintext` with `admin.security=plaintext`. It's saved as `admin.lan.browser`.
+Unset counts as on, as before the switch existed, so a computer set up with `--lan` keeps working.
+
+When it's off, the Wi-Fi listener answers 403 to the page's files, `/v1/session`, `/v1/password`
+and any request carrying a session cookie. The Knura app and knurctl, which send tokens, work as
+before. `urls` are `https://` and each home network address with the listener's port, `qr` is a QR
+code of the first, and `fingerprint` is the certificate's SHA-256, which a browser shows in its
+certificate details: comparing them is how you know the warning is about your own Knura.
+
 `DELETE /v1/phones/<name>` removes a paired phone: its token stops working at once and it comes off
 `admin.provision.tokens`, so it can't set tags up any more. Tags it set up keep working. It answers
 404 for a name that isn't a paired phone, such as a token made with `knurctl admin token add`.

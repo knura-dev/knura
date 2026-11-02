@@ -189,6 +189,7 @@ public final class Main {
         AdminPassword password = new AdminPassword(configFile.toAbsolutePath().getParent().resolve(AdminPassword.FILE));
         PhonePairing phones = new PhonePairing(config.keys(), resolver, a, tokens, settings, fingerprint, Clock.systemUTC());
         phones.attach(admin);
+        admin.setBrowserOnWifi(settings.browserOnWifi());
         SetupCode setupCode = new SetupCode(configFile.toAbsolutePath().getParent().resolve(SetupCode.FILE));
         admin.manage(new AdminServer.Manage(password, new Sessions(Clock.systemUTC()), settings,
                 Tailscale.find(config.port()), phones, setupCode));

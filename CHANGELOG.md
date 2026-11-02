@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Dashboard: **Settings → Open this page from other devices**, so a phone or laptop on the home
+  Wi-Fi can open the dashboard over HTTPS. Shows the address, a QR code, and the certificate's
+  SHA-256 fingerprint to check against the browser's warning. Turning it off keeps the Wi-Fi
+  listener for paired phones but refuses browsers. New `GET`/`PUT /v1/settings/other-devices`,
+  saved as `admin.lan.browser`.
 - Android app 0.8.4: the Settings button uses the same gear icon as the dashboards.
 - Dashboard: **Keys and backup** (download a backup file with a new six-word passphrase, or the
   recovery sheet; how to restore), **Logs** (the end of `log.file`, filtered by level or text,

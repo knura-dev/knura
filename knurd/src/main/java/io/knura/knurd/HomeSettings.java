@@ -523,6 +523,20 @@ final class HomeSettings {
         rewrite(knurdFile, PropertiesText.set(read(knurdFile), "admin.lan.port", String.valueOf(port)));
     }
 
+    /**
+     * Whether browsers on the home network may open the dashboard through the Wi-Fi listener
+     * (admin.lan.browser). Unset means yes: before this switch existed they always could, and a
+     * computer set up with {@code --lan} needs it for its first password.
+     */
+    synchronized boolean browserOnWifi() throws IOException {
+        return !"false".equalsIgnoreCase(load(knurdFile).getProperty("admin.lan.browser", "").trim());
+    }
+
+    /** Saves admin.lan.browser. */
+    synchronized void setBrowserOnWifi(boolean on) throws IOException {
+        rewrite(knurdFile, PropertiesText.set(read(knurdFile), "admin.lan.browser", String.valueOf(on)));
+    }
+
     /** The settings folder. */
     Path folder() {
         return dir;
