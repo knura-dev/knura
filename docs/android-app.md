@@ -117,8 +117,8 @@ unlock that lasts while the app stays open:
 
 - **Home**: your server card (tap it to refresh), the actions, and your tags with their last tap.
 - **Tags**: every tag knurd has accepted, with its last counter and last tap. Tap a tag to give
-  it a name. With your own knurd, names stay on the phone. With a hosted account, names are
-  shared with the account's dashboard: rename a tag in either place and the other shows it the
+  it a name. Names are shared with the dashboard, your own knurd's or a hosted account's:
+  rename a tag in either place and the other shows it the
   next time it refreshes. If a tag is renamed in both places, the newest change wins. A rename
   made while the phone is offline is sent on the next refresh, and only sticks if nobody renamed
   the tag on the dashboard after it.

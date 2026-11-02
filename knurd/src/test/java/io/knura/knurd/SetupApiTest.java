@@ -65,7 +65,7 @@ class SetupApiTest {
                 "laptop", AdminTokens.hash(laptop), "fold7", AdminTokens.hash(phone))));
         audit = new AuditLog(dir.resolve("audit.log"), clock);
         live = new LiveActions(null, Clock.systemUTC());
-        HomeSettings settings = new HomeSettings(knurdFile, null, live, Clock.systemUTC());
+        HomeSettings settings = new HomeSettings(knurdFile, null, live, clock);
         NfcRelay nfc = new NfcRelay(TagKeys.derived(Hex.decode("00112233445566778899AABBCCDDEEFF"), Map.of()),
                 "https://desk.tail1234.ts.net/tap", Set.of("fold7"), Duration.ofSeconds(2));
         admin = new AdminServer("127.0.0.1", 0, null, new TokenStore(tokensFile), audit, new MemoryCounterStore(),
@@ -190,8 +190,8 @@ class SetupApiTest {
 
         assertEquals(200, send("PUT", "/v1/tags/" + UID, "{\"label\":\"Front door\",\"icon\":\"door\"}", cookie).statusCode());
         assertEquals(200, send("PUT", "/v1/tags/" + UID + "/actions", "{\"actions\":\"desk-hook\"}", cookie).statusCode());
-        assertEquals("{\"tags\":[{\"uid\":\"" + UID + "\",\"lastCounter\":null,\"label\":\"Front door\",\"icon\":\"door\","
-                + "\"actions\":[\"desk-hook\"]}]}", send("GET", "/v1/tags", null, cookie).body());
+        assertEquals("{\"tags\":[{\"uid\":\"" + UID + "\",\"lastCounter\":null,\"label\":\"Front door\",\"name\":\"Front door\","
+                + "\"nameChanged\":" + clock.millis() + ",\"icon\":\"door\",\"actions\":[\"desk-hook\"]}]}", send("GET", "/v1/tags", null, cookie).body());
         assertEquals("{\"connections\":[{\"type\":\"webhook\",\"id\":\"desk-hook\",\"url\":\"" + url + "2\",\"usedBy\":[\""
                 + UID + "\"]}]}", send("GET", "/v1/connections", null, cookie).body());
 
@@ -205,6 +205,55 @@ class SetupApiTest {
         assertEquals(200, send("DELETE", "/v1/connections/webhook/desk-hook", null, cookie).statusCode());
         assertFalse(Files.readString(dir.resolve(HomeSettings.DEFAULT_SECRETS_FILE)).contains("desk-hook"));
         assertEquals("{\"started\":0}", send("POST", "/v1/tags/" + UID + "/test", null, cookie).body());
+    }
+
+    @Test
+    void tagNamesAreSharedWithTheAppAndTheNewestChangeWins() throws Exception {
+        String cookie = cookie(send("POST", "/v1/password", "{\"password\":\"lantern-orbit-42\"}", null));
+        long start = clock.millis();
+        assertEquals(404, fromPhone("POST", "/v1/tags/" + UID, "{\"name\":\"Desk\",\"changedAt\":" + start + "}").statusCode(),
+                "a tag knurd has never seen");
+        send("PUT", "/v1/tags/" + UID, "{\"icon\":\"door\"}", cookie); // known now, but has no name
+
+        // The app's name from before sharing, sent at time 0, fills in a tag with no name.
+        HttpResponse<String> old = fromPhone("POST", "/v1/tags/" + UID, "{\"name\":\"Desk\",\"changedAt\":0}");
+        assertEquals(200, old.statusCode(), old.body());
+        assertTrue(old.body().contains("\"name\":\"Desk\""), old.body());
+        assertTrue(fromPhone("GET", "/v1/tags", null).body().contains("\"name\":\"Desk\""), "the app reads it back");
+
+        clock.advance(Duration.ofMinutes(1));
+        send("PUT", "/v1/tags/" + UID, "{\"label\":\"Front door\",\"icon\":\"door\"}", cookie);
+        HttpResponse<String> stale = fromPhone("POST", "/v1/tags/" + UID, "{\"name\":\"Hall\",\"changedAt\":" + start + "}");
+        assertTrue(stale.body().contains("\"name\":\"Front door\""), "a rename made before the dashboard's loses: " + stale.body());
+
+        clock.advance(Duration.ofMinutes(1));
+        HttpResponse<String> newer = fromPhone("POST", "/v1/tags/" + UID,
+                "{\"name\":\"Hall\",\"changedAt\":" + (clock.millis() + 3_600_000) + "}");
+        assertTrue(newer.body().contains("\"name\":\"Hall\",\"nameChanged\":" + clock.millis() + "}"),
+                "a newer one wins, and a time in the future counts as now: " + newer.body());
+        String tags = send("GET", "/v1/tags", null, cookie).body();
+        assertTrue(tags.contains("\"label\":\"Hall\"") && tags.contains("\"icon\":\"door\""), "the icon stays: " + tags);
+
+        clock.advance(Duration.ofMinutes(1));
+        fromPhone("POST", "/v1/tags/" + UID, "{\"name\":\"\",\"changedAt\":" + clock.millis() + "}");
+        assertTrue(send("GET", "/v1/tags", null, cookie).body().contains("\"label\":null"), "an empty name takes it off");
+
+        assertEquals(400, fromPhone("POST", "/v1/tags/" + UID, "{\"name\":\"x\"}").statusCode(), "changedAt is needed");
+        HttpResponse<String> readOnly = http.send(HttpRequest.newBuilder(uri("/v1/tags/" + UID)).header("Authorization", "Bearer " + laptop)
+                .POST(HttpRequest.BodyPublishers.ofString("{\"name\":\"x\",\"changedAt\":1}")).build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(403, readOnly.statusCode(), "only paired phones may rename");
+        HttpResponse<String> browser = http.send(HttpRequest.newBuilder(uri("/v1/tags/" + UID)).header("Cookie", Sessions.COOKIE + "=" + cookie)
+                .POST(HttpRequest.BodyPublishers.ofString("{\"name\":\"x\",\"changedAt\":1}")).build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(403, browser.statusCode(), "a browser still needs the request header");
+    }
+
+    /** A request from the paired phone: its token, and no request header, as the app sends it. */
+    private HttpResponse<String> fromPhone(String method, String path, String json) throws Exception {
+        return http.send(HttpRequest.newBuilder(uri(path)).header("Authorization", "Bearer " + phone)
+                .method(method, json == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(json)).build(),
+                HttpResponse.BodyHandlers.ofString());
     }
 
     @Test

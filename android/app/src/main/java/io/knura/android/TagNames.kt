@@ -3,14 +3,14 @@ package io.knura.android
 import org.json.JSONObject
 
 /**
- * Tag names, kept on the phone, and for a hosted account shared with its dashboard so a rename in
- * either place shows in both.
+ * Tag names, kept on the phone, and shared with the server's dashboard (knurd's or a hosted
+ * account's) so a rename in either place shows in both.
  *
  * The rule when both change: the newest change wins. A rename on the phone is kept as "still to
  * send" with the time it was made, and sent on the next refresh. The account keeps it only if the
  * tag wasn't renamed on the dashboard after that time, and answers with the name that stands,
  * which the phone then takes. Tags with nothing waiting to send take the account's name on every
- * refresh. knurd doesn't keep names, so with your own server names stay on this phone only.
+ * refresh. An older knurd that doesn't keep names leaves them on this phone only.
  *
  * [names] maps UID to name. [pending] maps UID to `{"name": "..", "at": <ms>}`; an empty name
  * takes the name off. A name kept from before sharing is sent with `at` 0, so it only fills in a

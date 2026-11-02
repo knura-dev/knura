@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Tag names sync between the Knura app and your own knurd**, like they already did with a hosted
+  account: a rename on the dashboard shows in the app, and a rename in the app shows on the
+  dashboard. The newest change wins. `GET /v1/tags` adds `name` and `nameChanged`, and the app's
+  `POST /v1/tags/<UID>` is now answered (docs/setup-api.md).
 - **Dashboard** at http://127.0.0.1:8425/, signed in with the setup page's password: Home (is
   everything working, health checks that link to the fix, a genuine-taps chart, your last tap),
   Tags (each tag's week of taps; rename, icon, switch actions on and off, send a test), Taps (the

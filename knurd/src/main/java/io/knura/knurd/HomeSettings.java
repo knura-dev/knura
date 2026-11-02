@@ -55,8 +55,18 @@ final class HomeSettings {
     private static final Pattern UID = Pattern.compile("[0-9A-F]{14}");
     private static final Pattern ICON = Pattern.compile("[a-z0-9-]{1,24}");
 
-    /** A tag's label and icon; either may be null. */
-    record Label(String label, String icon) {}
+    /**
+     * A tag's label and icon; either may be null. {@code named} is when the label last changed, in
+     * milliseconds, or 0 when that isn't known (a label from before knurd kept the time).
+     */
+    record Label(String label, String icon, long named) {
+        Label(String label, String icon) {
+            this(label, icon, 0);
+        }
+    }
+
+    /** The name that stands after {@link #syncName}, and when it was set. */
+    record Named(String name, long changedAt) {}
 
     /** A connector, without its secret. */
     record Connection(String type, String id, String url, List<String> usedBy) {}
@@ -135,10 +145,44 @@ final class HomeSettings {
         if (icon != null && !ICON.matcher(icon).matches()) {
             throw new IllegalArgumentException("icon: use 1 to 24 lowercase letters, digits or '-'");
         }
+        Label before = labels.get(uid);
+        String clean = label == null ? null : label.trim();
+        boolean renamed = !java.util.Objects.equals(clean, before == null ? null : before.label());
+        writeLabel(uid, clean, icon, renamed ? clock.millis() : (before == null ? 0 : before.named()));
+    }
+
+    /**
+     * A rename from the Knura app, made at {@code changedAt} (milliseconds; a time in the future
+     * counts as now). The newest change wins, the same rule a hosted account uses: it is kept only
+     * if the tag wasn't renamed after that time here, on the dashboard or by another phone. A name
+     * from before knurd kept the time counts as time 0, so the app's names from before sharing
+     * (sent at time 0) only fill in tags that have no name. An empty name takes the name off.
+     *
+     * @return the name that stands, which the app then shows
+     */
+    synchronized Named syncName(String uid, String name, long changedAt) throws IOException {
+        uid = uid(uid);
+        String clean = name == null ? "" : name.trim();
+        if (!clean.isEmpty() && textProblem(clean, MAX_LABEL) != null) {
+            throw new IllegalArgumentException("name: " + textProblem(clean, MAX_LABEL));
+        }
+        long at = Math.max(0, Math.min(changedAt, clock.millis()));
+        Label before = labels.get(uid);
+        // No name and no time yet: anything fills it in, even a name sent at time 0.
+        long standing = before == null || before.label() == null && before.named() == 0 ? -1 : before.named();
+        if (at > standing) {
+            writeLabel(uid, clean.isEmpty() ? null : clean, before == null ? null : before.icon(), at);
+            before = labels.get(uid);
+        }
+        return before == null ? new Named(null, 0) : new Named(before.label(), before.named());
+    }
+
+    private void writeLabel(String uid, String label, String icon, long named) throws IOException {
         Path file = dir.resolve(LABELS_FILE);
-        String text = Files.exists(file) ? read(file) : "# Tag labels and icons, set on the setup page.\n";
-        text = label == null ? PropertiesText.remove(text, uid + ".label") : PropertiesText.set(text, uid + ".label", label.trim());
+        String text = Files.exists(file) ? read(file) : "# Tag labels and icons, set on the setup page or in the Knura app.\n";
+        text = label == null ? PropertiesText.remove(text, uid + ".label") : PropertiesText.set(text, uid + ".label", label);
         text = icon == null ? PropertiesText.remove(text, uid + ".icon") : PropertiesText.set(text, uid + ".icon", icon);
+        text = named <= 0 ? PropertiesText.remove(text, uid + ".named") : PropertiesText.set(text, uid + ".named", Long.toString(named));
         Files.writeString(file, text, StandardCharsets.UTF_8);
         labels = readLabels();
     }
@@ -156,9 +200,18 @@ final class HomeSettings {
                 continue;
             }
             String u = key.substring(0, dot).toUpperCase(Locale.ROOT);
-            out.computeIfAbsent(u, k -> new Label(clean(p.getProperty(k + ".label")), clean(p.getProperty(k + ".icon"))));
+            out.computeIfAbsent(u, k -> new Label(clean(p.getProperty(k + ".label")), clean(p.getProperty(k + ".icon")),
+                    millis(p.getProperty(k + ".named"))));
         }
         return Map.copyOf(out);
+    }
+
+    private static long millis(String text) {
+        try {
+            return text == null ? 0 : Math.max(0, Long.parseLong(text.trim()));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     // ---- actions ----
