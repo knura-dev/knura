@@ -113,6 +113,32 @@ final class HomeSettings {
         rewrite(knurdFile, PropertiesText.set(read(knurdFile), "knura.name", name.trim()));
     }
 
+    // ---- the settings folder and the log ----
+
+    /** The code checkout the settings folder is inside, or null; see {@link SettingsFolder#codeClone}. */
+    Path codeClone() {
+        return SettingsFolder.codeClone(dir);
+    }
+
+    /** log.level and log.file as saved now (the environment's KNURA_LOG_LEVEL still wins at start-up). */
+    synchronized io.knura.core.log.Logs.Settings logSettings() throws IOException {
+        Properties p = load(knurdFile);
+        java.util.logging.Level level = io.knura.core.log.Logs.level(p.getProperty(io.knura.core.log.Logs.LEVEL_SETTING, "info"));
+        String file = p.getProperty(io.knura.core.log.Logs.FILE_SETTING, "").trim();
+        return new io.knura.core.log.Logs.Settings(level == null ? java.util.logging.Level.INFO : level,
+                file.isEmpty() ? null : dir.resolve(file));
+    }
+
+    /** Saves log.level and uses it at once. */
+    synchronized void setLogLevel(String name) throws IOException {
+        java.util.logging.Level level = io.knura.core.log.Logs.level(name);
+        if (level == null || !Set.of("error", "warn", "info", "debug").contains(name.trim())) {
+            throw new IllegalArgumentException("logLevel: use error, warn, info or debug");
+        }
+        rewrite(knurdFile, PropertiesText.set(read(knurdFile), io.knura.core.log.Logs.LEVEL_SETTING, name.trim()));
+        io.knura.core.log.Logs.setLevel(level);
+    }
+
     // ---- the address phones use ----
 
     /** public.url as saved now; knurd itself keeps using the one it started with until a restart. */

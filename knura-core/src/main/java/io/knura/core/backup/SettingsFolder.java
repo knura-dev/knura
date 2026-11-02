@@ -25,6 +25,20 @@ public final class SettingsFolder {
 
     private SettingsFolder() {}
 
+    /**
+     * The code checkout (a folder with {@code .git}) that {@code path} sits in, or null. Settings
+     * or a backup kept inside one are lost when the checkout is deleted to clone it again, so knurd
+     * and knurctl warn about it.
+     */
+    public static Path codeClone(Path path) {
+        for (Path p = path.toAbsolutePath().normalize(); p != null; p = p.getParent()) {
+            if (Files.exists(p.resolve(".git"), LinkOption.NOFOLLOW_LINKS)) {
+                return p;
+            }
+        }
+        return null;
+    }
+
     public static Collected collect(Path folder) throws IOException {
         Map<String, byte[]> files = new TreeMap<>();
         List<String> skipped = new ArrayList<>();

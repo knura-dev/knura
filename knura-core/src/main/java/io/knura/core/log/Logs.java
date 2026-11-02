@@ -119,6 +119,20 @@ public final class Logs {
         }
     }
 
+    /** Changes the level now, without a restart, as {@code log.level} does at start-up. */
+    public static void setLevel(Level level) {
+        Logger.getLogger("").setLevel(level);
+        Level jdk = level.intValue() < Level.INFO.intValue() ? Level.INFO : null;
+        for (String noisy : new String[] {"jdk", "sun", "java", "javax", "com.sun"}) {
+            Logger.getLogger(noisy).setLevel(jdk);
+        }
+    }
+
+    /** The level for a {@code log.level} name, or null for one Knura doesn't know. */
+    public static Level level(String name) {
+        return name == null ? null : parseLevel(name.trim());
+    }
+
     static Level parseLevel(String name) {
         return switch (name.toLowerCase(Locale.ROOT)) {
             case "error" -> Level.SEVERE;

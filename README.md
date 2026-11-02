@@ -274,8 +274,10 @@ renames it, changes its icon, switches its actions on and off and sends a test. 
 full history (a year is kept, in `knurd-taps.log`), filtered by tag or result, and downloads as
 CSV or JSON. **Actions** adds Home Assistant, a Matter bridge or a webhook, shows whether each
 one answered its last tap, and sends a test to just that one. **Phones and readers** pairs a phone
-with a QR code, removes one, and lists the `knurctl` commands for USB readers. **Settings** renames
-this Knura and changes the password.
+with a QR code, removes one, and lists the `knurctl` commands for USB readers. **Keys and backup**
+downloads a backup file or the recovery sheet and shows how to restore. **Logs** shows knurd's log
+with a filter and a copy that hides tag UIDs and addresses. **Settings** renames this Knura, changes
+the password, the public address and the log detail.
 
 Both pages are a few static files inside knurd. They load nothing from the internet and run
 under a strict Content-Security-Policy. See [docs/setup-api.md](docs/setup-api.md).

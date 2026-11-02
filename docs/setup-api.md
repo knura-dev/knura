@@ -104,12 +104,25 @@ Passwords need 8 to 256 characters. Tokens and plaintext mode change the passwor
 
 | Request | Body | Answer |
 | --- | --- | --- |
-| `GET /v1/settings` | | `{"name":"Our house","passwordSet":true,"phones":["pixel-9"],"publicUrl":null}` |
+| `GET /v1/settings` | | `{"name":"Our house","passwordSet":true,"phones":["pixel-9"],"publicUrl":null,"logLevel":"info","folder":"/home/zack/knura-home","codeClone":null}` |
 | `PUT /v1/settings` | `{"name":"Our house"}` | the same |
+| `PUT /v1/settings` | `{"logLevel":"debug"}` | the same; `error`, `warn`, `info` or `debug`, saved as `log.level` and used at once |
 
 The name is saved as `knura.name` in `knurd.properties`. `/v1/status` includes it.
 
 `phones` lists the tokens in `admin.provision.tokens`, so the page can see when a phone is paired.
+
+`folder` is the settings folder. `codeClone` is the code checkout (a folder with `.git`) it sits
+inside, or null. Settings kept inside a checkout are deleted along with it when someone deletes it
+to download Knura again, master key and all, so the dashboard and knurd's start-up log warn about it,
+and `knurctl backup create` warns when the backup file would land in one.
+
+### The log
+
+`GET /v1/logs?lines=500` (up to 2000) answers the end of knurd's log file, newest last:
+`{"file":"/home/zack/knura-home/logs/knurd.log","level":"info","lines":["2026-11-02 10:00:01.123 INFO  knurd: ..."]}`.
+`file` is null, with no lines, when `log.file` isn't set. Keys, tokens and passwords are kept out of
+the file when it is written (docs/logs.md).
 
 ### Recovery kit
 

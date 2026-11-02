@@ -699,7 +699,7 @@ final class AdminServer implements AutoCloseable {
     /** Whether a path belongs to the setup page's requests. */
     static boolean isManagePath(String path) {
         return path.equals(SESSION) || path.equals(PASSWORD) || path.equals("/v1/settings")
-                || path.equals("/v1/actions/reload") || path.equals("/v1/connections") || path.equals("/v1/reach") || path.equals("/v1/tailscale") || path.equals("/v1/tailscale/funnel")
+                || path.equals("/v1/actions/reload") || path.equals("/v1/connections") || path.equals("/v1/reach") || path.equals("/v1/logs") || path.equals("/v1/tailscale") || path.equals("/v1/tailscale/funnel")
                 || path.equals("/v1/phones/pair") || path.startsWith("/v1/phones/")
                 || path.startsWith("/v1/backup/")
                 || path.startsWith("/v1/connections/") || path.startsWith("/v1/tags/");
@@ -871,8 +871,11 @@ final class AdminServer implements AutoCloseable {
         try {
             if (path.equals("/v1/settings")) {
                 if ("PUT".equals(method)) {
-                    if (!f.containsKey("name") && !f.containsKey("publicUrl")) {
-                        throw new IllegalArgumentException("name or publicUrl is missing");
+                    if (!f.containsKey("name") && !f.containsKey("publicUrl") && !f.containsKey("logLevel")) {
+                        throw new IllegalArgumentException("name, publicUrl or logLevel is missing");
+                    }
+                    if (f.containsKey("logLevel")) {
+                        m.settings().setLogLevel(text(f, "logLevel"));
                     }
                     if (f.containsKey("publicUrl")) {
                         m.settings().setPublicUrl(text(f, "publicUrl"));
@@ -880,7 +883,8 @@ final class AdminServer implements AutoCloseable {
                     if (f.containsKey("name")) {
                         m.settings().setName(text(f, "name"));
                     }
-                    return new Answer(200, settingsJson(), f.containsKey("publicUrl") ? "changed public.url" : "changed name");
+                    return new Answer(200, settingsJson(), f.containsKey("publicUrl") ? "changed public.url"
+                            : f.containsKey("logLevel") ? "changed log.level to " + text(f, "logLevel") : "changed name");
                 }
                 return only("GET", method, exchange, () -> new Answer(200, settingsJson(), null));
             }
@@ -933,6 +937,9 @@ final class AdminServer implements AutoCloseable {
                     }
                     return new Answer(200, "{\"removed\":" + Json.quote(name) + "}", "removed phone " + name);
                 });
+            }
+            if (path.equals("/v1/logs")) {
+                return only("GET", method, exchange, () -> new Answer(200, logs(m, exchange.getRequestURI().getRawQuery()), null));
             }
             if (path.equals("/v1/reach")) {
                 return only("GET", method, exchange, () -> new Answer(200, reach(), null));
@@ -1063,9 +1070,61 @@ final class AdminServer implements AutoCloseable {
 
     private String settingsJson() throws IOException {
         Manage m = manage;
+        java.nio.file.Path clone = m.settings().codeClone();
         return "{\"name\":" + Json.quote(m.settings().name()) + ",\"passwordSet\":" + m.password().isSet()
                 + ",\"phones\":" + jsonList(m.phones() == null ? m.settings().phones() : m.phones().paired()) + ",\"publicUrl\":" + Json.quote(m.settings().publicUrl())
+                + ",\"logLevel\":" + Json.quote(levelName(m.settings().logSettings().level()))
+                + ",\"folder\":" + Json.quote(m.settings().folder().toString())
+                + ",\"codeClone\":" + Json.quote(clone == null ? null : clone.toString())
                 + "}";
+    }
+
+    /** The most log lines one request may ask for. */
+    static final int MAX_LOG_LINES = 2000;
+    private static final int LOG_TAIL_BYTES = 512 * 1024;
+
+    private static String levelName(java.util.logging.Level l) {
+        int v = l.intValue();
+        return v >= java.util.logging.Level.SEVERE.intValue() ? "error" : v >= java.util.logging.Level.WARNING.intValue() ? "warn"
+                : v >= java.util.logging.Level.INFO.intValue() ? "info" : "debug";
+    }
+
+    /**
+     * {@code GET /v1/logs?lines=N}: the end of knurd's log file (log.file), newest last. Keys,
+     * tokens and passwords are already kept out of it when it is written.
+     */
+    private String logs(Manage m, String query) throws IOException {
+        Integer want = number(query, "lines", 500, MAX_LOG_LINES);
+        if (want == null) {
+            throw new IllegalArgumentException("lines must be a number from 1 to " + MAX_LOG_LINES);
+        }
+        io.knura.core.log.Logs.Settings s = m.settings().logSettings();
+        List<String> lines = new java.util.ArrayList<>();
+        if (s.file() != null && java.nio.file.Files.isRegularFile(s.file())) {
+            try (java.nio.channels.SeekableByteChannel ch = java.nio.file.Files.newByteChannel(s.file())) {
+                long size = ch.size();
+                long from = Math.max(0, size - LOG_TAIL_BYTES);
+                java.nio.ByteBuffer buf = java.nio.ByteBuffer.allocate((int) (size - from));
+                ch.position(from);
+                while (buf.hasRemaining() && ch.read(buf) > 0) {
+                    // keep reading
+                }
+                String text = new String(buf.array(), 0, buf.position(), StandardCharsets.UTF_8);
+                String[] all = text.split("\r?\n");
+                int start = from > 0 ? 1 : 0; // the first line may be cut in half
+                for (int i = Math.max(start, all.length - want); i < all.length; i++) {
+                    if (!all[i].isEmpty()) {
+                        lines.add(all[i]);
+                    }
+                }
+            }
+        }
+        StringBuilder json = new StringBuilder("{\"file\":").append(Json.quote(s.file() == null ? null : s.file().toString()))
+                .append(",\"level\":").append(Json.quote(levelName(s.level()))).append(",\"lines\":[");
+        for (int i = 0; i < lines.size(); i++) {
+            json.append(i == 0 ? "" : ",").append(Json.quote(lines.get(i)));
+        }
+        return json.append("]}").toString();
     }
 
     /** {@code POST /v1/phones/pair}: gets knurd ready for a phone and makes its pairing code. */

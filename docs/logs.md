@@ -41,7 +41,8 @@ are kept, so it never takes more than about 50 MB.
 
 ## Get more detail
 
-`log.level` picks how much is written:
+`log.level` picks how much is written. The dashboard's Settings page changes it without a restart
+(**Log detail**), and its Logs page shows the end of the log file:
 
 | Level | What you get |
 | --- | --- |

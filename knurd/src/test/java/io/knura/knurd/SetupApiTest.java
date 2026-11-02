@@ -163,9 +163,9 @@ class SetupApiTest {
     @Test
     void nameIsSavedInKnurdPropertiesKeepingComments() throws Exception {
         String cookie = cookie(send("POST", "/v1/password", "{\"password\":\"lantern-orbit-42\"}", null));
-        assertEquals("{\"name\":null,\"passwordSet\":true,\"phones\":[],\"publicUrl\":null}", send("GET", "/v1/settings", null, cookie).body());
+        assertEquals("{\"name\":null,\"passwordSet\":true,\"phones\":[],\"publicUrl\":null,\"logLevel\":\"info\",\"folder\":" + Json.quote(dir.toAbsolutePath().toString()) + ",\"codeClone\":null}", send("GET", "/v1/settings", null, cookie).body());
         HttpResponse<String> r = send("PUT", "/v1/settings", "{\"name\":\"Our house\"}", cookie);
-        assertEquals("{\"name\":\"Our house\",\"passwordSet\":true,\"phones\":[],\"publicUrl\":null}", r.body());
+        assertEquals("{\"name\":\"Our house\",\"passwordSet\":true,\"phones\":[],\"publicUrl\":null,\"logLevel\":\"info\",\"folder\":" + Json.quote(dir.toAbsolutePath().toString()) + ",\"codeClone\":null}", r.body());
         String text = Files.readString(knurdFile);
         assertTrue(text.startsWith("# my settings\nmaster.key=00112233445566778899AABBCCDDEEFF\n"), text);
         assertTrue(text.contains("knura.name=Our house"), text);
@@ -278,6 +278,44 @@ class SetupApiTest {
         assertFalse(down.body().contains("\"delivered\""), "the answer says it didn't get through: " + down.body());
         assertEquals(405, send("GET", "/v1/connections/webhook/desk-hook/test", null, cookie).statusCode());
         assertEquals(404, send("POST", "/v1/connections/nope/desk-hook/test", null, cookie).statusCode());
+    }
+
+    @Test
+    void theLogCanBeReadAndItsLevelChangedWithoutARestart() throws Exception {
+        String cookie = cookie(send("POST", "/v1/password", "{\"password\":\"lantern-orbit-42\"}", null));
+        assertEquals("{\"file\":null,\"level\":\"info\",\"lines\":[]}", send("GET", "/v1/logs", null, cookie).body(),
+                "no log.file: nothing to show");
+        Files.writeString(knurdFile, "log.file=logs/knurd.log\n", java.nio.file.StandardOpenOption.APPEND);
+        Files.createDirectories(dir.resolve("logs"));
+        StringBuilder log = new StringBuilder();
+        for (int i = 1; i <= 30; i++) {
+            log.append("2026-11-02 10:00:").append(String.format("%02d", i)).append(" INFO  knurd: line ").append(i).append('\n');
+        }
+        Files.writeString(dir.resolve("logs/knurd.log"), log.toString());
+        String body = send("GET", "/v1/logs?lines=3", null, cookie).body();
+        assertTrue(body.endsWith("\"lines\":[\"2026-11-02 10:00:28 INFO  knurd: line 28\",\"2026-11-02 10:00:29 INFO  knurd: line 29\","
+                + "\"2026-11-02 10:00:30 INFO  knurd: line 30\"]}"), "the newest lines, newest last: " + body);
+        assertEquals(400, send("GET", "/v1/logs?lines=" + (AdminServer.MAX_LOG_LINES + 1), null, cookie).statusCode());
+        assertEquals(401, send("GET", "/v1/logs", null, null).statusCode(), "needs a sign-in");
+
+        java.util.logging.Level before = java.util.logging.Logger.getLogger("").getLevel();
+        try {
+            HttpResponse<String> r = send("PUT", "/v1/settings", "{\"logLevel\":\"debug\"}", cookie);
+            assertEquals(200, r.statusCode(), r.body());
+            assertTrue(r.body().contains("\"logLevel\":\"debug\""), r.body());
+            assertTrue(Files.readString(knurdFile).contains("log.level=debug\n"));
+            assertEquals(java.util.logging.Level.FINE, java.util.logging.Logger.getLogger("").getLevel(), "used at once");
+            assertEquals(400, send("PUT", "/v1/settings", "{\"logLevel\":\"chatty\"}", cookie).statusCode());
+        } finally {
+            io.knura.core.log.Logs.setLevel(before == null ? java.util.logging.Level.INFO : before);
+        }
+    }
+
+    @Test
+    void settingsSayWhenTheFolderIsInsideACodeCheckout() throws Exception {
+        String cookie = cookie(send("POST", "/v1/password", "{\"password\":\"lantern-orbit-42\"}", null));
+        Files.createDirectory(dir.resolve(".git"));
+        assertTrue(send("GET", "/v1/settings", null, cookie).body().endsWith(",\"codeClone\":" + Json.quote(dir.toAbsolutePath().toString()) + "}"));
     }
 
     @Test
@@ -409,7 +447,7 @@ class SetupApiTest {
         assertTrue(reach.contains("\"reachable\":false") && reach.contains("public.url is not set"), reach);
         Files.writeString(knurdFile, "admin.provision.tokens=fold7\n", java.nio.file.StandardOpenOption.APPEND);
         String settings = send("GET", "/v1/settings", null, cookie).body();
-        assertTrue(settings.endsWith(",\"passwordSet\":true,\"phones\":[\"fold7\"],\"publicUrl\":null}"), settings);
+        assertTrue(settings.contains(",\"passwordSet\":true,\"phones\":[\"fold7\"],\"publicUrl\":null,"), settings);
     }
 
     @Test

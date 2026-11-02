@@ -123,6 +123,12 @@ public final class Main {
             LOG.log(Level.WARNING, "master.key has no backup yet, and every tag set up with it depends on it."
                     + " Run 'knurctl backup create' or 'knurctl backup sheet' in " + configFile.toAbsolutePath().getParent());
         }
+        Path clone = io.knura.core.backup.SettingsFolder.codeClone(configFile.toAbsolutePath().getParent());
+        if (clone != null) {
+            LOG.log(Level.WARNING, "the settings folder " + configFile.toAbsolutePath().getParent() + " is inside the code folder "
+                    + clone + ". Deleting that folder to download Knura again would delete your master key and"
+                    + " settings too. Move the settings folder somewhere else, like ~/knura-home.");
+        }
         LiveActions actions = listener;
         ResolverWatch resolverWatch = watch;
         AdminServer adminServer = admin;

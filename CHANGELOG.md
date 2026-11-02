@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Dashboard: **Keys and backup** (download a backup file with a new six-word passphrase, or the
+  recovery sheet; how to restore), **Logs** (the end of `log.file`, filtered by level or text,
+  followed live, downloaded, or copied for a bug report with tag UIDs and addresses hidden), and
+  more **Settings** (public address, tokens, settings folder, log detail). New `GET /v1/logs`;
+  `PUT /v1/settings` takes `logLevel` (used at once); `GET /v1/settings` adds `logLevel`, `folder`
+  and `codeClone`.
+- **Warns when the settings folder is inside a code checkout** (a folder with `.git`), where
+  deleting the checkout to download Knura again would delete the master key too: on the dashboard,
+  in knurd's start-up log, and from `knurctl backup create` when the backup would land in one.
 - Dashboard: **Actions** page (add Home Assistant, a Matter bridge or a webhook; edit; remove;
   make a new secret; "Send a test" to one action; whether each one answered its last tap) and
   **Phones and readers** page (pair a phone with a QR code, remove one, USB reader commands).

@@ -121,6 +121,11 @@ final class BackupCommands {
         if (target.toAbsolutePath().normalize().startsWith(folder)) {
             out.println("Note: " + target + " is inside the folder it backs up. Copy it somewhere else afterwards.");
         }
+        Path clone = SettingsFolder.codeClone(target.toAbsolutePath().getParent() == null ? target : target.toAbsolutePath().getParent());
+        if (clone != null) {
+            out.println("Warning: " + target + " is inside the code folder " + clone + ". Deleting that folder to");
+            out.println("download Knura again deletes this backup too. Copy it somewhere else, or use --out FILE.");
+        }
         char[] passphrase = newPassphrase();
         Instant now = Instant.now();
         byte[] sealed;
