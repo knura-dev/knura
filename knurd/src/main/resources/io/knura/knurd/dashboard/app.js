@@ -252,7 +252,7 @@ function shell(route, title, body, extra = '') {
       ${extra}
       <div class="g me">
         <button class="iconbtn" data-act="notif" aria-label="Needs a look" aria-expanded="${S.notif}">${ico('bell', 21)}${n.length ? '<span class="badge"></span>' : ''}</button>
-        <a class="avatar" href="#config" aria-label="Settings" style="text-decoration:none;color:inherit">${ico('house', 20, 2)}</a>${notes}
+        <a class="avatar" href="#config" aria-label="Settings" style="text-decoration:none;color:inherit">${ico('gear', 20, 2)}</a>${notes}
       </div>
     </header>
     <div class="view">${body}</div>
