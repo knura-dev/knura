@@ -135,7 +135,7 @@ const iconOf = t => (t && ICONS.some(x => x[0] === t.icon)) ? t.icon : 'tag';
 // ---------- state ----------
 const S = {
   screen: 'loading', session: null, status: null, settings: null, tags: [], conns: [], taps: [], days: null, reach: null,
-  range: 'week', notif: false, q: '', tapRes: 'all', tapTag: 'all', tapWhen: '7', renaming: false, authErr: '', busy: false
+  range: 'week', notif: false, words: null, ppSaved: false, logs: null, logFilter: 'all', logQ: '', logLive: false, q: '', tapRes: 'all', tapTag: 'all', tapWhen: '7', renaming: false, authErr: '', busy: false
 };
 const store = { get(k){ try { return localStorage.getItem('knura.dashboard.' + k); } catch(e){ return null; } }, set(k,v){ try { localStorage.setItem('knura.dashboard.' + k, v); } catch(e){} } };
 const curTheme = () => document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
@@ -164,6 +164,9 @@ async function loadAll() {
   if (cn.ok) S.conns = cn.json.connections;
   if (tp.ok) S.taps = tp.json.taps;
   if (dy.ok) S.days = dy.json;
+  const tk = await api('GET', '/v1/tokens');
+  S.tokens = tk.ok && Array.isArray(tk.json.tokens) ? tk.json.tokens.filter(t => typeof t === 'string') : null;
+  if (location.hash === '#logs') await loadLogs();
 }
 async function loadReach() {
   const r = await api('GET', '/v1/reach');
@@ -221,10 +224,11 @@ function checks() {
   else out.push({ tone: 'ok', icon: 'bolt', t: S.conns.length + (S.conns.length === 1 ? ' action' : ' actions') + ' ready', s: S.conns.map(c => c.id).join(', ') + ' · used by ' + used + (used === 1 ? ' tag' : ' tags') });
   if (st.backup) {
     const b = st.backup, last = [b.file, b.sheet].filter(Boolean).sort().pop();
-    if (!last) out.push({ tone: 'bad', icon: 'key', t: 'Your master key has no backup', s: 'Every tag’s keys come from it. If this computer dies without a backup, your tags stop working.', fix: ['/setup', 'Make a recovery kit'] });
-    else if (!b.file) out.push({ tone: 'warn', icon: 'key', t: 'Only a recovery sheet so far', s: 'Printed ' + ago(b.sheet) + '. A backup file also keeps your tags’ names and actions.', fix: ['/setup', 'Make a backup file'] });
+    if (!last) out.push({ tone: 'bad', icon: 'key', t: 'Your master key has no backup', s: 'Every tag’s keys come from it. If this computer dies without a backup, your tags stop working.', fix: ['#backup', 'Make a backup'] });
+    else if (!b.file) out.push({ tone: 'warn', icon: 'key', t: 'Only a recovery sheet so far', s: 'Printed ' + ago(b.sheet) + '. A backup file also keeps your tags’ names and actions.', fix: ['#backup', 'Make a backup file'] });
     else out.push({ tone: 'ok', icon: 'key', t: 'Your master key is backed up', s: 'Backup file made ' + ago(b.file) + (b.sheet ? ' · recovery sheet printed ' + ago(b.sheet) : '') });
   }
+  if (S.settings && S.settings.codeClone) out.push({ tone: 'bad', icon: 'folder', t: 'Your settings are inside the code folder', s: 'Deleting ' + S.settings.codeClone + ' to download Knura again would delete your master key too. Move the settings folder somewhere else.', fix: ['#backup', 'How to fix it'] });
   const phones = (S.settings && S.settings.phones) || [];
   out.push(phones.length ? { tone: 'ok', icon: 'phone', t: phones.length === 1 ? 'A phone is paired' : phones.length + ' phones are paired', s: phones.join(', ') + ' can add tags' }
     : { tone: 'mut', icon: 'phone', t: 'No phone paired', s: 'Add tags with a USB reader and knurctl, or pair a phone.', fix: ['#phones', 'Pair a phone'] });
@@ -236,7 +240,7 @@ const needs = () => checks().filter(c => c.tone === 'warn' || c.tone === 'bad');
 const fixBtn = (c, primary) => !c.fix ? '' : /^[/#]/.test(c.fix[0]) ? `<a class="btn sm${primary ? ' primary' : ''}" href="${c.fix[0]}">${c.fix[1]}</a>` : `<button class="btn sm${primary ? ' primary' : ''}" data-act="${c.fix[0]}">${c.fix[1]}</button>`;
 
 // ---------- shell ----------
-const NAV = [['home','Home','home'],['tags','Tags','tag'],['taps','Taps','list'],['actions','Actions','bolt'],['phones','Phones and readers','phone'],['config','Settings','gear','end']];
+const NAV = [['home','Home','home'],['tags','Tags','tag'],['taps','Taps','list'],['actions','Actions','bolt'],['phones','Phones and readers','phone'],['backup','Keys and backup','key','desk'],['logs','Logs','logs','desk'],['config','Settings','gear','end']];
 const greet = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; };
 const homeName = () => (S.settings && S.settings.name) || (S.status && S.status.name) || 'Knura';
 function shell(route, title, body, extra = '') {
@@ -437,16 +441,24 @@ function vConfig() {
       <button class="btn sm" data-act="rename-home">Rename</button></section>
     <span class="label" style="padding:0 6px">Reach</span>
     <section class="g set-list" aria-label="Reach">
-      ${row('globe', 'Public address', addr ? '<span class="mono">' + esc(addr.replace(/^https?:\/\//, '')) + '</span>' : 'Not set, so phones can’t reach this computer yet', '<a class="btn sm" href="/setup">Change in setup</a>')}
+      ${row('globe', 'Public address', addr ? '<span class="mono">' + esc(addr.replace(/^https?:\/\//, '')) + '</span>' : 'Not set, so phones can’t reach this computer yet', '<button class="btn sm" data-act="change-url">Change</button>')}
       ${row('link', 'tap.knura.io', st.resolverOwner ? 'Forwards taps from tags with the tap.knura.io link' : 'Not used', '')}
     </section>
     <span class="label" style="padding:0 6px">Sign-in</span>
     <section class="g set-list" aria-label="Sign-in">
       ${row('lock', 'Page password', 'For this dashboard and the setup page', '<button class="btn sm" data-act="change-pw">Change</button>')}
+      ${row('token', 'knurctl and app access', S.tokens ? (S.tokens.length ? S.tokens.map(t => '<span class="mono">' + esc(t) + '</span>').join(', ') : 'No tokens') : 'Tokens let knurctl and the Knura app in', '<span class="muted" style="font-size:12.5px">Add with <span class="mono">knurctl admin token add</span></span>')}
+    </section>
+    <span class="label" style="padding:0 6px">This computer</span>
+    <section class="g set-list" aria-label="This computer">
+      ${link('#backup', 'key', 'Keys and backup', backupState().h)}
+      ${link('#logs', 'logs', 'Logs', 'What knurd has been doing')}
+      ${row('folder', 'Settings folder', S.settings && S.settings.folder ? '<span class="mono">' + esc(S.settings.folder) + '</span>' + (S.settings.codeClone ? '<br><span style="color:var(--bad)">Inside the code folder. See Keys and backup.</span>' : '') : '', '')}
+      ${row('logs', 'Log detail', 'How much knurd writes to its log. Used at once.', `<label class="sr" for="ll">Log detail</label><select id="ll" class="in" style="width:auto;height:36px;border-radius:999px;font-size:13px">${LEVELS.map(([v, l]) => `<option value="${v}"${(S.settings && S.settings.logLevel) === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`)}
     </section>
     <span class="label" style="padding:0 6px">More</span>
     <section class="g set-list" aria-label="More">
-      ${link('/setup', 'wand', 'Setup', 'Recovery kit, address, phones and actions, step by step')}
+      ${link('/setup', 'wand', 'Setup', 'The step-by-step setup again: address, Tailscale, phones and actions')}
       <button class="set-row" data-act="theme"><span class="tile">${ico(dark ? 'moon' : 'sun', 19)}</span><span class="txt"><b>Appearance</b><span>${dark ? 'Dark' : 'Light'} on this browser</span></span><span class="end" style="font-size:13px">Switch to ${dark ? 'light' : 'dark'}</span></button>
       ${link('https://docs.knura.io', 'help', 'Help', 'docs.knura.io')}
     </section>
@@ -664,6 +676,126 @@ async function removePhone(name) {
   render(); toast('Removed ' + name);
 }
 
+// ---------- keys and backup ----------
+Object.assign(P, {
+  print:'M6 9V3h12v6M6 18H4v-7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v7h-2M6 14h12v7H6z',
+  logs:'M5 4h14v16H5zM8 8h8M8 12h8M8 16h5',
+  folder:'M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
+  token:'M4 7h16v10H4zM8 12h.01M12 12h.01M16 12h.01'
+});
+const OLD_BACKUP_DAYS = 90;
+function pick6() {
+  const list = window.KNURA_WORDS, out = [], b = new Uint16Array(6);
+  if (!Array.isArray(list) || list.length < 2048) return null;
+  crypto.getRandomValues(b);
+  for (let i = 0; i < 6; i++) out.push(list[b[i] & 2047]); // 65536 is a multiple of 2048, so every word is equally likely
+  return out;
+}
+// A download from knurd: the file is named by knurd's Content-Disposition when it gives one.
+async function download(path, body, fallbackName) {
+  let res;
+  try {
+    res = await fetch(path, { method: 'POST', credentials: 'same-origin', headers: { 'X-Knura-Request': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  } catch (e) { return { ok: false, status: 0, json: { detail: 'Knura isn’t answering. Is it still running?' } }; }
+  if (!res.ok) { let json = null; try { json = await res.json(); } catch (e) { /* empty */ } return { ok: false, status: res.status, json }; }
+  const blob = await res.blob(), m = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = m ? m[1] : fallbackName;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+  return { ok: true, name: a.download };
+}
+function backupState() {
+  const b = (S.status && S.status.backup) || null;
+  if (!b) return { tone: 'mut', h: 'This Knura has no master key here.', p: 'Backups are for the master key every tag’s keys come from. This Knura doesn’t keep one in its settings folder.' };
+  const days = b.file ? (Date.now() - Date.parse(b.file)) / 86400000 : null;
+  if (!b.file && !b.sheet) return { tone: 'bad', h: 'Your master key has no backup.', p: 'Every tag’s keys come from the master key on this computer. If this computer dies or its folder is deleted, your tags stop working for good. Make a backup file now, and keep it somewhere else.' };
+  if (!b.file) return { tone: 'warn', h: 'You have a recovery sheet, but no backup file.', p: 'The sheet brings back the master key. A backup file also keeps your tags’ names, actions and settings.' };
+  if (days > OLD_BACKUP_DAYS) return { tone: 'warn', h: 'Your backup is ' + Math.floor(days) + ' days old.', p: 'It still brings back your master key, but names, actions and settings changed since then may be missing. Make a fresh one.' };
+  return { tone: 'ok', h: 'Your master key is backed up.', p: 'Backup file made ' + ago(b.file) + (b.sheet ? ', recovery sheet printed ' + ago(b.sheet) : '') + '. Every tag’s keys come from the master key on this computer, so this is how you get them back if the computer dies.' };
+}
+function vBackup() {
+  const st = backupState(), b = (S.status && S.status.backup) || {}, w = S.words, set = S.settings || {};
+  const body = `
+    ${set.codeClone ? `<div class="g" style="padding:16px 18px;display:flex;gap:14px;align-items:flex-start;border-color:var(--bad-tint)"><span class="tile bad" style="width:40px;height:40px;border-radius:12px;flex:none">${ico('warn', 20, 2.2)}</span><div style="font-size:14px;display:flex;flex-direction:column;gap:6px"><b>Your settings are inside the code folder</b><span class="muted">The settings folder <span class="mono">${esc(set.folder)}</span> is inside <span class="mono">${esc(set.codeClone)}</span>, where Knura’s code was downloaded. Deleting that folder to download Knura again deletes your master key too. Stop Knura, move the settings folder somewhere else (like <span class="mono">~/knura-home</span>), and start Knura with <span class="mono">knurd --home</span> and the new folder.</span></div></div>` : ''}
+    <section class="g hero">
+      <span class="tile ${st.tone}" style="width:64px;height:64px;border-radius:22px">${ico('key', 30, 1.9)}</span>
+      <div style="flex:1 1 320px;min-width:0;display:flex;flex-direction:column;gap:6px"><span class="kick">Master key</span>
+        <h2>${st.h}</h2><p class="muted" style="font-size:14px;max-width:64ch">${st.p}</p></div>
+    </section>
+    <div class="grid3" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr))">
+      <section class="g panel" aria-labelledby="bf">
+        <div class="panel-head"><h2 id="bf">Backup file</h2><span class="muted" style="font-size:12.5px">${b.file ? 'Last made ' + esc(when(b.file)) : 'None yet'}</span></div>
+        <p class="muted" style="font-size:14px">An encrypted copy of the settings folder (master key, tags’ names and actions, settings), locked with a passphrase. Save it off this computer, for example to a USB stick or your cloud drive, and never inside the folder Knura’s code is in.</p>
+        ${w ? `<span class="label">Your passphrase</span><div class="term" style="font-size:15px;text-align:center">${w.map(esc).join(' ')}</div>
+          <div class="row" style="flex-wrap:wrap;gap:8px"><button class="btn sm" data-act="new-words">${ico('refresh', 14)}Suggest others</button><button class="btn sm" data-act="copy-words">${ico('copy', 14)}Copy</button></div>
+          <label class="row" style="gap:10px;font-size:14px;cursor:pointer"><input type="checkbox" id="saved-pp"${S.ppSaved ? ' checked' : ''}>I’ve saved the passphrase in my password manager</label>
+          <div class="row" style="flex-wrap:wrap;gap:8px"><button class="btn primary" data-act="dl-backup"${S.ppSaved && S.busy !== 'file' ? '' : ' disabled'}>${ico('download', 16)}${S.busy === 'file' ? 'Making it…' : 'Download backup file'}</button><button class="btn" data-act="backup-cancel">Cancel</button></div>`
+          : `<button class="btn primary" data-act="start-backup" style="align-self:flex-start"${S.status && S.status.backup ? '' : ' disabled'}>${ico('download', 16)}Make a backup file</button>`}
+      </section>
+      <section class="g panel" aria-labelledby="rs">
+        <div class="panel-head"><h2 id="rs">Recovery sheet</h2><span class="muted" style="font-size:12.5px">${b.sheet ? 'Printed ' + esc(when(b.sheet)) : 'Not printed yet'}</span></div>
+        <p class="muted" style="font-size:14px">One page with your master key written out, to keep with your important papers. It doesn’t change when you add tags, so you only need a new one if you make a new master key. Print it, then delete the file.</p>
+        <button class="btn" data-act="sheet" style="align-self:flex-start"${S.status && S.status.backup ? '' : ' disabled'}>${ico('print', 16)}${S.busy === 'sheet' ? 'Making it…' : 'Download the sheet to print'}</button>
+      </section>
+      <section class="g panel" aria-labelledby="rt">
+        <div class="panel-head"><h2 id="rt">Restore from a backup</h2><span class="muted" style="font-size:12.5px">On a new computer, or after something went wrong</span></div>
+        <p class="muted" style="font-size:14px">Stop Knura, then run this in a terminal with the backup file. It asks for the passphrase and puts everything back in the folder you give it. Then start Knura with that folder.</p>
+        <div class="term"><span class="p">$</span> knurctl backup restore knura-backup.knurabackup --to ~/knura-home</div>
+        <p class="muted" style="font-size:12.5px">Only have the recovery sheet? <span class="mono">knurctl backup restore --sheet --to ~/knura-home</span> asks for its lines. Check a backup file still opens any time with <span class="mono">knurctl backup verify FILE</span>.</p>
+      </section>
+    </div>`;
+  return shell('backup', 'Keys and backup', body);
+}
+
+// ---------- logs ----------
+const LEVELS = [['error', 'Only problems', 'Errors'], ['warn', 'Problems and warnings', 'Warnings'], ['info', 'Normal', 'Normal'], ['debug', 'Everything', 'Everything']];
+const lineLevel = l => { const m = /^\S+ \S+ (ERROR|WARN|INFO|DEBUG|TRACE)\b/.exec(l) || /^(ERROR|WARN|INFO|DEBUG|TRACE)\b/.exec(l); return m ? m[1] : ''; };
+// For a bug report: tag UIDs, addresses and long secrets are hidden, so it's safe to post.
+const scrub = l => l.replace(/\b[0-9A-F]{14}\b/g, '<tag>').replace(/https?:\/\/[^\s"']+/g, '<address>')
+  .replace(/\b\d{1,3}(\.\d{1,3}){3}\b/g, '<ip>').replace(/[A-Za-z0-9_-]{32,}/g, '<secret>');
+function logLines() {
+  const lv = S.logFilter, q = S.logQ.toLowerCase();
+  return (S.logs ? S.logs.lines : []).filter(l => {
+    const v = lineLevel(l);
+    if (lv === 'warn' && v !== 'WARN' && v !== 'ERROR') return false;
+    if (lv === 'error' && v !== 'ERROR') return false;
+    return !q || l.toLowerCase().includes(q);
+  });
+}
+function vLogs() {
+  const L = S.logs, lines = logLines();
+  const body = !L ? '<div class="g empty">Reading the log…</div>' : !L.file ? `<div class="g empty">knurd isn’t writing a log file, so there’s nothing to show here. Add <span class="mono">log.file=logs/knurd.log</span> to knurd.properties and restart Knura.</div>` : `
+    <div class="filter">
+      <div class="g seg" role="tablist" aria-label="Level">${[['all', 'Everything'], ['warn', 'Warnings'], ['error', 'Errors']].map(([k, l]) => `<button role="tab" aria-selected="${S.logFilter === k}" data-lv="${k}">${l}</button>`).join('')}</div>
+      <div style="position:relative;flex:1 1 220px;max-width:360px"><span class="muted" style="position:absolute;left:14px;top:12px">${ico('search', 18)}</span><label for="lq" class="sr">Search the log</label><input class="in" id="lq" placeholder="Search" value="${esc(S.logQ)}" style="padding-left:42px;border-radius:999px"></div>
+      <span class="row" style="gap:10px;font-size:14px">Follow <button class="sw" role="switch" aria-checked="${S.logLive}" aria-label="Follow new lines" data-act="log-live"><span></span></button></span>
+      <span style="margin-left:auto" class="row"><button class="btn sm" data-act="copy-logs">${ico('copy', 15)}Copy for a bug report</button><button class="btn sm" data-act="dl-logs">${ico('download', 15)}Download</button></span>
+    </div>
+    <div class="g term" role="log" aria-label="knurd log" id="logbox" style="max-height:62vh;overflow:auto;white-space:pre-wrap;font-size:12.5px">${lines.map(l => { const v = lineLevel(l); return `<div style="${v === 'ERROR' ? 'color:var(--bad)' : v === 'WARN' ? 'color:var(--warn)' : ''}">${esc(l)}</div>`; }).join('') || '<div class="muted">No lines match.</div>'}</div>
+    <p class="muted" style="font-size:12.5px;padding:0 4px">The last ${L.lines.length} lines of <span class="mono">${esc(L.file)}</span>. Keys, tokens and passwords are never written to it, and “Copy for a bug report” also hides tag UIDs and addresses.</p>`;
+  return shell('logs', 'Logs', body);
+}
+async function loadLogs() {
+  const r = await api('GET', '/v1/logs?lines=1000');
+  S.logs = r.ok ? r.json : { file: null, lines: [] };
+}
+let logT;
+function followLogs() {
+  clearTimeout(logT);
+  if (!S.logLive) return;
+  logT = setTimeout(async () => {
+    if (!S.logLive || location.hash !== '#logs') return;
+    const box = document.getElementById('logbox'), atEnd = box && box.scrollTop + box.clientHeight >= box.scrollHeight - 8;
+    const a = document.activeElement;
+    if (!(a && a.id === 'lq')) {
+      await loadLogs(); render();
+      const nb = document.getElementById('logbox'); if (nb && atEnd) nb.scrollTop = nb.scrollHeight;
+    }
+    followLogs();
+  }, 3000);
+}
+
 // ---------- router ----------
 let pollT;
 function render() {
@@ -685,6 +817,8 @@ function viewFor(route) {
     case 'taps': return vTaps;
     case 'actions': return vActions;
     case 'phones': return vPhones;
+    case 'backup': return vBackup;
+    case 'logs': return vLogs;
     case 'config': return vConfig;
     default: return vHome;
   }
@@ -694,6 +828,7 @@ window.addEventListener('resize', () => { if (narrow() !== wasNarrow) { wasNarro
 window.addEventListener('hashchange', () => {
   if (location.hash !== lastRoute) { S.notif = false; S.renaming = false; window.scrollTo(0, 0); }
   lastRoute = location.hash; render();
+  if (location.hash === '#logs') { loadLogs().then(() => { if (location.hash === '#logs') { render(); const nb = document.getElementById('logbox'); if (nb) nb.scrollTop = nb.scrollHeight; followLogs(); } }); }
 });
 // Taps arrive while the page is open: check every 15 seconds, without disturbing typing or a dialog.
 function poll() {
@@ -725,7 +860,7 @@ async function putLabel(t, label, icon) {
   t.label = label || null; t.icon = icon || null; return true;
 }
 app.addEventListener('click', async e => {
-  const b = e.target.closest('[data-act],[data-range],[data-toggle],[data-res],[data-conn],[data-phone],[data-addr]');
+  const b = e.target.closest('[data-act],[data-range],[data-toggle],[data-res],[data-conn],[data-phone],[data-addr],[data-lv]');
   if (!b) { if (S.notif && !e.target.closest('.pop')) { S.notif = false; render(); } return; }
   const t = curTag();
   if (b.dataset.conn) {
@@ -736,6 +871,7 @@ app.addEventListener('click', async e => {
   if (b.dataset.phone) { const n = ((S.settings && S.settings.phones) || [])[Math.trunc(+b.dataset.phone)]; return n ? removePhone(n) : undefined; }
   if (b.dataset.addr) { const a = S.pair && (S.pair.addresses || []).filter(x => x !== S.pair.address)[Math.trunc(+b.dataset.addr)]; return a ? pairPhone(S.pair.name, a) : undefined; }
   if (b.dataset.range) { S.range = ['today', 'week', '14'].find(x => x === b.dataset.range) || 'week'; return render(); }
+  if (b.dataset.lv) { S.logFilter = ['all', 'warn', 'error'].find(x => x === b.dataset.lv) || 'all'; return render(); }
   if (b.dataset.res) { S.tapRes = ['all', 'ok', 'stopped'].find(x => x === b.dataset.res) || 'all'; return render(); }
   if (b.dataset.toggle && t) {
     const c = S.conns.find(x => x.id === b.dataset.toggle); if (!c) return; // only connectors knurd listed
@@ -756,6 +892,32 @@ app.addEventListener('click', async e => {
     case 'recheck': S.reach = null; render(); await Promise.all([loadAll(), loadReach()]); render(); return toast('Checked again just now');
     case 'add-tag': return addTagModal();
     case 'add-conn': return addConnModal();
+    case 'start-backup': S.words = pick6(); S.ppSaved = false; if (!S.words) toast('The word list didn’t load. Reload the page.'); return render();
+    case 'new-words': S.words = pick6(); S.ppSaved = false; return render();
+    case 'copy-words': return S.words && copy(S.words.join(' '), 'Passphrase');
+    case 'backup-cancel': S.words = null; S.ppSaved = false; return render();
+    case 'dl-backup': {
+      if (!S.words || !S.ppSaved) return;
+      S.busy = 'file'; render();
+      const r = await download('/v1/backup/file', { passphrase: S.words.join(' ') }, 'knura-backup.knurabackup');
+      S.busy = false;
+      if (!r.ok) { render(); return toast(why(r)); }
+      S.words = null; S.ppSaved = false;
+      const st = await api('GET', '/v1/status'); if (st.ok) S.status = st.json;
+      render(); return toast('Saved ' + r.name + '. Move it off this computer.');
+    }
+    case 'sheet': {
+      S.busy = 'sheet'; render();
+      const r = await download('/v1/backup/sheet', undefined, 'knura-recovery-sheet.html');
+      S.busy = false;
+      if (!r.ok) { render(); return toast(why(r)); }
+      const st = await api('GET', '/v1/status'); if (st.ok) S.status = st.json;
+      render(); return toast('Open the file, print it, then delete it');
+    }
+    case 'log-live': S.logLive = !S.logLive; render(); return followLogs();
+    case 'copy-logs': return copy(logLines().map(scrub).join('\n'), 'Log');
+    case 'dl-logs': return save('knurd-log.txt', logLines().join('\n') + '\n', 'text/plain');
+    case 'change-url': return modal(`<form data-mform="url" style="display:flex;flex-direction:column;gap:12px">${mhead('Public address')}<label class="fl" for="pu" style="margin:0">The https address phones use to reach this computer</label><input class="in mono" id="pu" value="${esc((S.settings && S.settings.publicUrl) || '')}" placeholder="https://my-computer.tail1234.ts.net" autocomplete="off" spellcheck="false"><p class="muted" style="font-size:12.5px">Using Tailscale? The setup page can set it up for you. New tags get links to this address, and Knura uses it fully after a restart.</p><div class="err" id="uerr" hidden></div><div class="row" style="flex-wrap:wrap"><button class="btn primary">Save</button><a class="btn" href="/setup">Set up with Tailscale</a><button type="button" class="btn" data-x>Cancel</button></div></form>`);
     case 'pair-cancel': S.pair = null; clearTimeout(pairT); return render();
     case 'test-tag': {
       const r = await api('POST', '/v1/tags/' + t.uid + '/test');
@@ -788,11 +950,19 @@ function save(name, text, type) {
   setTimeout(() => URL.revokeObjectURL(a.href), 30000);
   toast('Downloaded ' + name);
 }
-app.addEventListener('change', e => {
+app.addEventListener('change', async e => {
   if (e.target.id === 'tt') { const tag = tagByUid(e.target.value); S.tapTag = tag ? tag.uid : 'all'; return render(); }
+  if (e.target.id === 'saved-pp') { S.ppSaved = e.target.checked; return render(); }
+  if (e.target.id === 'll') {
+    const v = LEVELS.find(x => x[0] === e.target.value); if (!v) return;
+    const r = await api('PUT', '/v1/settings', { logLevel: v[0] });
+    if (!r.ok) { toast(why(r)); return render(); }
+    S.settings = r.json; render(); return toast('Log detail: ' + v[1]);
+  }
   if (e.target.id === 'tw') { S.tapWhen = ['1', '7', '30', 'all'].find(x => x === e.target.value) || '7'; return render(); }
 });
 app.addEventListener('input', e => {
+  if (e.target.id === 'lq') { S.logQ = e.target.value; const pos = e.target.selectionStart; render(); const n = document.getElementById('lq'); n.focus(); n.setSelectionRange(pos, pos); return; }
   if (e.target.id === 'q') { S.q = e.target.value; const pos = e.target.selectionStart; render(); const n = document.getElementById('q'); n.focus(); n.setSelectionRange(pos, pos); }
 });
 app.addEventListener('submit', async e => {
@@ -835,6 +1005,11 @@ mroot.addEventListener('submit', async e => {
     const c = connBy(type, id) || { type, id };
     if (r.json.secret) return secretModal(c, r.json.secret);
     return toast('Saved ' + id);
+  }
+  if (f === 'url') {
+    const r = await api('PUT', '/v1/settings', { publicUrl: document.getElementById('pu').value.trim() });
+    if (!r.ok) { const el = document.getElementById('uerr'); el.hidden = false; el.textContent = why(r); return; }
+    S.settings = r.json; closeModal(); S.reach = null; render(); loadReach(); return toast('Saved. Restart Knura to use it everywhere.');
   }
   if (f === 'home') {
     const r = await api('PUT', '/v1/settings', { name: document.getElementById('hn').value.trim() });
