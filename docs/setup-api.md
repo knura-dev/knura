@@ -1,15 +1,22 @@
 # Setup API
 
-The admin API's requests for the setup page: the web page knurd serves so people can set Knura
-up and change it without a terminal.
+The admin API's requests for the setup page and the dashboard: the web pages knurd serves so
+people can set Knura up, use it and change it without a terminal.
 
-## The page
+## The pages
 
-With the admin API on, knurd serves the page at `/setup` (and `/`) on the admin port, so on
-knurd's own computer it is **http://127.0.0.1:8425/setup**. The page's files live in
-`knurd/src/main/resources/io/knura/knurd/setup/` and are served from the jar: `index.html`,
-`app.css`, `app.js` and `words.js` (the 2,048-word BIP-39 English list, used to pick the backup
-passphrase in the browser). They need no sign-in, since they hold no settings; every request the
+With the admin API on, knurd serves two pages on the admin port:
+
+- The **setup page** at `/setup`, so on knurd's own computer **http://127.0.0.1:8425/setup**.
+  Its files live in `knurd/src/main/resources/io/knura/knurd/setup/`: `index.html`, `app.css`,
+  `app.js` and `words.js` (the 2,048-word BIP-39 English list, used to pick the backup passphrase
+  in the browser). Its last step opens the dashboard.
+- The **dashboard** at `/` (also `/dashboard`), **http://127.0.0.1:8425/**. Its files live in
+  `knurd/src/main/resources/io/knura/knurd/dashboard/`: `index.html`, `app.css` and `app.js`. It
+  sends you to `/setup` while no password is set. Its sections are hash links (`#home`, `#tags`,
+  `#tag-<UID>`, `#taps`, `#config`), and it asks for new taps every 15 seconds while it is open.
+
+Both are served from the jar and need no sign-in, since they hold no settings; every request a
 page then makes goes through the rules below.
 
 The page loads nothing from the internet. It is sent with
@@ -22,8 +29,9 @@ X-Frame-Options: DENY
 Referrer-Policy: no-referrer
 ```
 
-It keeps only the furthest step reached and whether setup is finished in the browser's
-`localStorage`; everything else comes from knurd each time.
+The setup page keeps only the furthest step reached and whether setup is finished in the
+browser's `localStorage`, and the dashboard only its light or dark choice; everything else comes
+from knurd each time.
 
 Everything here goes through the admin listener (port 8425), with the same rules as the rest of
 the admin API: this computer or the local network only, never through a proxy or tunnel, and
@@ -206,6 +214,32 @@ digits and `-`.
 A test sends the same event a real tap would, with counter 0, which no real tap has (counters
 start at 1). Receivers that drop repeated event ids will only see the first test, since every test
 of a tag has the id `<UID>:0`.
+
+### Taps
+
+`GET /v1/taps` lists taps newest first, as knurctl's `admin taps` shows them:
+
+```json
+{"taps":[{"time":"2026-11-02T00:46:00Z","status":"ok","uid":"04DE5F1EACC040","counter":43,"actions":1}]}
+```
+
+`status` is `ok`, `replay` (a copied link), `rejected` (the signature didn't match) or
+`malformed` (a broken link, with `uid` null). It takes `limit` (default 50, at most 1000),
+`uid=<UID>` for one tag, and `result=ok` or `result=stopped` (everything but `ok`).
+
+`GET /v1/taps/days?days=14` counts them per day (at most 90 days), oldest first, in this
+computer's time zone, for the dashboard's charts. `tags` has each tag's genuine taps per day:
+
+```json
+{"zone":"Europe/Paris","days":[{"day":"2026-11-01","ok":12,"stopped":0},{"day":"2026-11-02","ok":3,"stopped":1}],
+ "tags":{"04DE5F1EACC040":[5,2]}}
+```
+
+With the admin API on, knurd keeps a year of taps (at most 100,000) in `knurd-taps.log` next to
+`knurd.properties`, owner-only, one line per tap: time, status, UID (`-` when unknown), tap number
+and how many actions started. Only the result is kept, never the tap link. It survives restarts,
+but like the other `.log` files it isn't put in backups. Without the admin API only the last 200
+taps are kept, in memory.
 
 ### Connections
 

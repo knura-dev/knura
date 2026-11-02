@@ -1,4 +1,4 @@
-/* Knura setup page, served by knurd on the admin port. Step rail on the left, one glass card per step, sticky footer with Back/Continue. Same tokens as the Knura Cloud redesign: dark first, orange accent, Inter + JetBrains Mono. */
+/* Knura setup page, served by knurd on the admin port. Step rail on the left, one glass card per step, sticky footer with Back/Continue. Same tokens as the hosted account dashboard: dark first, orange accent, Inter + JetBrains Mono. */
 :root{color-scheme:dark;
 --bg:#0A0D12;--fg:#E8EDF3;--muted:#B7C0CB;--faint:#7D8896;--line:rgba(255,255,255,.10);
 --glass:rgba(255,255,255,.06);--glass-line:rgba(255,255,255,.11);--glass-hover:rgba(255,255,255,.09);--gshadow:none;

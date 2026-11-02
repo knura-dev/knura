@@ -265,8 +265,17 @@ set up and tap your first tag, give it an action (Home Assistant, Matter or a we
 send a test. The first password can only be set from knurd's own computer. Changes go into the
 usual files and take effect without a restart, so the page and a text editor always agree.
 
-The page is a few static files inside knurd. It loads nothing from the internet and runs under a
-strict Content-Security-Policy. See [docs/setup-api.md](docs/setup-api.md).
+### The dashboard
+
+After setup, **http://127.0.0.1:8425/** is Knura's dashboard, signed in with the same password.
+**Home** says whether everything is working, with health checks that link to the fix, a chart of
+genuine taps and your last tap. **Tags** lists every tag with its week of taps; each tag's page
+renames it, changes its icon, switches its actions on and off and sends a test. **Taps** is the
+full history (a year is kept, in `knurd-taps.log`), filtered by tag or result, and downloads as
+CSV or JSON. **Settings** renames this Knura and changes the password.
+
+Both pages are a few static files inside knurd. They load nothing from the internet and run
+under a strict Content-Security-Policy. See [docs/setup-api.md](docs/setup-api.md).
 
 ### Setting tags up with an Android phone
 

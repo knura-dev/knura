@@ -22,11 +22,13 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executors;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
@@ -61,7 +63,9 @@ import javax.net.ssl.SSLParameters;
  *   <li>{@code GET /v1/whoami}: {@code {"token":"laptop"}}, the name of the token used.
  *   <li>{@code GET /v1/status}: uptime, key mode, public URL, resolver owner, knot and tag counts.
  *   <li>{@code GET /v1/tags}: every tag seen so far and its last accepted counter.
- *   <li>{@code GET /v1/taps?limit=N}: the latest taps (default 50, at most 200), newest first.
+ *   <li>{@code GET /v1/taps?limit=N}: the latest taps (default 50, at most 1000), newest first,
+ *       optionally only one tag's ({@code uid=}) or only good or stopped ones ({@code result=}).
+ *   <li>{@code GET /v1/taps/days?days=N}: taps per day for the last N days (default 14, at most 90).
  *   <li>{@code POST /v1/nfc/sessions} and {@code POST /v1/nfc/sessions/<id>}: set a tag up,
  *       reset or read it through a phone ({@link NfcRelay}). Only for the tokens named in {@code
  *       admin.provision.tokens}, and off when that is empty.
@@ -155,6 +159,8 @@ final class AdminServer implements AutoCloseable {
     private volatile Manage manage;
     /** Whether an address is this computer; tests swap it to act as another device on the network. */
     java.util.function.Predicate<InetAddress> thisComputer = InetAddress::isLoopbackAddress;
+    /** The time zone the dashboard's days are counted in; tests pin it. */
+    ZoneId zone = ZoneId.systemDefault();
 
     AdminServer(String host, int port, SSLContext tls, TokenStore tokens, AuditLog audit, CounterStore counters,
             RecentTaps taps, Info info, Clock clock) throws IOException {
@@ -413,7 +419,7 @@ final class AdminServer implements AutoCloseable {
             return removeToken(method, path.substring(TOKENS.length() + 1), tokenName, exchange);
         }
         boolean known = switch (path) {
-            case "/v1/whoami", "/v1/status", "/v1/tags", "/v1/taps", TOKENS -> true;
+            case "/v1/whoami", "/v1/status", "/v1/tags", "/v1/taps", "/v1/taps/days", TOKENS -> true;
             default -> false;
         };
         if (!known) {
@@ -431,11 +437,21 @@ final class AdminServer implements AutoCloseable {
             case TOKENS -> tokens == null
                     ? new Answer(404, error("not_found", "plaintext mode has no tokens"), null)
                     : ok(tokenList(tokenName));
+            case "/v1/taps/days" -> {
+                Integer days = number(query, "days", 14, RecentTaps.MAX_DAYS);
+                yield days == null
+                        ? new Answer(400, error("malformed", "days must be a number from 1 to " + RecentTaps.MAX_DAYS), null)
+                        : ok(tapDays(days));
+            }
             default -> {
                 Integer limit = limit(query);
-                yield limit == null
-                        ? new Answer(400, error("malformed", "limit must be a number from 1 to " + RecentTaps.CAPACITY), null)
-                        : ok(taps(limit));
+                Predicate<RecentTaps.Entry> filter = tapFilter(query);
+                if (limit == null) {
+                    yield new Answer(400, error("malformed", "limit must be a number from 1 to " + RecentTaps.MAX_LIMIT), null);
+                }
+                yield filter == null
+                        ? new Answer(400, error("malformed", "uid must be a tag UID and result ok or stopped"), null)
+                        : ok(taps(limit, filter));
             }
         };
     }
@@ -552,10 +568,10 @@ final class AdminServer implements AutoCloseable {
         return json.append("]}").toString();
     }
 
-    private String taps(int limit) {
+    private String taps(int limit, Predicate<RecentTaps.Entry> filter) {
         StringBuilder json = new StringBuilder("{\"taps\":[");
         String sep = "";
-        for (RecentTaps.Entry e : taps.latest(limit)) {
+        for (RecentTaps.Entry e : taps.latest(limit, filter)) {
             json.append(sep).append("{\"time\":\"").append(e.time()).append("\",\"status\":").append(Json.quote(e.status()))
                     .append(",\"uid\":").append(Json.quote(e.uid()));
             if (e.uid() != null) {
@@ -567,22 +583,70 @@ final class AdminServer implements AutoCloseable {
         return json.append("]}").toString();
     }
 
-    /** The limit query parameter, 50 when absent, or null when it is not a number from 1 to 200. */
+    /** The limit query parameter, 50 when absent, or null when it is not a number from 1 to {@link RecentTaps#MAX_LIMIT}. */
     static Integer limit(String rawQuery) {
+        return number(rawQuery, "limit", 50, RecentTaps.MAX_LIMIT);
+    }
+
+    /** A number query parameter, {@code absent} when it isn't there, or null when it is not from 1 to {@code max}. */
+    static Integer number(String rawQuery, String name, int absent, int max) {
         Map<String, String> params = KnurdServer.parseQuery(rawQuery);
         if (params == null) {
             return null;
         }
-        String value = params.get("limit");
+        String value = params.get(name);
         if (value == null) {
-            return 50;
+            return absent;
         }
         try {
             int n = Integer.parseInt(value);
-            return n >= 1 && n <= RecentTaps.CAPACITY ? n : null;
+            return n >= 1 && n <= max ? n : null;
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    /**
+     * Which taps {@code GET /v1/taps} lists: {@code uid=<UID>} for one tag, {@code result=ok} or
+     * {@code result=stopped} (copied, forged or broken). Null when either is malformed.
+     */
+    static Predicate<RecentTaps.Entry> tapFilter(String rawQuery) {
+        Map<String, String> params = KnurdServer.parseQuery(rawQuery);
+        if (params == null) {
+            return null;
+        }
+        String uid = params.get("uid");
+        String result = params.get("result");
+        if (uid != null && !uid.matches("[0-9A-Fa-f]{14}") || result != null && !result.matches("ok|stopped")) {
+            return null;
+        }
+        String want = uid == null ? null : uid.toUpperCase(Locale.ROOT);
+        return e -> (want == null || want.equals(e.uid()))
+                && (result == null || e.stopped() == "stopped".equals(result));
+    }
+
+    /**
+     * {@code GET /v1/taps/days?days=14}: taps per day, oldest first, in this computer's time zone,
+     * for the dashboard's charts.
+     */
+    private String tapDays(int count) {
+        RecentTaps.Days d = taps.days(count, zone);
+        StringBuilder json = new StringBuilder("{\"zone\":").append(Json.quote(zone.getId())).append(",\"days\":[");
+        for (int i = 0; i < count; i++) {
+            json.append(i == 0 ? "" : ",").append("{\"day\":\"").append(d.days().get(i)).append("\",\"ok\":")
+                    .append(d.ok()[i]).append(",\"stopped\":").append(d.stopped()[i]).append('}');
+        }
+        json.append("],\"tags\":{");
+        String sep = "";
+        for (Map.Entry<String, int[]> e : d.tags().entrySet()) {
+            json.append(sep).append(Json.quote(e.getKey())).append(":[");
+            for (int i = 0; i < count; i++) {
+                json.append(i == 0 ? "" : ",").append(e.getValue()[i]);
+            }
+            json.append(']');
+            sep = ",";
+        }
+        return json.append("}}").toString();
     }
 
     /** Whether a Host header (with or without a port) names this computer. */

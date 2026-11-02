@@ -45,8 +45,9 @@ The Mac installer is paused for now: releases don't include it yet. On a Mac, fo
 Mac with `packaging/build-installer.sh <version> pkg`.
 
 Install, then open **Knura** from the Start menu or Applications. It starts Knura in the
-background, sets it to start each time you sign in, and opens the setup page. Open it again
-whenever you want the page.
+background, sets it to start each time you sign in, and opens the setup page. Once setup is done,
+open <http://127.0.0.1:8425/> for the dashboard: your tags, taps and whether everything is
+working.
 
 - Windows: settings in `%LOCALAPPDATA%\KnuraData`; starts through the `Knura` entry under
   Settings > Apps > Startup.
