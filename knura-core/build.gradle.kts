@@ -7,5 +7,5 @@ plugins {
 
 dependencies {
     // Test only: reads back the QR codes QrCode draws.
-    testImplementation("com.google.zxing:core:3.5.3")
+    testImplementation("com.google.zxing:core:3.5.4")
 }
