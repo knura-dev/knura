@@ -77,5 +77,8 @@ sum(rate(knurd_actions_total{outcome!="delivered"}[15m])) / sum(rate(knurd_actio
 jvm_memory_used_bytes{area="heap"} / jvm_memory_max_bytes{area="heap"}
 ```
 
+A ready-made Grafana dashboard, and a Prometheus + Grafana setup to run it, is in
+[deploy/grafana](../deploy/grafana).
+
 Good starting alerts: knurd down (`up{job="knurd"} == 0` for 5 minutes), any `expired` actions,
 heap above 90% for 10 minutes, and open files above 80% of the limit.
