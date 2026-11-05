@@ -25,9 +25,8 @@ Tags with another address of your own only sign while the app is open. With the 
 works too. Someone else's tags, and taps on phones without the app, open in the browser as usual.
 
 Some phones (Samsung Galaxy phones, for one) give tag links to the browser even when the Knura app
-could open them, because browsers claim NFC links too. The app shows which app Android picks
-after you hold a tag to the open app. On those phones, use the **Open in Knura** button described
-below.
+could open them, because browsers claim NFC links too. On those phones, use the **Open in Knura**
+button described below.
 
 ## Who can use this tag
 
