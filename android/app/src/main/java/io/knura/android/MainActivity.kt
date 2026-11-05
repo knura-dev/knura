@@ -2388,14 +2388,37 @@ class MainActivity : Activity() {
             } catch (e: Exception) {
                 TagResults.Result(false, "Couldn't sign the tap", e.message ?: "The phone's tap key didn't work. Pair again.", emptyList())
             }
+            // Held to the open app: also say whether Android would bring this tag to Knura when it's closed.
+            val handoff = if (launched) null else try {
+                NfcHandoff.check(this, link)
+            } catch (e: Exception) {
+                null
+            }
             ui {
                 notice = null
-                showResult("Tap", result, "", again = null)
+                showResult("Tap", result, handoff?.describe() ?: "", again = null)
+                if (handoff != null && !handoff.reachesKnura) explainHandoff(handoff)
                 // Opened by the tap: get out of the way again after a moment.
                 if (launched && result.good) root.postDelayed({ if (screen == Screen.RESULT) finish() }, 2500)
             }
         }
         return true
+    }
+
+    /** Android would give this tag to another app when Knura is closed, so those taps go unsigned. */
+    private fun explainHandoff(report: NfcHandoff.Report) {
+        val other = report.winner?.takeIf { it != report.knura }
+        val why = when {
+            !report.knuraMatches -> "Knura's tag filter doesn't match this tag's link, so Android opens it in the browser when the app is closed. Please send this screen to support."
+            other != null -> "When Knura is closed, Android gives this tag to ${report.winnerLabel}, so the tap goes unsigned. Open ${report.winnerLabel}'s settings, then Set as default (or Open by default) and Clear defaults. Tap the tag again with Knura closed: pick Knura and Always."
+            else -> "When Knura is closed, Android asks which app should open this tag (Knura or ${report.others.joinToString { it.second }}). Pick Knura and Always."
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Taps with the app closed")
+            .setMessage(why)
+            .setNegativeButton("Close", null)
+        if (other != null) dialog.setPositiveButton("Open ${report.winnerLabel} settings") { _, _ -> NfcHandoff.openAppSettings(this, other) }
+        dialog.show()
     }
 
     private fun fail(a: Action, why: String, lines: StringBuilder) = ui {
