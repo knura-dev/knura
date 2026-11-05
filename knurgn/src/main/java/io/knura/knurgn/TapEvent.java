@@ -12,13 +12,22 @@ import java.time.Instant;
  *     rule
  * @param name the name the owner gave this tag on a hosted Knura account's dashboard, or null.
  *     Free text, so receivers must treat it as a label and nothing more.
+ * @param tapper which paired phone signed the tap, or null for a tap from a plain browser
  */
-public record TapEvent(String id, String uid, int counter, String knot, Instant tappedAt, String name) {
+public record TapEvent(String id, String uid, int counter, String knot, Instant tappedAt, String name, Tapper tapper) {
+    public TapEvent(String id, String uid, int counter, String knot, Instant tappedAt, String name) {
+        this(id, uid, counter, knot, tappedAt, name, null);
+    }
+
     static TapEvent of(String uid, int counter, String knot, Instant tappedAt) {
         return of(uid, counter, knot, tappedAt, null);
     }
 
     static TapEvent of(String uid, int counter, String knot, Instant tappedAt, String name) {
-        return new TapEvent(uid + ":" + counter, uid, counter, knot, tappedAt, name);
+        return of(uid, counter, knot, tappedAt, name, null);
+    }
+
+    static TapEvent of(String uid, int counter, String knot, Instant tappedAt, String name, Tapper tapper) {
+        return new TapEvent(uid + ":" + counter, uid, counter, knot, tappedAt, name, tapper);
     }
 }

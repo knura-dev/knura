@@ -2,6 +2,7 @@ package io.knura.knurd;
 
 import io.knura.knurgn.Delivery;
 import io.knura.knurgn.Knurgn;
+import io.knura.knurgn.Tapper;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Map;
@@ -75,8 +76,13 @@ final class LiveActions implements KnurdServer.TapListener, AutoCloseable {
 
     @Override
     public int onVerifiedTap(String uid, int counter) {
+        return onVerifiedTap(uid, counter, null);
+    }
+
+    @Override
+    public int onVerifiedTap(String uid, int counter, Tapper tapper) {
         Knurgn k = current.get();
-        return k == null ? 0 : k.onVerifiedTap(uid, counter, clock.instant(), labels.apply(uid));
+        return k == null ? 0 : k.onVerifiedTap(uid, counter, clock.instant(), labels.apply(uid), tapper);
     }
 
     /**

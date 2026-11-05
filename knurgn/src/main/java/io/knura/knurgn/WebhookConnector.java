@@ -110,7 +110,10 @@ public final class WebhookConnector implements Connector {
         return Delivery.refused(detail);
     }
 
-    /** The JSON body. The dashboard name is free text, so names are escaped. */
+    /**
+     * The JSON body. The dashboard name is free text, so names are escaped. {@code tapper} is there
+     * only when a paired phone signed the tap.
+     */
     static String body(TapEvent event, String connectorId, Clock clock) {
         return "{\"type\":\"tap.verified\",\"timestamp\":\"" + clock.instant() + "\",\"data\":{"
                 + "\"id\":\"" + event.id() + "\","
@@ -119,6 +122,8 @@ public final class WebhookConnector implements Connector {
                 + "\"uid\":\"" + event.uid() + "\","
                 + "\"counter\":" + event.counter() + ","
                 + "\"tappedAt\":\"" + event.tappedAt() + "\","
+                + (event.tapper() == null ? "" : "\"tapper\":{\"phone\":" + quote(event.tapper().phone())
+                        + ",\"confirmed\":" + event.tapper().confirmed() + "},")
                 + "\"action\":\"" + connectorId + "\"}}";
     }
 

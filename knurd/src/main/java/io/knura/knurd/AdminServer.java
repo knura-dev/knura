@@ -10,6 +10,7 @@ import io.knura.core.admin.AdminTokens;
 import io.knura.core.admin.LocalAddresses;
 import io.knura.core.backup.BackupRecord;
 import io.knura.core.resolver.FlatJson;
+import io.knura.core.tap.TapSignature;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -145,9 +146,11 @@ final class AdminServer implements AutoCloseable {
     private static final String NFC_SESSIONS = "/v1/nfc/sessions";
     private static final int MAX_NFC_BODY = 4096;
     private static final String TOKENS = "/v1/tokens";
+    private static final String TAP_KEYS = "/v1/tap-keys";
 
     private final HttpServer server;
     private final TokenStore tokens;
+    private volatile TapKeys tapKeys;
     private final AuditLog audit;
     private final LoginThrottle throttle;
     private final CounterStore counters;
@@ -437,6 +440,9 @@ final class AdminServer implements AutoCloseable {
         if (path.startsWith(TOKENS + "/")) {
             return removeToken(method, path.substring(TOKENS.length() + 1), tokenName, exchange);
         }
+        if (path.equals(TAP_KEYS)) {
+            return tapKeys(method, caller, body, exchange);
+        }
         boolean known = switch (path) {
             case "/v1/whoami", "/v1/status", "/v1/tags", "/v1/taps", "/v1/taps/days", TOKENS -> true;
             default -> false;
@@ -521,6 +527,64 @@ final class AdminServer implements AutoCloseable {
         return json.append("]}").toString();
     }
 
+    /** Lets phones send their tap keys ({@code POST /v1/tap-keys}), for signed taps. Call before {@link #start}. */
+    void acceptTapKeys(TapKeys keys) {
+        this.tapKeys = keys;
+    }
+
+    /**
+     * {@code GET /v1/tap-keys}: whether the calling phone's keys are here. {@code POST
+     * /v1/tap-keys} with {@code {"everyday":"<base64>","confirm":"<base64>"}}: saves them,
+     * replacing any it sent before. Only a phone's own token can do this, never a browser.
+     */
+    private Answer tapKeys(String method, Caller caller, byte[] body, HttpExchange exchange) {
+        TapKeys keys = tapKeys;
+        if (keys == null || tokens == null) {
+            return new Answer(404, error("not_found", "signed taps are off"), null);
+        }
+        String phone = caller.name();
+        if (phone == null || caller.session() != null || "browser".equals(phone)) {
+            return new Answer(403, error("forbidden", "only a paired phone can send its own tap keys"), "not a phone");
+        }
+        if ("GET".equals(method)) {
+            return ok("{\"phone\":" + Json.quote(phone) + ",\"everyday\":" + keys.has(phone)
+                    + ",\"confirm\":" + keys.find(phone, TapSignature.Kind.CONFIRM).isPresent() + whereToTap() + "}");
+        }
+        if (!"POST".equals(method)) {
+            exchange.getResponseHeaders().set("Allow", "GET, POST");
+            return new Answer(405, error("method_not_allowed", null), null);
+        }
+        java.security.PublicKey everyday;
+        java.security.PublicKey confirm = null;
+        try {
+            Map<String, Object> json = FlatJson.parse(new String(body, StandardCharsets.UTF_8));
+            everyday = TapSignature.parsePublicKey(json.get("everyday") instanceof String e ? e : null);
+            if (json.get("confirm") instanceof String c) {
+                confirm = TapSignature.parsePublicKey(c);
+            }
+        } catch (IllegalArgumentException e) {
+            return new Answer(400, error("malformed", "everyday (and confirm, if any) must be EC P-256 public keys"),
+                    "bad tap keys");
+        }
+        try {
+            keys.save(phone, everyday, confirm);
+        } catch (IOException | IllegalStateException e) {
+            LOG.log(Level.ERROR, "could not save the tap keys of " + phone, e);
+            return new Answer(500, error("error", "knurd couldn't save the tap keys"), "tap keys failed");
+        }
+        return new Answer(200, "{\"phone\":" + Json.quote(phone) + ",\"everyday\":true,\"confirm\":" + (confirm != null)
+                + whereToTap() + "}", "saved tap keys");
+    }
+
+    /**
+     * {@code ,"tapUrl":..,"owner":..}: where the phone sends signed taps (null while public.url isn't
+     * set), and the owner ID in tap.knura.io links that are this knurd's (null without a resolver).
+     */
+    private String whereToTap() {
+        String url = info.publicUrl() == null ? null : info.publicUrl() + "/tap";
+        return ",\"tapUrl\":" + Json.quote(url) + ",\"owner\":" + Json.quote(info.resolverOwner());
+    }
+
     /** {@code DELETE /v1/tokens/<name>}: only tokens that may set tags up may remove tokens. */
     private Answer removeToken(String method, String name, String tokenName, HttpExchange exchange) {
         if (tokens == null || !AdminTokens.isValidName(name)) {
@@ -560,7 +624,7 @@ final class AdminServer implements AutoCloseable {
         return "{\"status\":\"up\",\"uptimeSeconds\":" + uptime + ",\"keys\":" + Json.quote(info.keyMode())
                 + ",\"publicUrl\":" + Json.quote(info.publicUrl()) + ",\"resolverOwner\":" + Json.quote(info.resolverOwner())
                 + ",\"knots\":" + (m == null ? info.knots() : m.settings().knotCount())
-                + ",\"tags\":" + counters.snapshot().size() + name + backup() + "}";
+                + ",\"tags\":" + counters.snapshot().size() + ",\"signedTaps\":" + (tapKeys != null) + name + backup() + "}";
     }
 
     /** {@code ,"backup":{"file":..,"sheet":..}} with ISO times or null, or nothing without a master key. */
@@ -596,7 +660,12 @@ final class AdminServer implements AutoCloseable {
             if (e.uid() != null) {
                 json.append(",\"counter\":").append(e.counter());
             }
-            json.append(",\"actions\":").append(e.actions()).append('}');
+            json.append(",\"actions\":").append(e.actions());
+            if (e.tapper() != null) {
+                json.append(",\"tapper\":{\"phone\":").append(Json.quote(e.tapper().phone()))
+                        .append(",\"confirmed\":").append(e.tapper().confirmed()).append('}');
+            }
+            json.append('}');
             sep = ",";
         }
         return json.append("]}").toString();

@@ -22,7 +22,7 @@ import java.util.function.IntSupplier;
  */
 final class Metrics {
     /** Tap results that aren't a {@link TapResult.Status}: the verifier threw, or the caller was slowed down. */
-    enum Extra { ERROR, THROTTLED }
+    enum Extra { ERROR, THROTTLED, BAD_SIGNATURE }
 
     /** Upper bounds, in seconds, for the tap verification time histogram. */
     static final double[] BUCKETS = {0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5};

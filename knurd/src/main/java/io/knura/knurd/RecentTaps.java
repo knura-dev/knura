@@ -1,6 +1,7 @@
 package io.knura.knurd;
 
 import io.knura.core.admin.PrivateFiles;
+import io.knura.knurgn.Tapper;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.System.Logger.Level;
@@ -51,8 +52,15 @@ final class RecentTaps {
     private static final int COMPACT_EVERY = 2000;
     private static final Pattern UID = Pattern.compile("[0-9A-F]{14}");
 
-    /** @param uid null when the tap was too broken to say which tag it came from */
-    record Entry(Instant time, String status, String uid, int counter, int actions) {
+    /**
+     * @param uid null when the tap was too broken to say which tag it came from
+     * @param tapper the paired phone that signed the tap, or null for a plain browser tap
+     */
+    record Entry(Instant time, String status, String uid, int counter, int actions, Tapper tapper) {
+        Entry(Instant time, String status, String uid, int counter, int actions) {
+            this(time, status, uid, counter, actions, null);
+        }
+
         /** Whether this tap was turned away: copied, forged or broken. */
         boolean stopped() {
             return !"ok".equals(status);
@@ -125,7 +133,8 @@ final class RecentTaps {
 
     static Entry parse(String line) {
         String[] f = line.split("\t", -1);
-        if (f.length != 5) {
+        // Older lines have 5 fields; a signed tap adds the phone and whether it was confirmed.
+        if (f.length != 5 && f.length != 7) {
             return null;
         }
         try {
@@ -133,7 +142,14 @@ final class RecentTaps {
             if (uid != null && !UID.matcher(uid).matches() || !f[1].matches("[a-z]{1,20}")) {
                 return null;
             }
-            return new Entry(Instant.parse(f[0]), f[1], uid, Integer.parseInt(f[3]), Integer.parseInt(f[4]));
+            Tapper tapper = null;
+            if (f.length == 7) {
+                if (!io.knura.core.admin.AdminTokens.isValidName(f[5]) || !f[6].matches("true|false")) {
+                    return null;
+                }
+                tapper = new Tapper(f[5], Boolean.parseBoolean(f[6]));
+            }
+            return new Entry(Instant.parse(f[0]), f[1], uid, Integer.parseInt(f[3]), Integer.parseInt(f[4]), tapper);
         } catch (DateTimeParseException | NumberFormatException e) {
             return null;
         }
@@ -141,11 +157,16 @@ final class RecentTaps {
 
     static String format(Entry e) {
         return e.time() + "\t" + e.status() + "\t" + (e.uid() == null ? "-" : e.uid()) + "\t" + e.counter() + "\t"
-                + e.actions() + "\n";
+                + e.actions() + (e.tapper() == null ? "" : "\t" + e.tapper().phone() + "\t" + e.tapper().confirmed()) + "\n";
     }
 
     synchronized void add(TapResult result, int actions) {
-        Entry e = new Entry(clock.instant(), result.status().jsonName(), result.uid(), result.counter(), actions);
+        add(result, actions, null);
+    }
+
+    /** Like {@link #add(TapResult, int)}, for a tap that {@code tapper} signed (null for none). */
+    synchronized void add(TapResult result, int actions, Tapper tapper) {
+        Entry e = new Entry(clock.instant(), result.status().jsonName(), result.uid(), result.counter(), actions, tapper);
         if (entries.size() == capacity) {
             entries.removeLast();
         }

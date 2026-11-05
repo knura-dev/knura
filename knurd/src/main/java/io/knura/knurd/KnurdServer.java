@@ -3,6 +3,10 @@ package io.knura.knurd;
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import io.knura.core.admin.AdminTokens;
+import io.knura.core.resolver.FlatJson;
+import io.knura.core.tap.TapSignature;
+import io.knura.knurgn.Tapper;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.lang.System.Logger.Level;
@@ -23,6 +27,12 @@ import java.util.concurrent.Executors;
  *       ({@code malformed} 400, {@code rejected} 403, {@code replay} 409). A browser (one that
  *       asks for {@code text/html}, as a phone does when it opens a tag's link) gets a
  *       {@link TapPage} with the same HTTP status instead.
+ *   <li>{@code POST /tap}: a tap signed by a paired phone's tap key (see {@link TapSignature}), as
+ *       JSON {@code {"link":"e=..&c=..","phone":"pixel","time":1730000000,"key":"everyday",
+ *       "sig":".."}}. A bad signature is refused with {@code unauthorized} 401 before the tag is
+ *       even checked, so it can't use the tap up; otherwise the answer is the same as for {@code
+ *       GET}, plus {@code "tapper":{"phone":..,"confirmed":..}}, and the actions learn who tapped.
+ *       Only on when {@link #acceptSignedTaps} was called.
  *   <li>{@code GET /health}: {@code {"status":"up"}}.
  *   <li>{@code GET /.well-known/knura-owner}: {@code {"owner":".."}}, this knurd's owner ID at a
  *       tap resolver, so the resolver can confirm this server agreed to receive that owner's taps
@@ -46,6 +56,8 @@ public final class KnurdServer implements AutoCloseable {
     private final TapThrottle throttle;
     private volatile RecentTaps recentTaps;
     private volatile Metrics metrics;
+    private volatile TapKeys tapKeys;
+    private final java.time.Clock clock;
 
     /** Hears about taps that verified and were seen for the first time. */
     @FunctionalInterface
@@ -56,6 +68,11 @@ public final class KnurdServer implements AutoCloseable {
          * @return how many actions the tap started, shown on the phone
          */
         int onVerifiedTap(String uid, int counter);
+
+        /** Like {@link #onVerifiedTap(String, int)}, for a tap a paired phone signed. */
+        default int onVerifiedTap(String uid, int counter, Tapper tapper) {
+            return onVerifiedTap(uid, counter);
+        }
     }
 
     public KnurdServer(String host, int port, TapVerifier verifier) throws IOException {
@@ -75,6 +92,7 @@ public final class KnurdServer implements AutoCloseable {
     KnurdServer(String host, int port, TapVerifier verifier, TapListener listener, String resolverOwner,
             java.time.Clock clock) throws IOException {
         this.throttle = new TapThrottle(clock);
+        this.clock = clock;
         this.verifier = verifier;
         this.listener = listener;
         this.server = HttpServer.create(new InetSocketAddress(host, port), 0);
@@ -107,6 +125,11 @@ public final class KnurdServer implements AutoCloseable {
         this.metrics = metrics;
     }
 
+    /** Also takes taps signed by paired phones, with their keys from {@code keys}. Call before {@link #start}. */
+    void acceptSignedTaps(TapKeys keys) {
+        this.tapKeys = keys;
+    }
+
     public void start() {
         server.start();
     }
@@ -122,10 +145,11 @@ public final class KnurdServer implements AutoCloseable {
     }
 
     private void handleTap(HttpExchange exchange) throws IOException {
-        if (!allowGet(exchange) || !exactPath(exchange, "/tap")) {
+        boolean signed = "POST".equals(exchange.getRequestMethod()) && tapKeys != null;
+        if (!signed && !allowGet(exchange) || !exactPath(exchange, "/tap")) {
             return;
         }
-        boolean html = wantsHtml(exchange);
+        boolean html = !signed && wantsHtml(exchange);
         java.net.InetAddress remote = exchange.getRemoteAddress().getAddress();
         String address = remote.getHostAddress();
         boolean local = remote.isLoopbackAddress();
@@ -140,7 +164,24 @@ public final class KnurdServer implements AutoCloseable {
         }
         long started = System.nanoTime();
         TapResult result;
-        Map<String, String> params = parseQuery(exchange.getRequestURI().getRawQuery());
+        Tapper tapper = null;
+        Map<String, String> params;
+        if (signed) {
+            Signed check = checkSignature(exchange);
+            if (check.refusal() != null) {
+                throttle.failed(address, local);
+                if (m != null) {
+                    m.tap(Metrics.Extra.BAD_SIGNATURE);
+                }
+                LOG.log(Level.INFO, "signed tap refused from {0}: {1}", local ? "this computer" : address, check.refusal());
+                sendJson(exchange, 401, "{\"status\":\"unauthorized\",\"detail\":" + Json.quote(check.refusal()) + "}");
+                return;
+            }
+            tapper = check.tapper();
+            params = parseQuery(check.query());
+        } else {
+            params = parseQuery(exchange.getRequestURI().getRawQuery());
+        }
         if (params == null) {
             result = TapResult.failed(TapResult.Status.MALFORMED, "repeated or undecodable query parameter");
         } else {
@@ -171,18 +212,21 @@ public final class KnurdServer implements AutoCloseable {
             // detail says why a tap failed ("MAC does not match", "unknown tag"); it never quotes the link.
             LOG.log(
                     Level.INFO,
-                    "tap {0} uid={1} counter={2} from {3} ({4} ms){5}",
+                    "tap {0} uid={1} counter={2} from {3}{6} ({4} ms){5}",
                     result.status().jsonName(),
                     result.uid() == null ? "-" : result.uid(),
                     result.uid() == null ? "-" : Integer.toString(result.counter()),
                     local ? "this computer" : address,
                     Long.toString(took / 1_000_000),
-                    result.detail() == null ? "" : ": " + result.detail());
+                    result.detail() == null ? "" : ": " + result.detail(),
+                    tapper == null ? "" : ", signed by phone " + tapper.phone() + (tapper.confirmed() ? " (confirmed)" : ""));
         }
         int actionsStarted = 0;
         if (result.status() == TapResult.Status.OK) {
             try {
-                actionsStarted = listener.onVerifiedTap(result.uid(), result.counter());
+                actionsStarted = tapper == null
+                        ? listener.onVerifiedTap(result.uid(), result.counter())
+                        : listener.onVerifiedTap(result.uid(), result.counter(), tapper);
                 if (m != null) {
                     m.actionsStarted(actionsStarted);
                 }
@@ -195,13 +239,68 @@ public final class KnurdServer implements AutoCloseable {
         }
         RecentTaps taps = recentTaps;
         if (taps != null) {
-            taps.add(result, actionsStarted);
+            taps.add(result, actionsStarted, tapper);
         }
         if (html) {
             sendHtml(exchange, result.status().httpStatus(), TapPage.render(result, actionsStarted));
+        } else if (signed) {
+            sendJson(exchange, result.status().httpStatus(), toJson(result, actionsStarted, tapper));
         } else {
             sendJson(exchange, result.status().httpStatus(), toJson(result));
         }
+    }
+
+    /** A signed tap's link query and who signed it, or why it was refused. */
+    private record Signed(String query, Tapper tapper, String refusal) {
+        static Signed refused(String why) {
+            return new Signed(null, null, why);
+        }
+    }
+
+    private static final int MAX_SIGNED_BODY = 2048;
+
+    /** Checks a {@code POST /tap} body's signature; the tag itself is checked after, as usual. */
+    private Signed checkSignature(HttpExchange exchange) throws IOException {
+        byte[] body;
+        try (var in = exchange.getRequestBody()) {
+            body = in.readNBytes(MAX_SIGNED_BODY + 1);
+        }
+        if (body.length > MAX_SIGNED_BODY) {
+            return Signed.refused("the request is too big");
+        }
+        Map<String, Object> json;
+        try {
+            json = FlatJson.parse(new String(body, StandardCharsets.UTF_8));
+        } catch (IllegalArgumentException e) {
+            return Signed.refused("the request isn't JSON");
+        }
+        Object link = json.get("link");
+        Object phone = json.get("phone");
+        Object time = json.get("time");
+        Object sig = json.get("sig");
+        TapSignature.Kind kind = json.get("key") instanceof String k ? TapSignature.Kind.of(k) : null;
+        if (!(link instanceof String query) || !TapSignature.saneQuery(query)
+                || !(phone instanceof String name) || !AdminTokens.isValidName(name)
+                || !(time instanceof Number seconds) || !(sig instanceof String signature) || kind == null) {
+            return Signed.refused("link, phone, time, key and sig are needed");
+        }
+        if (!TapSignature.fresh(seconds.longValue(), clock.instant())) {
+            return Signed.refused("the phone's clock is more than a minute off, or the tap is old");
+        }
+        var key = tapKeys.find(name, kind);
+        if (key.isEmpty()) {
+            return Signed.refused("this phone isn't paired here, or hasn't sent its tap keys");
+        }
+        if (!TapSignature.verify(key.get(), TapSignature.message(query, name, seconds.longValue(), kind), signature)) {
+            return Signed.refused("the signature doesn't match");
+        }
+        return new Signed(query, new Tapper(name, kind == TapSignature.Kind.CONFIRM), null);
+    }
+
+    static String toJson(TapResult r, int actions, Tapper tapper) {
+        String base = toJson(r);
+        return base.substring(0, base.length() - 1) + ",\"actions\":" + actions + ",\"tapper\":{\"phone\":"
+                + Json.quote(tapper.phone()) + ",\"confirmed\":" + tapper.confirmed() + "}}";
     }
 
     /** Browsers list text/html in Accept; curl and HTTP libraries normally don't. */

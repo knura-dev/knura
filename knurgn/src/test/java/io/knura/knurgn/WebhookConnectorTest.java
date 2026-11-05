@@ -54,6 +54,17 @@ class WebhookConnectorTest {
     }
 
     @Test
+    void saysWhoTappedWhenAPhoneSignedTheTap() {
+        TapEvent signed = TapEvent.of("042D6B02936980", 63, "speaker", CLOCK.instant(), null, new Tapper("pixel", true));
+        assertEquals(
+                "{\"type\":\"tap.verified\",\"timestamp\":\"2026-10-06T21:14:03.120Z\",\"data\":{"
+                        + "\"id\":\"042D6B02936980:63\",\"knot\":\"speaker\",\"uid\":\"042D6B02936980\","
+                        + "\"counter\":63,\"tappedAt\":\"2026-10-06T21:14:03.120Z\","
+                        + "\"tapper\":{\"phone\":\"pixel\",\"confirmed\":true},\"action\":\"desk\"}}",
+                WebhookConnector.body(signed, "desk", CLOCK));
+    }
+
+    @Test
     void sortsResponsesIntoRetryOrRefuse() throws Exception {
         assertEquals(Delivery.Status.FAILED, statusFor(500));
         assertEquals(Delivery.Status.FAILED, statusFor(503));

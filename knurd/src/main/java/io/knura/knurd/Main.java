@@ -102,7 +102,7 @@ public final class Main {
         if (config.admin() != null) {
             try {
                 admin = startAdmin(config, configFile, counters, recentTaps, knurgn == null ? 0 : knurgn.knotCount(),
-                        settings);
+                        settings, server);
             } catch (IOException e) {
                 server.close();
                 if (metricsServer != null) {
@@ -182,7 +182,7 @@ public final class Main {
 
     /** Starts the admin listener; see {@link AdminServer}. */
     private static AdminServer startAdmin(KnurdConfig config, Path configFile, CounterStore counters, RecentTaps taps,
-            int knots, HomeSettings settings)
+            int knots, HomeSettings settings, KnurdServer tapServer)
             throws IOException {
         KnurdConfig.Admin a = config.admin();
         SSLContext tls = null;
@@ -212,6 +212,12 @@ public final class Main {
         }
         AdminServer admin = new AdminServer(
                 a.host(), a.port(), tls, tokens, audit, counters, taps, info, Clock.systemUTC(), nfc);
+        if (tokens != null) {
+            // Paired phones send their tap keys over the admin API, then sign taps sent to the public port.
+            TapKeys tapKeys = TapKeys.beside(a.tokensFile(), tokens);
+            admin.acceptTapKeys(tapKeys);
+            tapServer.acceptSignedTaps(tapKeys);
+        }
         AdminPassword password = new AdminPassword(configFile.toAbsolutePath().getParent().resolve(AdminPassword.FILE));
         PhonePairing phones = new PhonePairing(config.keys(), resolver, a, tokens, settings, fingerprint, Clock.systemUTC());
         phones.attach(admin);

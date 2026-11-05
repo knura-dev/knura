@@ -82,6 +82,7 @@ class MainActivity : Activity() {
     private lateinit var root: FrameLayout
 
     private val worker = Executors.newSingleThreadExecutor()
+    private val tapKeys by lazy { TapKeyStore(packageManager) }
     private var nfc: NfcAdapter? = null
     private var screen = Screen.HOME
     private var topInset = 0
@@ -184,6 +185,7 @@ class MainActivity : Activity() {
 
         screen = if (vault.isPaired()) Screen.HOME else Screen.WELCOME
         render()
+        if (savedInstanceState == null) tagLinkFrom(intent)?.let { onTagLink(it, launched = true) }
         CrashLog.takeLast(this)?.let {
             showResult("Knura", TagResults.Result(false, "The app crashed last time",
                 "Please send this to the Knura developers. Copy details copies it.", emptyList()), it, again = null)
@@ -211,6 +213,7 @@ class MainActivity : Activity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.action == Widgets.ACTION_CHECK_TAP) pendingTap = true
+        tagLinkFrom(intent)?.let { onTagLink(it, launched = true) }
     }
 
     override fun onPause() {
@@ -1838,6 +1841,8 @@ class MainActivity : Activity() {
         unlock("Unlock to save the pairing") {
             try {
                 vault.save(pairing)
+                // A new pairing gets new tap keys; they go to the server with the first refresh.
+                forgetTapKeys()
             } catch (e: Exception) {
                 showHome("Couldn't save the pairing: ${e.message}. Does this phone have a screen lock?", bad = true)
                 return@unlock
@@ -1865,6 +1870,7 @@ class MainActivity : Activity() {
 
     private fun forgetServer() {
         vault.forget()
+        forgetTapKeys()
         session = null
         snapshot = null
         notes = emptyList()
@@ -1948,6 +1954,7 @@ class MainActivity : Activity() {
                     val read = Snapshot.of(Instant.now(), status.json, tags.json.takeIf { tags.code == 200 },
                         taps.json.takeIf { taps.code == 200 }, tokens)
                     if (tags.code == 200) syncNames(knurd, read.tags)
+                    sendTapKeys(knurd)
                     next = read
                 }
             } catch (e: IOException) {
@@ -2168,6 +2175,16 @@ class MainActivity : Activity() {
     private fun onTag(tag: Tag) {
         if (running != null) {
             relay(tag)
+        } else if (tapRoute() != null && screen in TABS) {
+            // Not setting a tag up: a tap of one of this server's tags, signed by this phone.
+            val link = TagLink.read(tag)
+            if (link == null || !sendSignedTap(link, launched = false)) {
+                ui {
+                    notice = "Choose what to do first, then hold the tag."
+                    noticeBad = false
+                    render()
+                }
+            }
         } else {
             ui {
                 if (screen == Screen.HOME) {
@@ -2283,6 +2300,102 @@ class MainActivity : Activity() {
                 // Already gone.
             }
         }
+    }
+
+    // ---------------------------------------------------------------- signed taps
+
+    /** Where this phone's server takes signed taps, once it has this phone's tap keys; or null. */
+    private fun tapRoute(): SignedTap.Route? = try {
+        prefs.getString("tapRoute", null)?.let { SignedTap.Route.fromJson(JSONObject(it)) }
+    } catch (e: org.json.JSONException) {
+        null
+    }
+
+    private fun forgetTapKeys() {
+        try {
+            tapKeys.delete()
+        } catch (e: Exception) {
+            // Nothing to delete.
+        }
+        prefs.edit().remove("tapRoute").apply()
+    }
+
+    /**
+     * Makes sure the server has this phone's tap keys, and notes where it takes signed taps. On the
+     * worker thread, with the unlocked [knurd]. A server that doesn't take signed taps yet answers
+     * 404, and taps keep opening in the browser.
+     */
+    private fun sendTapKeys(knurd: KnurdClient) {
+        try {
+            val here = knurd.get("/v1/tap-keys")
+            if (here.code != 200) {
+                prefs.edit().remove("tapRoute").apply()
+                return
+            }
+            var answer = here.json
+            if (!tapKeys.has() || !answer.optBoolean("everyday")) {
+                if (!tapKeys.has()) tapKeys.create()
+                val body = JSONObject().put("everyday", tapKeys.publicKey(SignedTap.EVERYDAY))
+                tapKeys.publicKey(SignedTap.CONFIRM)?.let { body.put("confirm", it) }
+                val sent = knurd.post("/v1/tap-keys", body)
+                if (sent.code != 200) return
+                answer = sent.json
+            }
+            prefs.edit().putString("tapRoute", SignedTap.Route.fromJson(answer).toJson().toString()).apply()
+        } catch (e: Exception) {
+            // Signed taps wait for the next refresh; nothing else depends on them.
+        }
+    }
+
+    /** The link of the tag that opened the app, if one did. */
+    private fun tagLinkFrom(intent: Intent?): String? {
+        if (intent?.action != NfcAdapter.ACTION_NDEF_DISCOVERED) return null
+        return TagLink.fromIntent(intent)
+    }
+
+    /**
+     * A tag opened the app. One of this server's tags is sent signed; anyone else's opens in the
+     * browser, as it would without the app.
+     */
+    private fun onTagLink(link: String, launched: Boolean) {
+        if (vault.isPaired() && sendSignedTap(link, launched)) return
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)).addCategory(Intent.CATEGORY_BROWSABLE))
+        } catch (e: android.content.ActivityNotFoundException) {
+            showHome("No browser to open this tag's link.", bad = true)
+            return
+        }
+        if (launched && !vault.isPaired()) finish()
+    }
+
+    /** Sends [link] signed with the everyday key, if it is one of this server's tags. */
+    private fun sendSignedTap(link: String, launched: Boolean): Boolean {
+        val route = tapRoute() ?: return false
+        val target = SignedTap.target(link, route) ?: return false
+        ui {
+            notice = "Sending the tap…"
+            noticeBad = false
+            if (screen in TABS) render()
+        }
+        worker.execute {
+            val result = try {
+                val now = System.currentTimeMillis() / 1000
+                val signature = tapKeys.signEveryday(SignedTap.message(target.query, route.phone, now, SignedTap.EVERYDAY))
+                val reply = SignedTap.send(target.url, SignedTap.body(target.query, route.phone, now, SignedTap.EVERYDAY, signature))
+                SignedTap.describe(reply.first, reply.second)
+            } catch (e: IOException) {
+                TagResults.Result(false, "Couldn't reach your server", explain(e, target.url), emptyList())
+            } catch (e: Exception) {
+                TagResults.Result(false, "Couldn't sign the tap", e.message ?: "The phone's tap key didn't work. Pair again.", emptyList())
+            }
+            ui {
+                notice = null
+                showResult("Tap", result, "", again = null)
+                // Opened by the tap: get out of the way again after a moment.
+                if (launched && result.good) root.postDelayed({ if (screen == Screen.RESULT) finish() }, 2500)
+            }
+        }
+        return true
     }
 
     private fun fail(a: Action, why: String, lines: StringBuilder) = ui {

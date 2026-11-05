@@ -59,6 +59,12 @@ final class TokenStore {
         return Optional.ofNullable(match);
     }
 
+    /** The hash of {@code name}'s token, to tell whether it is still the same phone. */
+    synchronized Optional<String> hashOf(String name) {
+        reloadIfChanged();
+        return Optional.ofNullable(tokens.get(name));
+    }
+
     synchronized int count() {
         reloadIfChanged();
         return tokens.size();
