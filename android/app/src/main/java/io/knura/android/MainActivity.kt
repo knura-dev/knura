@@ -2349,8 +2349,23 @@ class MainActivity : Activity() {
 
     /** The link of the tag that opened the app, if one did. */
     private fun tagLinkFrom(intent: Intent?): String? {
+        val data = intent?.data
+        if (intent?.action == Intent.ACTION_VIEW && data?.scheme == "knura") {
+            // The browser's "Open in Knura" button, on a tag that only works for paired phones.
+            handoff(data.toString())
+            return null
+        }
         if (intent?.action != NfcAdapter.ACTION_NDEF_DISCOVERED) return null
         return TagLink.fromIntent(intent)
+    }
+
+    /** Signs and sends a tap the browser handed over; never sends it back to the browser. */
+    private fun handoff(uri: String) {
+        val route = tapRoute()
+        val link = route?.let { SignedTap.handoffLink(uri, it) }
+        if (!vault.isPaired() || link == null || !sendSignedTap(link, launched = true)) {
+            showHome("This phone isn't paired with the server this tag belongs to.", bad = true)
+        }
     }
 
     /**

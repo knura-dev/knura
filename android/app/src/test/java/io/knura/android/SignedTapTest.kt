@@ -56,4 +56,15 @@ class SignedTapTest {
         assertEquals("the signature doesn't match",
             SignedTap.describe(401, org.json.JSONObject("{\"detail\":\"the signature doesn't match\"}")).subtitle)
     }
+
+    @Test
+    fun aBrowserHandOffIsSentOnlyToThisPhonesOwnServer() {
+        val encoded = java.net.URLEncoder.encode(query, "UTF-8")
+        assertEquals("https://desk.tail1234.ts.net/tap?$query", SignedTap.handoffLink("knura://tap?q=$encoded", route))
+        assertNull(SignedTap.handoffLink("knura://tap?q=$encoded", route.copy(tapUrl = null)))
+        assertNull(SignedTap.handoffLink("knura://other?q=$encoded", route))
+        assertNull(SignedTap.handoffLink("https://tap?q=$encoded", route))
+        assertNull(SignedTap.handoffLink("knura://tap", route))
+        assertNull(SignedTap.handoffLink("knura://tap?q=" + java.net.URLEncoder.encode("e=1#x", "UTF-8"), route))
+    }
 }

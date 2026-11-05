@@ -10,9 +10,8 @@ the tag itself and sends the tap with a signature from a key that lives in the p
 hardware. knurd checks the tag exactly as before, and also checks the signature, so it knows which
 paired phone sent the tap. The actions then hear who tapped.
 
-This is step 1 of letting you choose **who can use a tag**. For now every tag still works for
-anyone, as before; signed taps only add the tapper's name to the tap. Per-tag "who can use this
-tag" settings come next and build on this.
+Signed taps let you choose **who can use a tag** (see below). Every tag starts out working for
+anyone, as before; then signed taps only add the tapper's name to the tap.
 
 ## What it feels like
 
@@ -24,6 +23,31 @@ That works for tags with a `https://tap.knura.io/...` link (tags set up through 
 for tags that point straight at knurd through Tailscale Funnel (`https://<computer>.<tailnet>.ts.net/tap?...`).
 Tags with another address of your own only sign while the app is open. With the app already open, holding any of your server's tags to the phone
 works too. Someone else's tags, and taps on phones without the app, open in the browser as usual.
+
+Some phones (Samsung Galaxy phones, for one) give tag links to the browser even when the Knura app
+could open them, because browsers claim NFC links too. The app shows which app Android picks
+after you hold a tag to the open app. On those phones, use the **Open in Knura** button described
+below.
+
+## Who can use this tag
+
+Each tag has a setting on its page in the dashboard (or `PUT /v1/tags/<uid>/who` on the admin API):
+
+| Setting | Body | What happens |
+|---|---|---|
+| **Anyone** (the default) | `{"who":"anyone"}` | Any genuine tap runs the actions, from the app or a browser. Nothing extra to do. |
+| **My phones** | `{"who":"phones"}` | Only taps signed by a phone paired with this knurd run the actions. |
+| **Only these phones** | `{"who":"fold7,pixel"}` | Only taps signed by the listed paired phones (up to 20). |
+
+When a tap isn't allowed, nothing runs and the answer is `403` with `"status":"refused"`. Taps
+from a browser get a page that says "Use the Knura app for this tag", with an **Open in Knura**
+button. A refused tap **doesn't use the tap up**, so the button can pass the same tap to the app
+(`knura://tap?q=<the link's query>`). The app sends it to its own server's address, signed. Once
+any tap with that link runs, the link is used up for everyone.
+
+The settings live in `knurd-tags.properties` as `<UID>.who=...`. A line knurd can't read makes the
+tag "My phones" rather than open to anyone. The dashboard's Taps page shows refused taps as
+**Not allowed**, and signed taps with the phone's name.
 
 ## The two tap keys
 
@@ -96,5 +120,9 @@ set each person's favourite light. The dashboard's tap history (`GET /v1/taps`) 
 
 - This proves which **paired phone** sent the tap. It can't tell who is holding an unlocked phone.
 - It doesn't stop someone from relaying a tag over the internet to a paired phone. It does make a
-  harvested tap link far less useful once tags can be limited to certain people.
+  harvested tap link far less useful on tags limited to certain phones.
+- A refused browser tap leaves its link usable until the next tap that runs. Someone who taps
+  your "My phones" tag in a browser could try to get one of your phones to open that link's
+  **Open in Knura** button. Your next real tap makes the old link useless.
+- Hosted accounts don't have the per-tag setting yet.
 - iPhones can't sign taps yet (the iOS app is paused); their taps work as browser taps.

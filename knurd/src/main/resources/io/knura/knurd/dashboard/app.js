@@ -180,10 +180,12 @@ async function loadReach() {
 // ---------- words ----------
 const tagName = t => t ? (t.label || 'Tag ' + t.uid.slice(-4)) : 'Unknown tag';
 const tagByUid = uid => S.tags.find(t => t.uid === uid);
-const RESULT = { ok: ['ok', 'Genuine'], replay: ['bad', 'Copied link'], rejected: ['bad', 'Not genuine'], malformed: ['warn', 'Broken link'] };
+const RESULT = { ok: ['ok', 'Genuine'], replay: ['bad', 'Copied link'], rejected: ['bad', 'Not genuine'], refused: ['warn', 'Not allowed'], malformed: ['warn', 'Broken link'] };
 const resultPill = s => { const [tone, word] = RESULT[s] || ['mut', s]; return `<span class="pill ${tone}">${word}</span>`; };
-const tapWhat = e => e.status === 'ok' ? (e.actions ? 'Ran ' + e.actions + (e.actions === 1 ? ' action' : ' actions') : 'No actions to run')
-  : e.status === 'replay' ? 'Someone reused an old tap. Nothing ran.' : e.status === 'rejected' ? 'The signature didn’t match. Nothing ran.' : 'The link was broken or cut short. Nothing ran.';
+const byPhone = e => e.tapper ? ' · ' + e.tapper.phone + (e.tapper.confirmed ? ' (confirmed)' : '') : '';
+const tapWhat = e => (e.status === 'ok' ? (e.actions ? 'Ran ' + e.actions + (e.actions === 1 ? ' action' : ' actions') : 'No actions to run')
+  : e.status === 'refused' ? (e.tapper ? 'This phone isn’t allowed to use the tag. Nothing ran.' : 'Tapped without the Knura app, and the tag only works for your phones. Nothing ran.')
+  : e.status === 'replay' ? 'Someone reused an old tap. Nothing ran.' : e.status === 'rejected' ? 'The signature didn’t match. Nothing ran.' : 'The link was broken or cut short. Nothing ran.') + byPhone(e);
 function ago(iso) {
   if (!iso) return 'never';
   const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
@@ -405,11 +407,35 @@ function vTag(uid) {
         </section>
       </div>
     </div>
+    ${whoPanel(t)}
     <section class="g" style="padding:20px 22px" aria-labelledby="hist">
       <div class="panel-head" style="padding-bottom:8px"><h2 id="hist" style="font-size:15px;font-weight:600">Recent taps</h2><a class="btn sm" href="#taps" data-act="taps-for" data-uid="${t.uid}">See all in Taps</a></div>
       <div class="list">${hist.slice(0, 8).map(e => `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;min-height:52px"><span style="flex:0 0 160px;font-size:14px">${when(e.time)}</span>${resultPill(e.status)}<span class="muted" style="flex:1 1 200px;font-size:13.5px">${esc(tapWhat(e))}</span><span class="mono muted" style="font-size:12.5px">#${e.counter}</span></div>`).join('') || '<p class="muted" style="padding:12px 0;font-size:14px">No taps yet. Hold a phone to the tag to try it.</p>'}</div>
     </section>`;
   return shell('tag', 'Tags', body);
+}
+// Who may use a tag: anyone (any phone or browser), any paired phone signing with the Knura app, or only some of them.
+const whoMode = t => !t.who || t.who === 'anyone' ? 'anyone' : t.who === 'phones' ? 'phones' : 'some';
+function whoPanel(t) {
+  const phones = (S.settings && S.settings.phones) || [], mode = whoMode(t), some = mode === 'some' ? t.who.split(',') : [];
+  const opt = (k, title, sub) => `<button class="sub" role="radio" aria-checked="${mode === k}" data-who="${k}" style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:12px 14px;text-align:left;cursor:pointer;${mode === k ? 'outline:2px solid var(--accent);' : ''}"><b style="font-size:14px">${title}</b><span class="muted" style="font-size:12.5px">${sub}</span></button>`;
+  return `<section class="g" style="padding:22px;display:flex;flex-direction:column;gap:12px" aria-labelledby="who">
+    <div class="panel-head"><h2 id="who" style="font-size:18px;font-weight:600">Who can use this tag</h2><span class="muted" id="whosaved" style="font-size:12.5px">Changes save straight away</span></div>
+    <div role="radiogroup" aria-labelledby="who" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">
+      ${opt('anyone', 'Anyone', 'Any phone that taps it runs the actions, with or without the Knura app')}
+      ${opt('phones', 'My phones', 'Only phones paired here, tapping with the Knura app')}
+      ${opt('some', 'Only these phones', 'Pick which paired phones may use it')}
+    </div>
+    ${mode === 'some' ? `<div style="display:flex;flex-wrap:wrap;gap:8px">${phones.map((p, i) => `<button class="pill ${some.includes(p) ? 'ok' : 'mut'}" role="checkbox" aria-checked="${some.includes(p)}" data-whophone="${i}" style="cursor:pointer;border:0;font-size:13.5px;padding:6px 12px">${some.includes(p) ? ico('check', 12, 3) : ''}${esc(p)}</button>`).join('')}</div>
+      ${some.filter(n => !phones.includes(n)).length ? `<p class="muted small">Also listed, but not paired now: <span class="mono">${esc(some.filter(n => !phones.includes(n)).join(', '))}</span></p>` : ''}` : ''}
+    <p class="muted" style="font-size:12.5px">${mode === 'anyone' ? 'Taps from a browser still have to be genuine: a copied link never works twice.' : 'A tap from a browser runs nothing and shows an <b>Open in Knura</b> button, which sends the tap from the app instead. Phones that aren’t allowed are turned away. Needs the Knura app 0.10 or later.'}</p>
+  </section>`;
+}
+async function setWho(t, who) {
+  const r = await api('PUT', '/v1/tags/' + t.uid + '/who', { who });
+  if (!r.ok) { toast(why(r)); return render(); }
+  t.who = r.json.who; render();
+  const s = document.getElementById('whosaved'); if (s) { s.textContent = 'Saved'; s.style.color = 'var(--ok)'; }
 }
 function tapRows() {
   const f = S.tapRes, tg = S.tapTag, days = S.tapWhen === 'all' ? null : +S.tapWhen;
@@ -891,7 +917,7 @@ async function putLabel(t, label, icon) {
   t.label = label || null; t.icon = icon || null; return true;
 }
 app.addEventListener('click', async e => {
-  const b = e.target.closest('[data-act],[data-range],[data-toggle],[data-res],[data-conn],[data-phone],[data-addr],[data-lv]');
+  const b = e.target.closest('[data-act],[data-range],[data-toggle],[data-res],[data-conn],[data-phone],[data-addr],[data-lv],[data-who],[data-whophone]');
   if (!b) { if (S.notif && !e.target.closest('.pop')) { S.notif = false; render(); } return; }
   const t = curTag();
   if (b.dataset.conn) {
@@ -904,6 +930,23 @@ app.addEventListener('click', async e => {
   if (b.dataset.range) { S.range = ['today', 'week', '14'].find(x => x === b.dataset.range) || 'week'; return render(); }
   if (b.dataset.lv) { S.logFilter = ['all', 'warn', 'error'].find(x => x === b.dataset.lv) || 'all'; return render(); }
   if (b.dataset.res) { S.tapRes = ['all', 'ok', 'stopped'].find(x => x === b.dataset.res) || 'all'; return render(); }
+  if (b.dataset.who && t) {
+    const k = ['anyone', 'phones', 'some'].find(x => x === b.dataset.who); if (!k) return;
+    const phones = (S.settings && S.settings.phones) || [];
+    if (k === 'some') {
+      if (whoMode(t) === 'some') return;
+      if (!phones.length) return toast('Pair a phone first, then pick it here.');
+      return setWho(t, phones.join(','));
+    }
+    return setWho(t, k);
+  }
+  if (b.dataset.whophone && t) {
+    const phones = (S.settings && S.settings.phones) || [], n = phones[Math.trunc(+b.dataset.whophone)]; if (!n) return;
+    const cur = whoMode(t) === 'some' ? t.who.split(',') : [];
+    const next = cur.includes(n) ? cur.filter(x => x !== n) : cur.concat(n);
+    if (!next.length) return toast('Pick at least one phone, or choose My phones.');
+    return setWho(t, next.join(','));
+  }
   if (b.dataset.toggle && t) {
     const c = S.conns.find(x => x.id === b.dataset.toggle); if (!c) return; // only connectors knurd listed
     const id = c.id, cur = t.actions || [];

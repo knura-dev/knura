@@ -52,6 +52,7 @@ class SetupApiTest {
     private AuditLog audit;
     private AdminServer admin;
     private LiveActions live;
+    private HomeSettings settings;
     private HttpServer hook;
 
     @BeforeEach
@@ -65,7 +66,7 @@ class SetupApiTest {
                 "laptop", AdminTokens.hash(laptop), "fold7", AdminTokens.hash(phone))));
         audit = new AuditLog(dir.resolve("audit.log"), clock);
         live = new LiveActions(null, Clock.systemUTC());
-        HomeSettings settings = new HomeSettings(knurdFile, null, live, clock);
+        settings = new HomeSettings(knurdFile, null, live, clock);
         NfcRelay nfc = new NfcRelay(TagKeys.derived(Hex.decode("00112233445566778899AABBCCDDEEFF"), Map.of()),
                 "https://desk.tail1234.ts.net/tap", Set.of("fold7"), Duration.ofSeconds(2));
         admin = new AdminServer("127.0.0.1", 0, null, new TokenStore(tokensFile), audit, new MemoryCounterStore(),
@@ -191,7 +192,7 @@ class SetupApiTest {
         assertEquals(200, send("PUT", "/v1/tags/" + UID, "{\"label\":\"Front door\",\"icon\":\"door\"}", cookie).statusCode());
         assertEquals(200, send("PUT", "/v1/tags/" + UID + "/actions", "{\"actions\":\"desk-hook\"}", cookie).statusCode());
         assertEquals("{\"tags\":[{\"uid\":\"" + UID + "\",\"lastCounter\":null,\"label\":\"Front door\",\"name\":\"Front door\","
-                + "\"nameChanged\":" + clock.millis() + ",\"icon\":\"door\",\"actions\":[\"desk-hook\"]}]}", send("GET", "/v1/tags", null, cookie).body());
+                + "\"nameChanged\":" + clock.millis() + ",\"icon\":\"door\",\"actions\":[\"desk-hook\"],\"who\":\"anyone\"}]}", send("GET", "/v1/tags", null, cookie).body());
         assertEquals("{\"connections\":[{\"type\":\"webhook\",\"id\":\"desk-hook\",\"url\":\"" + url + "2\",\"usedBy\":[\""
                 + UID + "\"],\"last\":null}]}", send("GET", "/v1/connections", null, cookie).body());
 
@@ -205,6 +206,40 @@ class SetupApiTest {
         assertEquals(200, send("DELETE", "/v1/connections/webhook/desk-hook", null, cookie).statusCode());
         assertFalse(Files.readString(dir.resolve(HomeSettings.DEFAULT_SECRETS_FILE)).contains("desk-hook"));
         assertEquals("{\"started\":0}", send("POST", "/v1/tags/" + UID + "/test", null, cookie).body());
+    }
+
+    @Test
+    void whoCanUseATagIsSavedAndChecked() throws Exception {
+        String cookie = cookie(send("POST", "/v1/password", "{\"password\":\"lantern-orbit-42\"}", null));
+        assertTrue(settings.allows(UID, null), "every tag works for anyone until its owner changes it");
+
+        HttpResponse<String> phones = send("PUT", "/v1/tags/" + UID + "/who", "{\"who\":\"phones\"}", cookie);
+        assertEquals("{\"uid\":\"" + UID + "\",\"who\":\"phones\"}", phones.body());
+        assertTrue(send("GET", "/v1/tags", null, cookie).body().contains("\"who\":\"phones\""));
+        assertFalse(settings.allows(UID, null), "a browser tap isn't let in");
+        assertTrue(settings.allows(UID, new io.knura.knurgn.Tapper("fold7", false)));
+
+        assertEquals("{\"uid\":\"" + UID + "\",\"who\":\"fold7,pixel\"}",
+                send("PUT", "/v1/tags/" + UID + "/who", "{\"who\":\" pixel, fold7 \"}", cookie).body());
+        assertTrue(settings.allows(UID, new io.knura.knurgn.Tapper("pixel", false)));
+        assertFalse(settings.allows(UID, new io.knura.knurgn.Tapper("tablet", false)));
+        assertTrue(Files.readString(dir.resolve(HomeSettings.LABELS_FILE)).contains(UID + ".who=fold7,pixel"));
+
+        assertEquals(400, send("PUT", "/v1/tags/" + UID + "/who", "{\"who\":\"bad name!\"}", cookie).statusCode());
+        assertEquals(400, send("PUT", "/v1/tags/" + UID + "/who", "{\"who\":3}", cookie).statusCode());
+        assertFalse(settings.allows(UID, new io.knura.knurgn.Tapper("tablet", false)), "a refused change keeps the old setting");
+
+        send("PUT", "/v1/tags/" + UID + "/who", "{\"who\":\"anyone\"}", cookie);
+        assertTrue(settings.allows(UID, null));
+        assertFalse(Files.readString(dir.resolve(HomeSettings.LABELS_FILE)).contains(".who"));
+    }
+
+    @Test
+    void aBrokenWhoLineKeepsTheTagClosedToBrowsers() throws Exception {
+        Files.writeString(dir.resolve(HomeSettings.LABELS_FILE), UID + ".who=not a name!\n");
+        HomeSettings again = new HomeSettings(knurdFile, null, live, clock);
+        assertFalse(again.allows(UID, null));
+        assertTrue(again.allows(UID, new io.knura.knurgn.Tapper("fold7", false)));
     }
 
     @Test

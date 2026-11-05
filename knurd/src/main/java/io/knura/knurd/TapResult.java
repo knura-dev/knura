@@ -10,7 +10,13 @@ public record TapResult(Status status, String uid, int counter, String detail) {
         /** The MAC does not match: forged, tampered, or a tag knurd has no key for. */
         REJECTED(403),
         /** Genuine tag, but the counter is not higher than the last accepted one: a copied URL. */
-        REPLAY(409);
+        REPLAY(409),
+        /**
+         * Genuine tag and fresh counter, but the tag only lets certain paired phones use it and this
+         * tap wasn't signed by one of them, so nothing ran. The counter is left unused, so an allowed
+         * phone can still send the same tap signed.
+         */
+        REFUSED(403);
 
         private final int httpStatus;
 

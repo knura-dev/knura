@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Who can use this tag**: each tag can be set to Anyone (the default, unchanged), My phones (only
+  taps signed by a paired phone), or Only these phones. It's on the tag's page in the dashboard
+  and at `PUT /v1/tags/<uid>/who`, and is saved in `knurd-tags.properties`. A tap that isn't allowed
+  runs nothing and comes back `refused` (403) without using the tap up. Its browser page has an
+  **Open in Knura** button that passes the tap to the app to sign. `GET /v1/tags` shows `who`, and
+  the dashboard shows refused taps as Not allowed and names the phone on signed taps.
+- Android app 0.10.0: opens taps handed over by that button (`knura://tap?q=...`) and sends them
+  signed to its own server, and says "Not allowed" when a phone isn't on a tag's list.
 - Android app 0.9.2: after a tap held to the open app, the result says which app Android would
   give that tag to while Knura is closed. When a browser claims tag links (so closed-app taps go
   unsigned), a box explains how to clear its default and points to its settings.

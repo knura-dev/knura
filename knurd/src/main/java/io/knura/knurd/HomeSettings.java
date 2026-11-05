@@ -6,6 +6,7 @@ import io.knura.core.backup.BackupRecord;
 import io.knura.core.backup.SettingsFolder;
 import io.knura.core.backup.SheetPage;
 import io.knura.core.resolver.OwnerKey;
+import io.knura.knurgn.Tapper;
 import io.knura.core.resolver.ResolverClient;
 import io.knura.knurgn.Knurgn;
 import io.knura.knurgn.KnurgnConfig;
@@ -78,6 +79,7 @@ final class HomeSettings {
     private final SecureRandom random = new SecureRandom();
     private Path actionsFile;
     private volatile Map<String, Label> labels;
+    private volatile Map<String, String> who = Map.of();
 
     /**
      * @param actionsFile knurgN's file from {@code actions.file}, or null when it isn't set yet
@@ -157,6 +159,66 @@ final class HomeSettings {
         rewrite(knurdFile, PropertiesText.set(read(knurdFile), "public.url", clean));
     }
 
+    // ---- who can use each tag ----
+
+    /** Anyone may use the tag: what every tag does unless its owner changes it. */
+    static final String ANYONE = "anyone";
+    /** Any phone paired with this knurd, signing its taps. */
+    static final String PHONES = "phones";
+    private static final int MAX_PHONES = 20;
+
+    /**
+     * Who may use the tag {@code uid}: {@link #ANYONE}, {@link #PHONES}, or the names of the paired
+     * phones that may, comma-separated.
+     */
+    String who(String uid) {
+        String w = who.get(uid);
+        return w == null ? ANYONE : w;
+    }
+
+    /**
+     * Whether a tap of {@code uid} may run its actions. {@code tapper} is the paired phone that signed
+     * the tap, or null for a tap from a plain browser.
+     */
+    boolean allows(String uid, Tapper tapper) {
+        String w = who(uid);
+        if (w.equals(ANYONE)) {
+            return true;
+        }
+        if (tapper == null) {
+            return false;
+        }
+        return w.equals(PHONES) || split(w).contains(tapper.phone());
+    }
+
+    /** Changes who may use {@code uid}; see {@link #who}. */
+    synchronized String setWho(String uid, String value) throws IOException {
+        uid = uid(uid);
+        String clean = cleanWho(value);
+        Path file = dir.resolve(LABELS_FILE);
+        String text = Files.exists(file) ? read(file) : "# Tag labels and icons, set on the setup page or in the Knura app.\n";
+        text = clean.equals(ANYONE) ? PropertiesText.remove(text, uid + ".who") : PropertiesText.set(text, uid + ".who", clean);
+        Files.writeString(file, text, StandardCharsets.UTF_8);
+        labels = readLabels();
+        return clean;
+    }
+
+    static String cleanWho(String value) {
+        String v = value == null ? "" : value.trim();
+        if (v.isEmpty() || v.equals(ANYONE)) {
+            return ANYONE;
+        }
+        if (v.equals(PHONES)) {
+            return PHONES;
+        }
+        List<String> names = split(v);
+        if (names.isEmpty() || names.size() > MAX_PHONES
+                || !names.stream().allMatch(io.knura.core.admin.AdminTokens::isValidName)) {
+            throw new IllegalArgumentException("who: anyone, phones, or up to " + MAX_PHONES + " phone names, comma-separated");
+        }
+        return String.join(",", new TreeSet<>(names));
+    }
+
     // ---- tag labels ----
 
     Map<String, Label> labels() {
@@ -219,6 +281,18 @@ final class HomeSettings {
             return Map.of();
         }
         Properties p = load(file);
+        Map<String, String> access = new TreeMap<>();
+        for (String key : p.stringPropertyNames()) {
+            if (key.length() == 18 && key.endsWith(".who") && UID.matcher(key.substring(0, 14).toUpperCase(Locale.ROOT)).matches()) {
+                try {
+                    access.put(key.substring(0, 14).toUpperCase(Locale.ROOT), cleanWho(p.getProperty(key)));
+                } catch (IllegalArgumentException e) {
+                    // A broken line keeps the tag closed to browsers rather than open to anyone.
+                    access.put(key.substring(0, 14).toUpperCase(Locale.ROOT), PHONES);
+                }
+            }
+        }
+        who = Map.copyOf(access);
         Map<String, Label> out = new TreeMap<>();
         for (String key : p.stringPropertyNames()) {
             int dot = key.indexOf('.');

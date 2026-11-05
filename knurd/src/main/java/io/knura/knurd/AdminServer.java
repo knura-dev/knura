@@ -1122,6 +1122,18 @@ final class AdminServer implements AutoCloseable {
                             "set actions for " + uid);
                 });
             }
+            if (parts.length == 4 && parts[1].equals("tags") && parts[3].equals("who")) {
+                String uid = HomeSettings.uid(parts[2]);
+                return only("PUT", method, exchange, () -> {
+                    Object who = f.get("who");
+                    if (who != null && !(who instanceof String)) {
+                        throw new IllegalArgumentException("who: anyone, phones, or phone names, comma-separated");
+                    }
+                    String set = m.settings().setWho(uid, (String) who);
+                    return new Answer(200, "{\"uid\":" + Json.quote(uid) + ",\"who\":" + Json.quote(set) + "}",
+                            "set who may use " + uid + " to " + set);
+                });
+            }
             if (parts.length == 4 && parts[1].equals("tags") && parts[3].equals("test")) {
                 String uid = HomeSettings.uid(parts[2]);
                 return only("POST", method, exchange, () -> new Answer(200, "{\"started\":" + m.settings().test(uid) + "}",
@@ -1401,7 +1413,8 @@ final class AdminServer implements AutoCloseable {
                     .append(",\"name\":").append(Json.quote(l == null ? null : l.label()))
                     .append(",\"nameChanged\":").append(l == null || l.named() == 0 ? "null" : Long.toString(l.named()))
                     .append(",\"icon\":").append(Json.quote(l == null ? null : l.icon()))
-                    .append(",\"actions\":").append(jsonList(actions.getOrDefault(uid, List.of()))).append('}');
+                    .append(",\"actions\":").append(jsonList(actions.getOrDefault(uid, List.of())))
+                    .append(",\"who\":").append(Json.quote(manage.settings().who(uid))).append('}');
             sep = ",";
         }
         return json.append("]}").toString();
