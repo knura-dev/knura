@@ -54,6 +54,14 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="https" android:host="*.ts.net" android:pathPrefix="/tap" />
             </intent-filter>
+            <!-- The "Open in Knura" button on the browser page of a tag that only works for paired
+                 phones: knura://tap?q=<the tap's query>. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="knura" android:host="tap" />
+            </intent-filter>
         </activity>
 
         <!-- Check a tap from the Quick Settings pull-down. -->

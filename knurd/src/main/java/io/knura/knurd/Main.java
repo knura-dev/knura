@@ -84,6 +84,7 @@ public final class Main {
         RecentTaps recentTaps = config.admin() == null ? new RecentTaps(Clock.systemUTC())
                 : new RecentTaps(Clock.systemUTC(), configFile.toAbsolutePath().getParent().resolve(RecentTaps.FILE));
         server.recordTapsTo(recentTaps);
+        server.gateTapsWith(settings::allows);
         MetricsServer metricsServer = null;
         if (config.metrics() != null) {
             Metrics metrics = new Metrics();

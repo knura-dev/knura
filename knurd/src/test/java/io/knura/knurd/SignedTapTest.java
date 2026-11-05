@@ -49,6 +49,7 @@ class SignedTapTest {
     private RecentTaps taps;
     private KeyPair everyday;
     private KeyPair confirm;
+    private volatile KnurdServer.TapGate gate = (uid, tapper) -> true;
 
     @BeforeEach
     void start() throws Exception {
@@ -75,6 +76,7 @@ class SignedTapTest {
         taps = new RecentTaps(Clock.fixed(NOW, ZoneOffset.UTC));
         server.recordTapsTo(taps);
         server.acceptSignedTaps(keys);
+        server.gateTapsWith((uid, tapper) -> gate.allows(uid, tapper));
         server.start();
     }
 
@@ -158,6 +160,51 @@ class SignedTapTest {
         assertEquals(200, reply.statusCode());
         assertEquals(List.of("04DE5F1EACC040:61 browser"), heard);
         assertNull(taps.latest(1, e -> true).get(0).tapper());
+    }
+
+    @Test
+    void aTagForPhonesOnlyRefusesBrowserTapsWithoutUsingThemUp() throws Exception {
+        gate = (uid, tapper) -> tapper != null;
+        HttpResponse<String> reply = http.send(HttpRequest.newBuilder(uri("/tap?" + QUERY)).header("Accept", "text/html").GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(403, reply.statusCode());
+        assertTrue(reply.body().contains("Use the Knura app for this tag"), reply.body());
+        assertTrue(heard.isEmpty());
+        assertEquals("refused", taps.latest(1, e -> true).get(0).status());
+        assertTrue(reply.body().contains("href=\"intent://tap?q=e%3D"), "the page hands the tap to the app");
+        assertTrue(reply.body().contains("#Intent;scheme=knura;package=io.knura.android;end"), reply.body());
+        // The refused tap didn't use the counter up, so the app can still send the same link signed, once.
+        assertEquals(200, post(signed(everyday, "pixel", NOW.getEpochSecond(), TapSignature.Kind.EVERYDAY)).statusCode());
+        assertEquals(List.of("04DE5F1EACC040:61 pixel"), heard);
+        HttpResponse<String> again = http.send(HttpRequest.newBuilder(uri("/tap?" + QUERY)).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(409, again.statusCode(), "once used, the link is a replay for everyone");
+    }
+
+    @Test
+    void aTagForPhonesOnlyRunsForASignedTap() throws Exception {
+        gate = (uid, tapper) -> tapper != null;
+        HttpResponse<String> reply = post(signed(everyday, "pixel", NOW.getEpochSecond(), TapSignature.Kind.EVERYDAY));
+        assertEquals(200, reply.statusCode(), reply.body());
+        assertEquals(List.of("04DE5F1EACC040:61 pixel"), heard);
+    }
+
+    @Test
+    void aPhoneTheTagDoesntListIsRefused() throws Exception {
+        gate = (uid, tapper) -> tapper != null && tapper.phone().equals("tablet");
+        HttpResponse<String> reply = post(signed(everyday, "pixel", NOW.getEpochSecond(), TapSignature.Kind.EVERYDAY));
+        assertEquals(403, reply.statusCode());
+        assertTrue(reply.body().contains("\"status\":\"refused\""), reply.body());
+        assertTrue(heard.isEmpty());
+    }
+
+    @Test
+    void aBrokenGateRefusesRatherThanLettingEveryoneIn() throws Exception {
+        gate = (uid, tapper) -> {
+            throw new IllegalStateException("settings unreadable");
+        };
+        assertEquals(403, post(signed(everyday, "pixel", NOW.getEpochSecond(), TapSignature.Kind.EVERYDAY)).statusCode());
+        assertTrue(heard.isEmpty());
     }
 
     @Test

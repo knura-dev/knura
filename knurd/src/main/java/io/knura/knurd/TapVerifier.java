@@ -34,6 +34,15 @@ public final class TapVerifier {
     }
 
     public TapResult verify(Map<String, String> params) {
+        return verify(params, uid -> true);
+    }
+
+    /**
+     * Like {@link #verify(Map)}, but a genuine tap of a tag that {@code mayUse} turns down comes back
+     * {@link Status#REFUSED} without using its counter up, so a phone that is allowed can still
+     * send the same tap signed. A link already used is still a replay.
+     */
+    public TapResult verify(Map<String, String> params, java.util.function.Predicate<String> mayUse) {
         String mac = params.get("c");
         if (mac == null) {
             return TapResult.failed(Status.MALFORMED, "missing MAC parameter c");
@@ -58,6 +67,11 @@ public final class TapVerifier {
             };
         }
         String uid = tap.uidHex();
+        if (!mayUse.test(uid)) {
+            return tap.readCounter() <= counters.last(uid)
+                    ? new TapResult(Status.REPLAY, uid, tap.readCounter(), "counter already used")
+                    : new TapResult(Status.REFUSED, uid, tap.readCounter(), null);
+        }
         if (!counters.advance(uid, tap.readCounter())) {
             return new TapResult(Status.REPLAY, uid, tap.readCounter(), "counter already used");
         }

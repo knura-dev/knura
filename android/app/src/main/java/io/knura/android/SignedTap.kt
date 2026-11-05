@@ -107,12 +107,39 @@ object SignedTap {
                     else -> "Tap verified. Started $actions actions."
                 }, rows)
             409 -> TagResults.Result(false, "Already used", "This tap was already used. Hold the tag to the phone again.", rows)
-            403 -> TagResults.Result(false, "Not a genuine tap", "Your server couldn't verify this tag.", rows)
+            403 -> if (json.optString("status") == "refused") {
+                TagResults.Result(false, "Not allowed", "This phone isn't on the list of phones that may use this tag. Change it under Who can use this tag in your dashboard.", rows)
+            } else {
+                TagResults.Result(false, "Not a genuine tap", "Your server couldn't verify this tag.", rows)
+            }
             401 -> TagResults.Result(false, "This phone wasn't accepted",
                 json.optString("detail").ifEmpty { "Pair this phone with your server again." }, rows)
             429 -> TagResults.Result(false, "Too many taps", "Wait a minute, then try again.", rows)
             else -> TagResults.Result(false, "Didn't work", json.optString("detail").ifEmpty { "Your server answered $code." }, rows)
         }
+    }
+
+    /**
+     * The tap link for a hand-off from the browser's "Open in Knura" button
+     * (`knura://tap?q=<the tap link's query>`), rebuilt on this phone's own server address so a web
+     * page can't point the app anywhere else. Null if it isn't such a link or the phone has no server address.
+     */
+    fun handoffLink(uri: String, route: Route): String? {
+        val tapUrl = route.tapUrl ?: return null
+        val parsed = try {
+            URI(uri.trim())
+        } catch (e: URISyntaxException) {
+            return null
+        }
+        if (parsed.scheme != "knura" || parsed.host != "tap") return null
+        val q = parsed.rawQuery?.split('&')?.firstOrNull { it.startsWith("q=") }?.substring(2) ?: return null
+        val query = try {
+            java.net.URLDecoder.decode(q, "UTF-8")
+        } catch (e: IllegalArgumentException) {
+            return null
+        }
+        if (!saneQuery(query) || !query.matches(Regex("[A-Za-z0-9=&_.~-]+"))) return null
+        return tapUrl + "?" + query
     }
 
     /** One short ASCII line, as the server accepts. */

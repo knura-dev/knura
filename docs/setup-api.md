@@ -235,13 +235,14 @@ while a new Tailscale Funnel address is spreading. Without `public.url` the answ
 
 ```json
 {"tags":[{"uid":"04DE5F1EACC040","lastCounter":61,"label":"Front door","name":"Front door",
-  "nameChanged":1762045200000,"icon":"door","actions":["living-room"]}]}
+  "nameChanged":1762045200000,"icon":"door","actions":["living-room"],"who":"anyone"}]}
 ```
 
 | Request | Body | What it does |
 | --- | --- | --- |
 | `PUT /v1/tags/<UID>` | `{"label":"Front door","icon":"door"}` | Sets the label and icon. Leave one out to clear it. |
 | `PUT /v1/tags/<UID>/actions` | `{"actions":"living-room,ifttt"}` | Sets which connectors the tag runs, in order. `""` takes its rule away. |
+| `PUT /v1/tags/<UID>/who` | `{"who":"phones"}` | Who can use the tag: `anyone` (default), `phones` (any paired phone signing with the app), or phone names, comma-separated. See [signed taps](signed-taps.md#who-can-use-this-tag). |
 | `POST /v1/tags/<UID>/test` | | Runs the tag's actions now: `{"started":1}` |
 | `POST /v1/tags/<UID>` | `{"name":"Front door","changedAt":1762045200000}` | The Knura app sharing a rename made at `changedAt` (ms). Answers with the name that stands: `{"uid":..,"name":..,"nameChanged":..}`. |
 

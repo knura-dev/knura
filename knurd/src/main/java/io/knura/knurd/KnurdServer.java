@@ -57,6 +57,14 @@ public final class KnurdServer implements AutoCloseable {
     private volatile RecentTaps recentTaps;
     private volatile Metrics metrics;
     private volatile TapKeys tapKeys;
+    private volatile TapGate gate = (uid, tapper) -> true;
+
+    /** Decides whether a genuine, new tap may run its tag's actions, given who signed it. */
+    @FunctionalInterface
+    interface TapGate {
+        /** @param tapper the paired phone that signed the tap, or null for a plain browser tap */
+        boolean allows(String uid, Tapper tapper);
+    }
     private final java.time.Clock clock;
 
     /** Hears about taps that verified and were seen for the first time. */
@@ -125,6 +133,14 @@ public final class KnurdServer implements AutoCloseable {
         this.metrics = metrics;
     }
 
+    /**
+     * Checks each genuine tap against {@code gate} (who may use the tag) before its actions run. A
+     * refused tap still uses its counter up, and comes back {@code refused}. Call before {@link #start}.
+     */
+    void gateTapsWith(TapGate gate) {
+        this.gate = gate;
+    }
+
     /** Also takes taps signed by paired phones, with their keys from {@code keys}. Call before {@link #start}. */
     void acceptSignedTaps(TapKeys keys) {
         this.tapKeys = keys;
@@ -186,7 +202,8 @@ public final class KnurdServer implements AutoCloseable {
             result = TapResult.failed(TapResult.Status.MALFORMED, "repeated or undecodable query parameter");
         } else {
             try {
-                result = verifier.verify(params);
+                Tapper who = tapper;
+                result = verifier.verify(params, uid -> allowed(uid, who));
             } catch (RuntimeException e) {
                 LOG.log(Level.ERROR, "tap verification failed", e);
                 if (m != null) {
@@ -200,12 +217,17 @@ public final class KnurdServer implements AutoCloseable {
                 return;
             }
         }
+        if (result.status() == TapResult.Status.REFUSED) {
+            result = new TapResult(TapResult.Status.REFUSED, result.uid(), result.counter(),
+                    tapper == null ? "this tag only works for paired phones" : "phone " + tapper.phone() + " may not use this tag");
+        }
         long took = System.nanoTime() - started;
         if (m != null) {
             m.tap(result.status(), took);
         }
         boolean ok = result.status() == TapResult.Status.OK;
-        if (!ok) {
+        // A refused tap is a genuine tag held by someone the tag doesn't let in, not a guessed link.
+        if (!ok && result.status() != TapResult.Status.REFUSED) {
             throttle.failed(address, local);
         }
         if (ok || throttle.logFailure(n -> LOG.log(Level.WARNING, "{0} more failed taps in the last minute weren''t logged", n))) {
@@ -242,11 +264,22 @@ public final class KnurdServer implements AutoCloseable {
             taps.add(result, actionsStarted, tapper);
         }
         if (html) {
-            sendHtml(exchange, result.status().httpStatus(), TapPage.render(result, actionsStarted));
+            sendHtml(exchange, result.status().httpStatus(), TapPage.render(result, actionsStarted,
+                    result.status() == TapResult.Status.REFUSED ? exchange.getRequestURI().getRawQuery() : null));
         } else if (signed) {
             sendJson(exchange, result.status().httpStatus(), toJson(result, actionsStarted, tapper));
         } else {
             sendJson(exchange, result.status().httpStatus(), toJson(result));
+        }
+    }
+
+    /** A broken gate keeps the tag's actions from running rather than letting anyone through. */
+    private boolean allowed(String uid, Tapper tapper) {
+        try {
+            return gate.allows(uid, tapper);
+        } catch (RuntimeException e) {
+            LOG.log(Level.ERROR, "could not check who may use tag " + uid + "; refusing the tap", e);
+            return false;
         }
     }
 
