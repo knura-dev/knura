@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Android app 0.10.1: removes the "Taps with the app closed" check from 0.9.2, which was only for
+  finding out why some phones send tags to the browser.
 - **Who can use this tag**: each tag can be set to Anyone (the default, unchanged), My phones (only
   taps signed by a paired phone), or Only these phones. It's on the tag's page in the dashboard
   and at `PUT /v1/tags/<uid>/who`, and is saved in `knurd-tags.properties`. A tap that isn't allowed
