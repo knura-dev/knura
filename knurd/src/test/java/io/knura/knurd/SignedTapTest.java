@@ -171,7 +171,9 @@ class SignedTapTest {
         assertTrue(reply.body().contains("Use the Knura app for this tag"), reply.body());
         assertTrue(heard.isEmpty());
         assertEquals("refused", taps.latest(1, e -> true).get(0).status());
-        assertTrue(reply.body().contains("href=\"intent://tap?q=e%3D"), "the page hands the tap to the app");
+        // The whole query, URL-encoded (Map.of's order varies from run to run, so build it the same way).
+        String handedOver = "href=\"intent://tap?q=" + java.net.URLEncoder.encode(QUERY, java.nio.charset.StandardCharsets.UTF_8);
+        assertTrue(reply.body().contains(handedOver), "the page hands the tap to the app: " + reply.body());
         assertTrue(reply.body().contains("#Intent;scheme=knura;package=io.knura.android;end"), reply.body());
         // The refused tap didn't use the counter up, so the app can still send the same link signed, once.
         assertEquals(200, post(signed(everyday, "pixel", NOW.getEpochSecond(), TapSignature.Kind.EVERYDAY)).statusCode());
