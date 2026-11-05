@@ -32,6 +32,13 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Tapping a tag with a tap.knura.io link opens the app instead of the browser, so the
+                 phone can sign the tap. Anyone else's tags are handed on to the browser. -->
+            <intent-filter>
+                <action android:name="android.nfc.action.NDEF_DISCOVERED" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="https" android:host="tap.knura.io" />
+            </intent-filter>
         </activity>
 
         <!-- Check a tap from the Quick Settings pull-down. -->

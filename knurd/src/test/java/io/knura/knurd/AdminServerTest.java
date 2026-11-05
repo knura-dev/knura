@@ -99,6 +99,33 @@ class AdminServerTest {
     }
 
     @Test
+    void aPhoneSendsItsTapKeysWithItsOwnToken() throws Exception {
+        TokenStore tokens = new TokenStore(tokensFile);
+        admin.close();
+        admin = startAdmin(null, tokens);
+        TapKeys keys = TapKeys.beside(tokensFile, tokens);
+        admin.acceptTapKeys(keys);
+        String everyday = java.util.Base64.getEncoder().encodeToString(SignedTapTest.p256().getPublic().getEncoded());
+
+        assertEquals("{\"phone\":\"laptop\",\"everyday\":false,\"confirm\":false,"
+                + "\"tapUrl\":\"https://desk.tail1234.ts.net/tap\",\"owner\":null}", get("/v1/tap-keys", token).body());
+        HttpResponse<String> sent = http.send(request("/v1/tap-keys", token)
+                .POST(HttpRequest.BodyPublishers.ofString("{\"everyday\":\"" + everyday + "\"}")).build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, sent.statusCode(), sent.body());
+        assertEquals("{\"phone\":\"laptop\",\"everyday\":true,\"confirm\":false,"
+                + "\"tapUrl\":\"https://desk.tail1234.ts.net/tap\",\"owner\":null}", sent.body());
+        assertTrue(keys.has("laptop"));
+        assertTrue(get("/v1/status", token).body().contains("\"signedTaps\":true"));
+
+        HttpResponse<String> junk = http.send(request("/v1/tap-keys", token)
+                .POST(HttpRequest.BodyPublishers.ofString("{\"everyday\":\"AAAA\"}")).build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(400, junk.statusCode());
+        assertEquals(401, get("/v1/tap-keys", null).statusCode());
+    }
+
+    @Test
     void aPairingCodeIsSwappedForATokenOnceAndOnlyInTime() throws Exception {
         String code = AdminTokens.generatePairCode(random);
         String late = AdminTokens.generatePairCode(random);
@@ -154,7 +181,7 @@ class AdminServerTest {
         clock.advance(Duration.ofSeconds(90));
 
         assertEquals("{\"status\":\"up\",\"uptimeSeconds\":90,\"keys\":\"master\",\"publicUrl\":\"https://desk.tail1234.ts.net\","
-                + "\"resolverOwner\":null,\"knots\":3,\"tags\":1}", get("/v1/status", token).body());
+                + "\"resolverOwner\":null,\"knots\":3,\"tags\":1,\"signedTaps\":false}", get("/v1/status", token).body());
         assertEquals("{\"tags\":[{\"uid\":\"04DE5F1EACC040\",\"lastCounter\":61}]}", get("/v1/tags", token).body());
         String t = "2026-10-15T00:00:00Z";
         assertEquals("{\"taps\":["

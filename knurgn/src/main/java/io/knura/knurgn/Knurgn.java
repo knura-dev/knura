@@ -166,12 +166,20 @@ public final class Knurgn implements AutoCloseable {
      * a label only: the knot rule still decides what runs, and {@code knot} keeps its config name.
      */
     public int onVerifiedTap(String uid, int counter, Instant tappedAt, String name) {
+        return onVerifiedTap(uid, counter, tappedAt, name, (Tapper) null);
+    }
+
+    /**
+     * Like {@link #onVerifiedTap(String, int, Instant, String)}, and each event also says who
+     * tapped: the paired phone that signed the tap, or null for a tap from a plain browser.
+     */
+    public int onVerifiedTap(String uid, int counter, Instant tappedAt, String name, Tapper tapper) {
         Knot knot = knots.get(uid);
         if (knot == null) {
             LOG.log(Level.INFO, "tap {0}:{1}: no knot rule for this tag, nothing to do", uid, Integer.toString(counter));
             return 0;
         }
-        TapEvent event = TapEvent.of(uid, counter, knot.name(), tappedAt, name);
+        TapEvent event = TapEvent.of(uid, counter, knot.name(), tappedAt, name, tapper);
         Instant deadline = tappedAt.plus(expiry);
         for (Connector connector : knot.actions()) {
             submit(event, connector, 1, deadline, firstRetry);

@@ -162,6 +162,10 @@ server, and links to the docs, the source code and Android's settings for the ap
 The app follows the phone's light or dark mode unless you pick one in Settings. On a foldable, the home screen shows the actions
 and your tags side by side when the phone is open, and folding it mid-session keeps going.
 
+**Tapping your tags with the phone.** Once paired, the app makes two tap keys and sends them to
+knurd. From then on, holding the unlocked phone to one of your tags opens the app by itself, which
+signs the tap so knurd knows this phone tapped, and shows Done. See [Signed taps](signed-taps.md).
+
 Setting up keys, TLS, new tokens and the resolver stays on the computer, so a lost phone can't
 open up your setup.
 

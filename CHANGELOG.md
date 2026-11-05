@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Signed taps**: a paired phone can sign a tap with a key in its secure hardware, so knurd knows
+  which phone tapped. New `POST /tap` on the public tap port (signature checked before the tag,
+  so a bad one can't use the tap up), `GET`/`POST /v1/tap-keys` on the admin API for a phone to
+  send its two public keys, `signedTaps` in `GET /v1/status`, and `tapper` in webhook and Home
+  Assistant events and in `GET /v1/taps`. New `TapSignature` in knura-core. Keys live in
+  `knurd-tap-keys.properties` and stop counting when the phone is removed. Every tag still works
+  for anyone; choosing who can use a tag comes next. See docs/signed-taps.md.
+- Android app 0.9.0: makes the phone's tap keys and sends them to knurd; tapping one of your tags
+  opens the app by itself (tap.knura.io links), signs the tap and shows **Done**. Anyone else's
+  tags still open in the browser.
+
 - knurd: optional **Prometheus metrics** at `/metrics` on a port of its own (`metrics.port`, off
   by default; `metrics.listen.host` defaults to 127.0.0.1). Taps by result, tap check time,
   actions started and how they ended, plus JVM health (memory, threads, garbage collection, CPU,
