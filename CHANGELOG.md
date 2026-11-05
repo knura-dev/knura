@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Android app 0.9.1: tapping a tag whose link points straight at knurd through Tailscale Funnel
+  (`https://<computer>.<tailnet>.ts.net/tap?...`) now opens the app and signs the tap too, not
+  only tap.knura.io links.
+
 - **Signed taps**: a paired phone can sign a tap with a key in its secure hardware, so knurd knows
   which phone tapped. New `POST /tap` on the public tap port (signature checked before the tag,
   so a bad one can't use the tap up), `GET`/`POST /v1/tap-keys` on the admin API for a phone to

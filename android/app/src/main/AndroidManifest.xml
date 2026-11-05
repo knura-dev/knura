@@ -39,6 +39,13 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="https" android:host="tap.knura.io" />
             </intent-filter>
+            <!-- The same for tags that point straight at knurd through Tailscale Funnel
+                 (https://<computer>.<tailnet>.ts.net/tap?...), the usual way to reach knurd. -->
+            <intent-filter>
+                <action android:name="android.nfc.action.NDEF_DISCOVERED" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="https" android:host="*.ts.net" android:pathPrefix="/tap" />
+            </intent-filter>
         </activity>
 
         <!-- Check a tap from the Quick Settings pull-down. -->
