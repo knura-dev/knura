@@ -10,6 +10,14 @@
         android:name="android.hardware.nfc"
         android:required="true" />
 
+    <!-- Lets the app see which other apps claim tag links (shown after an in-app tap). -->
+    <queries>
+        <intent>
+            <action android:name="android.nfc.action.NDEF_DISCOVERED" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
     <!-- allowBackup off: nothing here is useful on another phone, and the token stays put. -->
     <application
         android:allowBackup="false"

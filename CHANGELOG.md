@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Android app 0.9.2: after a tap held to the open app, the result says which app Android would
+  give that tag to while Knura is closed. When a browser claims tag links (so closed-app taps go
+  unsigned), a box explains how to clear its default and points to its settings.
 - Android app 0.9.1: tapping a tag whose link points straight at knurd through Tailscale Funnel
   (`https://<computer>.<tailnet>.ts.net/tap?...`) now opens the app and signs the tap too, not
   only tap.knura.io links.
