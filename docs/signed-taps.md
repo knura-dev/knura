@@ -20,8 +20,9 @@ tag" settings come next and build on this.
 2. Hold it to the tag.
 3. The Knura app opens by itself, sends the signed tap, shows **Done** for a moment and closes.
 
-That works for tags with a `https://tap.knura.io/...` link, which is how tags set up through the
-resolver are written. With the app already open, holding any of your server's tags to the phone
+That works for tags with a `https://tap.knura.io/...` link (tags set up through the resolver) and
+for tags that point straight at knurd through Tailscale Funnel (`https://<computer>.<tailnet>.ts.net/tap?...`).
+Tags with another address of your own only sign while the app is open. With the app already open, holding any of your server's tags to the phone
 works too. Someone else's tags, and taps on phones without the app, open in the browser as usual.
 
 ## The two tap keys
