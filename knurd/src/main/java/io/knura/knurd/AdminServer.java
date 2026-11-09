@@ -299,6 +299,13 @@ final class AdminServer implements AutoCloseable {
         } else if (proxied(exchange.getRequestHeaders()) != null) {
             answer = new Answer(403, error("forbidden", "the admin API must not be reached through a proxy or tunnel"),
                     "came through a proxy (" + proxied(exchange.getRequestHeaders()) + ")");
+        } else if (tokens != null && !localHost(headers.getFirst("Host")) && tokens.nameOf(bearer(headers)).isEmpty()) {
+            // A web page can point its own domain name at this computer (DNS rebinding) and then
+            // talk to this port as if it were its own site. Browsers then send that domain as the
+            // Host, so without a token only addresses and local names are answered.
+            answer = new Answer(403, error("forbidden", "open Knura's page by its address, like http://127.0.0.1:"
+                    + port() + "/ or https://192.168.1.20:<port>/, or by a local name ending in .local"),
+                    "Host is not an address or a local name");
         } else if (tokens == null && !loopbackHost(exchange.getRequestHeaders().getFirst("Host"))) {
             answer = new Answer(403, error("forbidden", "in plaintext mode the admin API only answers requests for"
                     + " 127.0.0.1 or localhost"), "Host is not this computer");
@@ -752,6 +759,48 @@ final class AdminServer implements AutoCloseable {
         return LocalAddresses.isLoopbackName(h);
     }
 
+    /** Local names nobody can register publicly, so nobody can point them elsewhere. */
+    private static final List<String> LOCAL_SUFFIXES = List.of(".local", ".lan", ".home", ".home.arpa", ".internal",
+            ".localdomain", ".ts.net");
+    private static final java.util.regex.Pattern IPV4 = java.util.regex.Pattern.compile("\\d{1,3}(\\.\\d{1,3}){3}");
+
+    /**
+     * Whether a Host header (with or without a port) is an address or a name only this network can
+     * give: loopback, an IP address, a name without dots (like {@code knura-pi}), or one ending in
+     * {@code .local}, {@code .lan}, {@code .home.arpa}, {@code .internal} or {@code .ts.net}. A web
+     * page's own domain name is none of these, so a DNS rebinding page is refused.
+     */
+    static boolean localHost(String host) {
+        if (host == null || host.isBlank()) {
+            return false;
+        }
+        String h = host.trim().toLowerCase(Locale.ROOT);
+        if (h.startsWith("[")) {
+            return h.indexOf(']') > 0; // an IPv6 address
+        }
+        if (h.indexOf(':') >= 0) {
+            if (h.indexOf(':') != h.lastIndexOf(':')) {
+                return false;
+            }
+            h = h.substring(0, h.indexOf(':'));
+        }
+        if (h.endsWith(".")) {
+            h = h.substring(0, h.length() - 1);
+        }
+        if (h.isEmpty() || !h.matches("[a-z0-9.-]+")) {
+            return false;
+        }
+        if (LocalAddresses.isLoopbackName(h) || IPV4.matcher(h).matches() || h.indexOf('.') < 0) {
+            return true;
+        }
+        for (String suffix : LOCAL_SUFFIXES) {
+            if (h.endsWith(suffix) && h.length() > suffix.length()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** The first proxy header present, or null. */
     static String proxied(Headers headers) {
         for (String name : PROXY_HEADERS) {
@@ -998,6 +1047,12 @@ final class AdminServer implements AutoCloseable {
             if (path.equals(PASSWORD)) {
                 return only("POST", method, exchange, () -> changePassword(f, caller, exchange));
             }
+            if (path.startsWith("/v1/backup/")) {
+                Answer refused = backupCaller(m, caller);
+                if (refused != null) {
+                    return refused;
+                }
+            }
             if (path.equals("/v1/backup/file")) {
                 return only("POST", method, exchange, () -> {
                     Object pass = f.get("passphrase");
@@ -1150,6 +1205,27 @@ final class AdminServer implements AutoCloseable {
             LOG.log(Level.ERROR, "admin request " + method + " " + path + " couldn't change a file", e);
             return new Answer(500, error("error", "knurd couldn't save the change: " + e.getMessage()), "save failed");
         }
+    }
+
+    /** How recently a browser must have signed in to take the master key away in a backup. */
+    static final Duration BACKUP_SIGN_IN = Duration.ofMinutes(30);
+
+    /**
+     * Why {@code caller} may not make a backup, or null if they may. A backup or recovery sheet is
+     * the master key itself, so only a browser that signed in with the page password in the last
+     * {@link #BACKUP_SIGN_IN} gets one (or anyone on this computer in plaintext mode, as with
+     * knurctl). A phone's token never does: a lost phone mustn't give the master key away.
+     */
+    private Answer backupCaller(Manage m, Caller caller) {
+        if (caller.session() == null) {
+            return tokens == null ? null : new Answer(403, error("forbidden", "backups are made on the setup page or"
+                    + " dashboard, signed in with the page password, or with knurctl backup"), "backup without a browser");
+        }
+        if (!m.sessions().signedInWithin(caller.session(), BACKUP_SIGN_IN)) {
+            return new Answer(401, error("sign_in_again", "for your master key's safety, sign in again before making a"
+                    + " backup"), "backup needs a fresh sign-in");
+        }
+        return null;
     }
 
     @FunctionalInterface

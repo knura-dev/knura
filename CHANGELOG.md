@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Security fixes (re-audit, November 2026):**
+  - The admin API now refuses browser requests whose `Host` is another web site's name (DNS
+    rebinding): without a token, only IP addresses, `localhost` and local names (no dots, or
+    ending in `.local`, `.lan`, `.home.arpa`, `.internal`, `.ts.net`) are answered. Before, a web
+    page could point its own name at 127.0.0.1 and set the first setup page password.
+  - Backups and recovery sheets (`/v1/backup/file`, `/v1/backup/sheet`) now need a browser that
+    signed in with the page password in the last 30 minutes (else `401 sign_in_again`), and are
+    never given to phone tokens, so a lost phone can't hand out the master key.
+  - Android app 0.10.2: a tap handed over from the browser (`knura://tap?q=...`) is only sent
+    after you press **Send**, because any web page or message can open that link.
 - Android app 0.10.1: removes the "Taps with the app closed" check from 0.9.2, which was only for
   finding out why some phones send tags to the browser.
 - **Who can use this tag**: each tag can be set to Anyone (the default, unchanged), My phones (only

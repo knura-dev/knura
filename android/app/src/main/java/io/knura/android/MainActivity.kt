@@ -2359,13 +2359,30 @@ class MainActivity : Activity() {
         return TagLink.fromIntent(intent)
     }
 
-    /** Signs and sends a tap the browser handed over; never sends it back to the browser. */
+    /**
+     * Signs and sends a tap the browser handed over, once the person says so; never sends it back
+     * to the browser. Any web page or message can open a knura://tap link, so the app asks first:
+     * a link someone else read off a tag must not run its action as this phone without you knowing.
+     */
     private fun handoff(uri: String) {
         val route = tapRoute()
         val link = route?.let { SignedTap.handoffLink(uri, it) }
-        if (!vault.isPaired() || link == null || !sendSignedTap(link, launched = true)) {
+        if (!vault.isPaired() || route == null || link == null || SignedTap.target(link, route) == null) {
             showHome("This phone isn't paired with the server this tag belongs to.", bad = true)
+            return
         }
+        AlertDialog.Builder(this)
+            .setTitle("Send this tap?")
+            .setMessage("Only send it if you just tapped one of your tags and the browser opened. "
+                + "If a web page or a message sent you here, cancel: someone may be trying to use your tag.")
+            .setPositiveButton("Send") { _, _ ->
+                if (!sendSignedTap(link, launched = true)) {
+                    showHome("This phone isn't paired with the server this tag belongs to.", bad = true)
+                }
+            }
+            .setNegativeButton(R.string.cancel) { _, _ -> showHome("Tap not sent.") }
+            .setCancelable(false)
+            .show()
     }
 
     /**

@@ -63,6 +63,15 @@ final class Sessions {
         return true;
     }
 
+    /** Whether {@code id} is a live session that signed in no more than {@code within} ago. */
+    synchronized boolean signedInWithin(String id, Duration within) {
+        if (!check(id)) {
+            return false;
+        }
+        Session s = byHash.get(AdminTokens.hash(id));
+        return s != null && clock.instant().isBefore(s.started().plus(within));
+    }
+
     synchronized void end(String id) {
         if (id != null) {
             byHash.remove(AdminTokens.hash(id));
