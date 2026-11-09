@@ -56,6 +56,12 @@ knurd's own address. A web page on another site can't add that header without th
 knurd first, and knurd never agrees. The cookie is also `HttpOnly` and `SameSite=Strict`, and
 `Secure` when the admin API uses TLS.
 
+A web page can also point its own domain name at this computer (DNS rebinding), so the browser
+treats knurd as that site. Then the browser sends that name in the `Host` header, so requests
+without a valid token are only answered when `Host` is an IP address, `localhost`, a name without
+dots (like `knura-pi`) or a local name ending in `.local`, `.lan`, `.home`, `.home.arpa`,
+`.internal`, `.localdomain` or `.ts.net`. Anything else gets `403`.
+
 knurctl and the phone app never send cookies, so their existing requests are unchanged. New
 requests that change settings need the header from them too.
 
@@ -134,8 +140,11 @@ the file when it is written (docs/logs.md).
 The backup file is the same as `knurctl backup create` makes: the settings folder, without logs,
 locked with the passphrase (at least 10 characters). The sheet is the same as `knurctl backup
 sheet`. Both are recorded in `knura-backup.properties`, so `/v1/status` and knurd's start-up
-reminder know the key is backed up. The passphrase is never kept or logged. Both need a caller
-that may change settings, since they carry the master key.
+reminder know the key is backed up. The passphrase is never kept or logged. Since both carry
+the master key, they need a browser that signed in with the page password in the last 30 minutes
+(otherwise `401` with `"status":"sign_in_again"`, and the page asks for the password again). Phone
+tokens never get them, even ones in `admin.provision.tokens`. In plaintext mode anyone on this
+computer may make them, as with `knurctl backup`.
 
 ### The address phones use
 

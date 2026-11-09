@@ -754,7 +754,12 @@ async function download(path, body, fallbackName) {
   try {
     res = await fetch(path, { method: 'POST', credentials: 'same-origin', headers: { 'X-Knura-Request': '1', 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
   } catch (e) { return { ok: false, status: 0, json: { detail: 'Knura isn’t answering. Is it still running?' } }; }
-  if (!res.ok) { let json = null; try { json = await res.json(); } catch (e) { /* empty */ } return { ok: false, status: res.status, json }; }
+  if (!res.ok) {
+    let json = null; try { json = await res.json(); } catch (e) { /* empty */ }
+    // A backup is the master key itself, so knurd asks for the password again if you signed in a while ago.
+    if (res.status === 401) { closeModal(); S.authErr = (json && json.detail) ? json.detail.charAt(0).toUpperCase() + json.detail.slice(1) + '.' : ''; S.screen = 'signin'; render(); }
+    return { ok: false, status: res.status, json };
+  }
   const blob = await res.blob(), m = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = m ? m[1] : fallbackName;

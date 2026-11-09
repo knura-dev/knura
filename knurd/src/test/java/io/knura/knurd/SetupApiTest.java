@@ -476,6 +476,60 @@ class SetupApiTest {
     }
 
     @Test
+    void backupsNeedARecentBrowserSignInNeverAPhoneToken() throws Exception {
+        String cookie = cookie(send("POST", "/v1/password", "{\"password\":\"lantern-orbit-42\"}", null));
+        HttpResponse<String> byPhone = http.send(HttpRequest.newBuilder(uri("/v1/backup/sheet")).header("Authorization", "Bearer " + phone)
+                .POST(HttpRequest.BodyPublishers.noBody()).header(AdminServer.REQUEST_HEADER, "1").build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(403, byPhone.statusCode(), "a phone that may change settings still can't take the master key");
+
+        clock.advance(AdminServer.BACKUP_SIGN_IN.plusMinutes(1));
+        assertEquals(200, send("GET", "/v1/settings", null, cookie).statusCode(), "still signed in");
+        HttpResponse<String> stale = send("POST", "/v1/backup/sheet", null, cookie);
+        assertEquals(401, stale.statusCode());
+        assertTrue(stale.body().contains("sign_in_again"), stale.body());
+        assertEquals(401, send("POST", "/v1/backup/file", "{\"passphrase\":\"lamp orbit maple tide crow fern\"}", cookie)
+                .statusCode());
+
+        String fresh = cookie(send("POST", "/v1/session", "{\"password\":\"lantern-orbit-42\"}", null));
+        assertEquals(200, sendBytes("/v1/backup/sheet", null, fresh).statusCode());
+    }
+
+    @Test
+    void anotherSitesNameForThisComputerIsRefused() throws Exception {
+        // DNS rebinding: a web page points its own name at 127.0.0.1, so the browser sends it as Host.
+        String evil = raw("GET /v1/session HTTP/1.1\r\nHost: rebind.example.com:" + admin.port() + "\r\nConnection: close\r\n\r\n");
+        assertTrue(evil.startsWith("HTTP/1.1 403"), evil);
+        String setup = raw("POST /v1/password HTTP/1.1\r\nHost: rebind.example.com\r\nX-Knura-Request: 1\r\n"
+                + "Content-Type: application/json\r\nContent-Length: 31\r\nConnection: close\r\n\r\n{\"password\":\"lantern-orbit-42\"}");
+        assertTrue(setup.startsWith("HTTP/1.1 403"), setup);
+        assertFalse(Files.exists(dir.resolve(AdminPassword.FILE)), "no first password from another site");
+        String byName = raw("GET /v1/session HTTP/1.1\r\nHost: knura-pi.local:" + admin.port() + "\r\nConnection: close\r\n\r\n");
+        assertTrue(byName.startsWith("HTTP/1.1 200"), byName);
+        String withToken = raw("GET /v1/whoami HTTP/1.1\r\nHost: desk.example.com\r\nAuthorization: Bearer " + laptop
+                + "\r\nConnection: close\r\n\r\n");
+        assertTrue(withToken.startsWith("HTTP/1.1 200"), "knurctl with a token may use any name: " + withToken);
+
+        assertTrue(AdminServer.localHost("127.0.0.1:8425"));
+        assertTrue(AdminServer.localHost("192.168.1.20:8426"));
+        assertTrue(AdminServer.localHost("[fd00::1]:8426"));
+        assertTrue(AdminServer.localHost("knura-pi"));
+        assertTrue(AdminServer.localHost("desk.tail1234.ts.net"));
+        assertFalse(AdminServer.localHost("evil.example"));
+        assertFalse(AdminServer.localHost("127.0.0.1.nip.io"));
+        assertFalse(AdminServer.localHost(".local"));
+        assertFalse(AdminServer.localHost(null));
+    }
+
+    private String raw(String request) throws IOException {
+        try (java.net.Socket s = new java.net.Socket("127.0.0.1", admin.port())) {
+            s.getOutputStream().write(request.getBytes(StandardCharsets.UTF_8));
+            s.getOutputStream().flush();
+            return new String(s.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
+    @Test
     void reachSaysWhenThereIsNoAddress() throws Exception {
         String cookie = cookie(send("POST", "/v1/password", "{\"password\":\"lantern-orbit-42\"}", null));
         String reach = send("GET", "/v1/reach", null, cookie).body();
