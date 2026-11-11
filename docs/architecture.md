@@ -78,6 +78,52 @@ Keys never go to the phone: when the app sets up a tag, knurd works out the keys
 command through the admin API, and the phone only passes bytes to the tag. No real or
 development keys belong in this repository; tests use NXP's published example keys.
 
+## The Android app
+
+The app lives in `android/`, a separate Gradle build (`./gradlew -p android assembleDebug`, tests
+with `testDebugUnitTest`), so the Java build never needs the Android SDK. Kotlin, Android 11+
+(minSdk 30), target SDK 35. The only outside library is Google's code scanner for QR codes.
+
+```
+ MainActivity + Ui.kt ──── screens built in code (no XML layouts, no Compose)
+   │        │
+   │        └── Snapshot + Notes ── last server answer saved on the phone; Notes compares answers
+   │                 │               to make notifications. Widgets.kt and CheckTapTile read it.
+   ▼
+ Pairing · KnurdViews · TagResults · ClaimCodes ── plain classes, unit-tested without a phone
+   │
+ KnurdClient ── HTTPS + token per request ──▶ knurd admin API (cert pinned by SHA-256 from the QR)
+   │      └── TokenVault: token encrypted with an Android Keystore key,      or a hosted account
+   │          unlocked for 30 s by fingerprint or screen lock                 (normal TLS)
+   ▼
+ NFC reader mode (IsoDep) ── relays APDUs the server built; keys never reach the phone
+```
+
+- **Pairing:** `knurctl admin pair-phone` shows a `knura://pair` QR holding the address, the
+  certificate pin and a one-time `knurp_` code; the app swaps the code at `POST /v1/pair` for its
+  own token. A hosted account answers the same requests under `/o/<owner>/v1`, so every screen
+  works with both.
+- **Shipping:** `android-latest.yml` keeps a pre-release APK up to date on app changes;
+  `release.yml` attaches `knura-<version>.apk` signed with the release key (GitHub secrets
+  `ANDROID_KEYSTORE*`) to each release. Release-signed builds install over each other.
+
+## Ways to run it
+
+| Setup | What runs | How phones reach it |
+| --- | --- | --- |
+| Release zips + systemd | knurd (and knurctl to set tags up) | Tailscale Funnel or an HTTPS reverse proxy in front of the tap port (8424). The admin port (8425) stays on the home network. |
+| Docker / Kubernetes | Image from `knurd/Dockerfile`; Helm chart in `deploy/helm/knura` | The chart's ingress. CI installs the chart on kind and taps it. |
+| Hosted account | Only `knura-link` at home | The account checks taps and sends verified ones down the home link; your knurgN rules run at home. |
+
+## CI and releases
+
+- `ci.yml` on every pull request: Java build and tests, the Android app (APK as an artifact),
+  Node tests for `knura-resolver` and `knurgn-matter`, and the Helm chart on kind.
+- `release.yml` on a `v*` tag: knurctl, knurd and knura-link zips, the signed APK, `SHA256SUMS`
+  and signed build provenance on the GitHub release. Actions are pinned to exact commits.
+- tap.knura.io is deployed by hand: `npm run package` in `knura-resolver/` and upload the zip to
+  its Lambda, as its README describes. Nothing in this repository's CI holds AWS credentials.
+
 ## Things that must not change
 
 - **Key derivation** (`TagKeyDerivation`): the derived values are pinned by tests. Changing them
