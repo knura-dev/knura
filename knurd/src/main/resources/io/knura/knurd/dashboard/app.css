@@ -51,7 +51,7 @@ button{font:inherit;color:inherit}
 .label{font-size:12px;font-weight:600;letter-spacing:.1em;color:var(--muted);text-transform:uppercase}
 .btn{height:44px;padding:0 18px;border-radius:999px;border:1px solid var(--input-line);background:none;color:var(--fg);font-size:14px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;white-space:nowrap}
 .btn:hover{background:var(--chip);color:var(--fg)}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);box-shadow:0 14px 30px -14px rgba(242,140,58,.8)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);box-shadow:0 14px 30px -14px color-mix(in srgb,var(--accent) 80%,transparent)}
 .btn.primary:hover{filter:brightness(1.07)}
 .btn.danger{border-color:var(--bad);color:var(--bad)}
 .btn.sm{height:36px;padding:0 14px;font-size:13px}
@@ -120,7 +120,7 @@ label.fl{display:block;font-size:13px;color:var(--muted);margin:0 0 6px}
 .seg button{height:40px;padding:0 16px;border-radius:999px;border:0;background:none;color:var(--muted);font-size:14px;font-weight:500;cursor:pointer}
 .seg button[aria-selected="true"]{background:var(--active-bg);color:var(--active-fg);font-weight:600}
 .me{display:flex;align-items:center;gap:4px;padding:4px;border-radius:999px;position:relative}
-.avatar{width:44px;height:44px;border-radius:50%;background:linear-gradient(140deg,#FFB86B,#F28C3A 55%,#B45309);color:#160B02;display:flex;align-items:center;justify-content:center;font-weight:700}
+.avatar{width:44px;height:44px;border-radius:50%;background:linear-gradient(140deg,var(--accent-2),var(--accent) 55%,color-mix(in srgb,var(--accent) 70%,black));color:#160B02;display:flex;align-items:center;justify-content:center;font-weight:700}
 .badge{position:absolute;top:10px;right:11px;width:8px;height:8px;border-radius:50%;background:var(--accent)}
 .view{display:flex;flex-direction:column;gap:22px;flex:1}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px}
@@ -170,7 +170,7 @@ dl.kv dt{color:var(--muted)}dl.kv dd{margin:0;overflow-wrap:anywhere}
 .empty{padding:28px;text-align:center;color:var(--muted)}
 .auth{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 16px 28px;gap:18px;position:relative}
 .auth-card{width:100%;max-width:420px;padding:32px 28px 28px;display:flex;flex-direction:column;gap:16px;border-radius:28px}
-.auth-mark{width:72px;height:72px;border-radius:24px;margin:0 auto 4px;display:flex;align-items:center;justify-content:center;background:var(--accent-tint);border:1px solid var(--accent-line);box-shadow:0 0 60px -6px rgba(242,140,58,.6)}
+.auth-mark{width:72px;height:72px;border-radius:24px;margin:0 auto 4px;display:flex;align-items:center;justify-content:center;background:var(--accent-tint);border:1px solid var(--accent-line);box-shadow:0 0 60px -6px color-mix(in srgb,var(--accent) 60%,transparent)}
 .auth-card h1{text-align:center;font-size:26px;font-weight:700;letter-spacing:-.025em}
 .auth-card .lead{text-align:center;color:var(--muted);font-size:14.5px;margin-top:-8px}
 .field{display:flex;align-items:center;gap:10px;height:52px;padding:0 6px;border-radius:16px;border:1px solid var(--input-line);background:var(--input);transition:border-color .15s,box-shadow .15s}
