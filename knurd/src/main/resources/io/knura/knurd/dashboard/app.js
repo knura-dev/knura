@@ -3,6 +3,7 @@
 "use strict";
 (function () {
 const P = {
+  sparkle: 'M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6',
   home:'M4 10.5L12 4l8 6.5V19a1.5 1.5 0 0 1-1.5 1.5H15v-6H9v6H5.5A1.5 1.5 0 0 1 4 19z',
   tag:'M3.5 12V5.5a2 2 0 0 1 2-2H12l8.5 8.5-8.5 8.5zM8 8h.01',
   plug:'M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4',
@@ -40,7 +41,7 @@ const P = {
   coffee:'M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM17 11h1.5a2.5 2.5 0 0 1 0 5H17M8 3v3M12 3v3'
 };
 const ico = (n, s = 20, w = 1.8) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${P[n]}"/></svg>`;
-const MARK = (s = 30) => `<svg width="${s}" height="${s}" viewBox="0 0 32 32" role="img" aria-label="Knura"><rect x="2" y="2" width="28" height="28" rx="8" fill="none" stroke="var(--accent)" stroke-width="2.2"/><rect x="8.5" y="8.5" width="15" height="15" rx="4.5" fill="none" stroke="var(--accent)" stroke-width="2"/><rect x="12.75" y="12.75" width="6.5" height="6.5" rx="1.8" fill="var(--fg)"/></svg>`;
+const MARK = (s = 30) => `<svg width="${s}" height="${s}" viewBox="0 0 32 32" role="img" aria-label="Knura"><rect x="2" y="2" width="28" height="28" rx="8" fill="none" stroke="var(--accent)" stroke-width="2.2"/><rect x="8.5" y="8.5" width="15" height="15" rx="4.5" fill="none" stroke="var(--accent)" stroke-width="2"/><rect x="12.75" y="12.75" width="6.5" height="6.5" rx="1.8" fill="var(--s-core,var(--fg))"/><path d="M3.2 7.6C3.2 4.9 5 3.2 7.6 3.2h16.8c2.6 0 4.4 1.7 4.4 4.4c-1.4.9-2.4.2-3.4-.4c-1.1.9-2.3 1.1-3.4.2c-1.2 1-2.6 1-3.8 0c-1.3 1-2.6.9-3.8 0c-1.2 1-2.6 1-3.8 0c-1.1.9-2.4.9-3.5-.1c-1 .7-2 1.1-2.9.3z" fill="var(--s-cap,transparent)"/></svg>`;
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // ---------- charts ----------
 function niceStep(max) {
@@ -142,6 +143,12 @@ const store = { get(k){ try { return localStorage.getItem('knura.dashboard.' + k
 const curTheme = () => document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
 const setTheme = t => { document.documentElement.dataset.theme = t; store.set('theme', t); };
 { const t = store.get('theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; }
+// Themes (themes.js): an everyday look, its accent, and holiday themes by date. Saved on this
+// browser like light and dark. Holidays by date are on unless turned off.
+const TH = window.KnuraThemes;
+const lookPrefs = () => ({ look: store.get('look') || 'default', accent: store.get('accent') || 'orange', dynamic: store.get('holidays') !== 'off' });
+const applyLook = () => TH && TH.apply(lookPrefs());
+applyLook();
 
 // ---------- API ----------
 async function api(method, path, body) {
@@ -246,7 +253,8 @@ const fixBtn = (c, primary) => !c.fix ? '' : /^[/#]/.test(c.fix[0]) ? `<a class=
 
 // ---------- shell ----------
 const NAV = [['home','Home','home'],['tags','Tags','tag'],['taps','Taps','list'],['actions','Actions','bolt'],['phones','Phones and readers','phone'],['backup','Keys and backup','key','desk'],['logs','Logs','logs','desk'],['config','Settings','gear','end']];
-const greet = () => { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; };
+const greet = () => { const g = TH && TH.greeting(); if (g) return g; const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; };
+const seasonChip = () => { const c = TH && TH.current(); return c && c.season ? ` <a class="pill season" href="#config" style="margin-left:6px;vertical-align:1px" title="Change in Settings">${esc(c.season.name)} theme</a>` : ''; };
 const homeName = () => (S.settings && S.settings.name) || (S.status && S.status.name) || 'Knura';
 function shell(route, title, body, extra = '') {
   const sec = route === 'tag' ? 'tags' : route;
@@ -258,13 +266,14 @@ function shell(route, title, body, extra = '') {
   <nav class="g rail" aria-label="Sections"><a href="#home" class="logo" aria-label="Knura home">${MARK(30)}</a>${nav}</nav>
   <main class="page">
     <header class="top">
-      <div class="title"><span class="muted" style="font-size:13.5px">${esc(homeName())} · <span class="mono" style="font-size:12.5px">${esc(location.host)}</span></span><h1>${title}</h1></div>
+      <div class="title"><span class="muted" style="font-size:13.5px">${esc(homeName())} · <span class="mono" style="font-size:12.5px">${esc(location.host)}</span>${seasonChip()}</span><h1>${title}</h1></div>
       ${extra}
       <div class="g me">
         <button class="iconbtn" data-act="notif" aria-label="Needs a look" aria-expanded="${S.notif}">${ico('bell', 21)}${n.length ? '<span class="badge"></span>' : ''}</button>
         <a class="avatar" href="#config" aria-label="Settings" style="text-decoration:none;color:inherit">${ico('gear', 20, 2)}</a>${notes}
       </div>
     </header>
+    ${TH ? TH.strip() : ''}
     <div class="view">${body}</div>
   </main></div>`;
 }
@@ -486,10 +495,10 @@ function vConfig() {
       ${row('folder', 'Settings folder', S.settings && S.settings.folder ? '<span class="mono">' + esc(S.settings.folder) + '</span>' + (S.settings.codeClone ? '<br><span style="color:var(--bad)">Inside the code folder. See Keys and backup.</span>' : '') : '', '')}
       ${row('logs', 'Log detail', 'How much knurd writes to its log. Used at once.', `<label class="sr" for="ll">Log detail</label><select id="ll" class="in" style="width:auto;height:36px;border-radius:999px;font-size:13px">${LEVELS.map(([v, l]) => `<option value="${v}"${(S.settings && S.settings.logLevel) === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`)}
     </section>
+    ${appearance(dark)}
     <span class="label" style="padding:0 6px">More</span>
     <section class="g set-list" aria-label="More">
       ${link('/setup', 'wand', 'Setup', 'The step-by-step setup again: address, Tailscale, phones and actions')}
-      <button class="set-row" data-act="theme"><span class="tile">${ico(dark ? 'moon' : 'sun', 19)}</span><span class="txt"><b>Appearance</b><span>${dark ? 'Dark' : 'Light'} on this browser</span></span><span class="end" style="font-size:13px">Switch to ${dark ? 'light' : 'dark'}</span></button>
       ${link('https://docs.knura.io', 'help', 'Help', 'docs.knura.io')}
     </section>
     ${S.session && S.session.signedIn ? `<section class="g set-list">
@@ -497,6 +506,34 @@ function vConfig() {
     </section>` : ''}
   </div>`;
   return shell('config', 'Settings', body);
+}
+
+// Settings > Appearance: light or dark, the theme, its accent, and holiday themes by date.
+function appearance(dark) {
+  if (!TH) return '';
+  const p = lookPrefs(), cur = TH.current(), st = TH.status();
+  const midnight = p.look === 'midnight';
+  const sample = (bg, bar) => `<span class="sw8" style="background:${bg}"><i style="background:${bar}"></i></span>`;
+  const SAMPLES = { default: sample('radial-gradient(80% 90% at 10% 0%,rgba(242,140,58,.45),transparent 70%),#0A0D12', '#F28C3A'), midnight: sample('#000', '#E07F33'),
+    mono: sample('#161618', '#F28C3A'), custom: sample('linear-gradient(120deg,#F2C14E,#FF7EB6,#A98BFF,#5B9CFF)', '#fff'),
+    halloween: sample('radial-gradient(80% 90% at 90% 100%,rgba(104,58,184,.7),transparent 70%),#0B0912', '#FF9A3D'), thanksgiving: sample('radial-gradient(80% 90% at 90% 100%,rgba(150,95,30,.8),transparent 70%),#0F0B08', '#E3B04B'),
+    christmas: sample('radial-gradient(80% 90% at 90% 100%,rgba(31,122,85,.75),transparent 70%),#080D0C', '#4FB58A'), newyear: sample('radial-gradient(80% 90% at 90% 100%,rgba(60,80,170,.8),transparent 70%),#070A14', '#F2D27A'),
+    valentine: sample('radial-gradient(80% 90% at 90% 100%,rgba(200,60,130,.7),transparent 70%),#0F0A0E', '#FF8FC0'), july4: sample('radial-gradient(80% 90% at 90% 100%,rgba(40,70,170,.85),transparent 70%),#070B16', '#5B85F0') };
+  const card = (id, name, note) => `<button type="button" data-act="look" data-look="${id}" aria-pressed="${p.look === id}">${SAMPLES[id]}<b>${esc(name)}</b><small>${esc(note)}</small></button>`;
+  const sw = `<button class="sw" role="switch" aria-checked="${p.dynamic}" aria-label="Holiday themes by date" data-act="holidays"><span></span></button>`;
+  const shown = cur.season ? (cur.auto ? `${cur.season.name} theme is on until ${cur.until.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}. Your pick comes back after.` : '') : '';
+  return `<span class="label" style="padding:0 6px">Appearance</span>
+    <section class="g set-list" aria-label="Appearance">
+      <button class="set-row" data-act="theme"${midnight ? ' disabled style="cursor:default"' : ''}><span class="tile">${ico(dark || midnight ? 'moon' : 'sun', 19)}</span><span class="txt"><b>Light or dark</b><span>${midnight ? 'Midnight is always dark' : (dark ? 'Dark' : 'Light') + ' on this browser'}</span></span>${midnight ? '' : `<span class="end" style="font-size:13px">Switch to ${dark ? 'light' : 'dark'}</span>`}</button>
+      <div class="looks-head">Theme</div>
+      <div class="looks" role="group" aria-label="Theme">${TH.LOOKS.map(l => card(l.id, l.name, l.note)).join('')}</div>
+      ${p.look === 'custom' ? `<div class="accents" role="group" aria-label="Accent color">${TH.ACCENTS.map(([id, n, c]) => `<button type="button" data-act="accent" data-accent="${id}" style="background:${c}" aria-label="${n}" title="${n}" aria-pressed="${p.accent === id}"></button>`).join('')}</div>` : ''}
+      <div class="looks-head">Holidays</div>
+      <div class="set-row" style="cursor:default"><span class="tile">${ico('sparkle', 19)}</span><span class="txt"><b>Holiday themes by date</b><span>${p.dynamic ? esc(st.text) : 'Off. Pick a holiday below to keep it on any time.'}</span></span><span class="end">${sw}</span></div>
+      ${shown ? `<p class="muted small" style="padding:0 14px 6px 68px">${esc(shown)}</p>` : ''}
+      <div class="looks" role="group" aria-label="Holiday themes">${TH.HOLIDAYS.map(h => card(h.id, h.name, TH.windowText(h))).join('')}</div>
+      <p class="muted small" style="padding:0 14px 14px">Saved on this browser. Picking a holiday keeps it on all year; with holiday themes by date on, the holiday of the day shows instead.</p>
+    </section>`;
 }
 
 // The certificate's SHA-256 fingerprint in pairs, as browsers show it: AB:12:...
@@ -975,6 +1012,9 @@ app.addEventListener('click', async e => {
       return toast(on ? 'Other devices on your Wi-Fi can open this page now' : 'Only this computer can open this page now');
     }
     case 'theme': setTheme(curTheme() === 'dark' ? 'light' : 'dark'); return render();
+    case 'look': { const id = b.dataset.look; if (!(TH.LOOKS.some(l => l.id === id) || TH.HOLIDAYS.some(h => h.id === id))) return; store.set('look', id); applyLook(); render(); return toast('Theme changed'); }
+    case 'accent': { const id = b.dataset.accent; if (!TH.ACCENTS.some(a => a[0] === id)) return; store.set('accent', id); applyLook(); return render(); }
+    case 'holidays': store.set('holidays', lookPrefs().dynamic ? 'off' : 'on'); applyLook(); render(); return toast(lookPrefs().dynamic ? 'Holiday themes on' : 'Holiday themes off');
     case 'notif': S.notif = !S.notif; return render();
     case 'reload': location.reload(); return;
     case 'recheck': S.reach = null; render(); await Promise.all([loadAll(), loadReach()]); render(); return toast('Checked again just now');

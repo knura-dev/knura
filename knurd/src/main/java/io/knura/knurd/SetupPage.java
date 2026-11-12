@@ -22,6 +22,8 @@ final class SetupPage {
             Map.entry("/dashboard/", "dashboard/index.html"),
             Map.entry("/dashboard/app.css", "dashboard/app.css"),
             Map.entry("/dashboard/app.js", "dashboard/app.js"),
+            Map.entry("/dashboard/themes.css", "dashboard/themes.css"),
+            Map.entry("/dashboard/themes.js", "dashboard/themes.js"),
             Map.entry("/setup", "setup/index.html"),
             Map.entry("/setup/", "setup/index.html"),
             Map.entry("/setup/app.css", "setup/app.css"),

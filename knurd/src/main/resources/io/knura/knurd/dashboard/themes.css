@@ -1,0 +1,162 @@
+/* Knura themes for the dashboard. Loaded after app.css and only redefines its tokens.
+   Two kinds, both set on <html> by themes.js:
+   - data-look: an everyday theme the person picks (midnight, mono, custom with data-accent).
+   - data-season: a holiday theme, picked or shown by date. Holidays win over the everyday look.
+   Every holiday redefines the same few tokens and turns on the season tokens (--s-*), which are
+   off by default. Orange stays the accent and the status colors (ok, bad, warn) never change. */
+:root{--s-decor:transparent;--s-a:transparent;--s-b:transparent;--s-c:transparent;--s-p:transparent;--s-cap:transparent;--s-core:var(--fg);--s-moon:transparent;
+--s-face:#2A1406;--s-stem:#6E7B34;--s-rib:rgba(120,50,0,.45);--s-dirt:#24170F;--s-dirt-top:#3A2618;--s-grave:rgba(179,155,255,.20)}
+
+/* ================= everyday looks ================= */
+/* Midnight: true black, dim glow, dark only (it also wins over a light setting) */
+:root[data-look="midnight"]{color-scheme:dark;
+--bg:#000000;--fg:#D5DCE4;--muted:#8E99A6;--line:rgba(255,255,255,.08);
+--glass:rgba(255,255,255,.035);--glass-line:rgba(255,255,255,.08);--glass-hover:rgba(255,255,255,.06);--gshadow:none;
+--chip:rgba(255,255,255,.06);--sub:rgba(255,255,255,.03);--sub-line:rgba(255,255,255,.07);
+--accent:#E07F33;--accent-2:#E8A666;--accent-text:#E8A666;--accent-tint:rgba(224,127,51,.12);--accent-line:rgba(224,127,51,.36);--on-accent:#140A02;
+--ok:#3FC98B;--ok-tint:rgba(63,201,139,.10);--ok-ring:rgba(63,201,139,.55);
+--bad:#F07070;--bad-tint:rgba(240,112,112,.12);--bad-ring:rgba(240,112,112,.5);
+--warn:#E8BC1A;--warn-tint:rgba(232,188,26,.11);
+--active-bg:#D5DCE4;--active-fg:#000000;--input:rgba(0,0,0,.6);--input-line:rgba(255,255,255,.13);
+--bar:rgba(8,8,10,.9);--term:#050608;--term-fg:#C9D1DA;--dot:#E8DCCF;--bars:rgba(213,220,228,.24);--track:rgba(255,255,255,.08);
+--qr-bg:#FFFFFF;--qr-fg:#000000;--shade:rgba(0,0,0,.7);
+--g1:rgba(242,140,58,.12);--g2:rgba(194,86,14,.08);--g3:transparent;--s-core:var(--fg)}
+
+/* Mono: no glows, solid cards, orange only on buttons and the mark */
+:root[data-look="mono"]{--bg:#0C0C0D;--glass:#161618;--glass-hover:#1C1C1F;--glass-line:rgba(255,255,255,.09);--sub:#121214;
+--accent-tint:rgba(255,255,255,.07);--accent-text:#E8EDF3;--accent-line:rgba(255,255,255,.18);--g1:transparent;--g2:transparent;--g3:transparent}
+@media (prefers-color-scheme: light){:root[data-look="mono"]:not([data-theme="dark"]){--bg:#F4F4F5;--glass:#FFFFFF;--glass-hover:#FAFAFA;--glass-line:rgba(11,18,32,.08);--sub:#FAFAFA;--gshadow:0 1px 2px rgba(11,18,32,.06);
+--accent-tint:rgba(11,18,32,.06);--accent-text:#0B1220;--accent-line:rgba(11,18,32,.18)}}
+:root[data-look="mono"][data-theme="light"]{--bg:#F4F4F5;--glass:#FFFFFF;--glass-hover:#FAFAFA;--glass-line:rgba(11,18,32,.08);--sub:#FAFAFA;--gshadow:0 1px 2px rgba(11,18,32,.06);
+--accent-tint:rgba(11,18,32,.06);--accent-text:#0B1220;--accent-line:rgba(11,18,32,.18)}
+
+/* Your color: one picked accent; tints and glows are worked out from it. No green or red: those mean status. */
+:root[data-accent="orange"]{--pick:#F28C3A;--pick-l:#E06B12}
+:root[data-accent="gold"]{--pick:#F2C14E;--pick-l:#9A6A0C}
+:root[data-accent="pink"]{--pick:#FF7EB6;--pick-l:#C2307A}
+:root[data-accent="violet"]{--pick:#A98BFF;--pick-l:#6A3FC8}
+:root[data-accent="blue"]{--pick:#5B9CFF;--pick-l:#1F5FD6}
+:root[data-accent="ice"]{--pick:#6CCFF6;--pick-l:#0B6E99}
+:root[data-look="custom"]{--accent:var(--pick);--accent-2:color-mix(in srgb,var(--pick) 70%,white);--accent-text:color-mix(in srgb,var(--pick) 70%,white);
+--accent-tint:color-mix(in srgb,var(--pick) 15%,transparent);--accent-line:color-mix(in srgb,var(--pick) 40%,transparent);--on-accent:#0A0D12;
+--g1:color-mix(in srgb,var(--pick) 33%,transparent);--g2:color-mix(in srgb,var(--pick) 24%,transparent);--g3:color-mix(in srgb,var(--pick) 9%,transparent)}
+@media (prefers-color-scheme: light){:root[data-look="custom"]:not([data-theme="dark"]){--accent:var(--pick-l);--accent-2:var(--pick);--accent-text:color-mix(in srgb,var(--pick-l) 85%,black);
+--accent-tint:color-mix(in srgb,var(--pick-l) 12%,transparent);--accent-line:color-mix(in srgb,var(--pick-l) 40%,transparent);--on-accent:#FFFFFF;
+--g1:color-mix(in srgb,var(--pick) 40%,transparent);--g2:color-mix(in srgb,var(--pick) 26%,transparent);--g3:color-mix(in srgb,var(--pick) 14%,white)}}
+:root[data-look="custom"][data-theme="light"]{--accent:var(--pick-l);--accent-2:var(--pick);--accent-text:color-mix(in srgb,var(--pick-l) 85%,black);
+--accent-tint:color-mix(in srgb,var(--pick-l) 12%,transparent);--accent-line:color-mix(in srgb,var(--pick-l) 40%,transparent);--on-accent:#FFFFFF;
+--g1:color-mix(in srgb,var(--pick) 40%,transparent);--g2:color-mix(in srgb,var(--pick) 26%,transparent);--g3:color-mix(in srgb,var(--pick) 14%,white)}
+
+/* ================= holidays (dark first, then light) ================= */
+:root[data-season="halloween"]{--bg:#0B0912;--glass-line:rgba(200,180,255,.15);--g1:rgba(242,140,58,.36);--g2:rgba(104,58,184,.40);--g3:rgba(180,160,255,.07);
+--s-decor:#B39BFF;--s-p:#FF9A3D;--s-core:#FFB86B;--s-moon:rgba(255,236,205,.92);--s-a:#FF9A3D;--s-b:#B39BFF;--s-c:#FFD27A}
+:root[data-season="thanksgiving"]{--bg:#0F0B08;--glass-line:rgba(255,220,170,.14);--g1:rgba(242,140,58,.34);--g2:rgba(150,95,30,.40);--g3:rgba(227,176,75,.10);
+--s-decor:#E3B04B;--s-p:#E3B04B;--s-core:#E3B04B;--s-a:#E3B04B;--s-b:#C9682A;--s-c:#9DB062}
+:root[data-season="christmas"]{--bg:#080D0C;--glass-line:rgba(207,230,255,.15);--g1:rgba(242,140,58,.30);--g2:rgba(31,122,85,.36);--g3:rgba(207,230,255,.08);
+--s-decor:#4FB58A;--s-p:rgba(244,248,255,.6);--s-cap:#F4F8FF;--s-a:#FFB86B;--s-b:#CFE6FF;--s-c:#4FB58A}
+:root[data-season="newyear"]{--bg:#070A14;--glass-line:rgba(255,230,180,.14);--g1:rgba(242,140,58,.28);--g2:rgba(60,80,170,.40);--g3:rgba(255,222,150,.09);
+--s-decor:#F2D27A;--s-core:#F2D27A;--s-a:#F2D27A;--s-b:#DCE3EE;--s-c:#FFB86B}
+:root[data-season="valentine"]{--bg:#0F0A0E;--glass-line:rgba(255,190,220,.14);--g1:rgba(242,140,58,.30);--g2:rgba(200,60,130,.34);--g3:rgba(255,180,210,.08);
+--s-decor:#FF8FC0;--s-core:#FF8FC0;--s-a:#FF8FC0;--s-b:#FFB86B;--s-c:#FFD1E3}
+:root[data-season="july4"]{--bg:#070B16;--glass-line:rgba(200,215,255,.14);--g1:rgba(242,140,58,.30);--g2:rgba(40,70,170,.42);--g3:rgba(220,230,255,.07);
+--s-decor:#8FB0FF;--s-core:#F4F7FF;--s-p:#F4F7FF;--s-a:#5B85F0;--s-b:#F4F7FF;--s-c:#FF9A3D}
+
+@media (prefers-color-scheme: light){
+:root[data-season="halloween"]:not([data-theme="dark"]){--bg:#FBF7FF;--glass-line:rgba(255,255,255,.95);--g1:rgba(255,160,80,.48);--g2:rgba(130,90,210,.26);--g3:rgba(220,205,255,.55);--gshadow:0 20px 50px -34px rgba(80,50,140,.40);
+--s-decor:#6A3FC8;--s-p:#E06B12;--s-core:#E06B12;--s-moon:rgba(255,214,160,.95);--s-a:#E06B12;--s-b:#7A4FD0;--s-c:#C98A12;--s-face:#3A1A05;--s-stem:#4F6A22;--s-dirt:#7A5A40;--s-dirt-top:#94714F;--s-grave:rgba(106,63,200,.20)}
+:root[data-season="thanksgiving"]:not([data-theme="dark"]){--bg:#FFF6EA;--glass-line:rgba(255,255,255,.95);--g1:rgba(255,170,100,.48);--g2:rgba(205,145,60,.30);--g3:rgba(255,222,165,.6);--gshadow:0 20px 50px -34px rgba(120,80,24,.45);
+--s-decor:#8A5E08;--s-p:#B07A12;--s-core:#B07A12;--s-a:#B07A12;--s-b:#B4501A;--s-c:#5E7A2E}
+:root[data-season="christmas"]:not([data-theme="dark"]){--bg:#F7FAF6;--glass-line:rgba(255,255,255,.95);--g1:rgba(255,170,100,.42);--g2:rgba(46,140,96,.24);--g3:rgba(190,215,240,.55);--gshadow:0 20px 50px -34px rgba(40,80,70,.40);
+--s-decor:#1F7A55;--s-p:rgba(110,140,170,.38);--s-cap:#FFFFFF;--s-a:#E06B12;--s-b:#6F9CC8;--s-c:#1F7A55}
+:root[data-season="newyear"]:not([data-theme="dark"]){--bg:#F8F8FC;--glass-line:rgba(255,255,255,.95);--g1:rgba(255,170,100,.42);--g2:rgba(110,130,210,.24);--g3:rgba(255,230,170,.6);--gshadow:0 20px 50px -34px rgba(50,60,120,.40);
+--s-decor:#8A6A10;--s-core:#B8860B;--s-a:#B8860B;--s-b:#7A8699;--s-c:#E06B12}
+:root[data-season="valentine"]:not([data-theme="dark"]){--bg:#FFF6F9;--glass-line:rgba(255,255,255,.95);--g1:rgba(255,170,100,.42);--g2:rgba(235,120,170,.26);--g3:rgba(255,215,230,.6);--gshadow:0 20px 50px -34px rgba(140,40,90,.35);
+--s-decor:#B0306E;--s-core:#C2307A;--s-a:#C2307A;--s-b:#E06B12;--s-c:#E58AB0}
+:root[data-season="july4"]:not([data-theme="dark"]){--bg:#F6F8FD;--glass-line:rgba(255,255,255,.95);--g1:rgba(255,170,100,.42);--g2:rgba(90,120,220,.24);--g3:rgba(210,222,250,.6);--gshadow:0 20px 50px -34px rgba(30,50,120,.40);
+--s-decor:#2347A8;--s-core:#2347A8;--s-p:#2347A8;--s-a:#2347A8;--s-b:#C9D2E3;--s-c:#E06B12}
+}
+:root[data-season="halloween"][data-theme="light"]{--bg:#FBF7FF;--glass-line:rgba(255,255,255,.95);--g1:rgba(255,160,80,.48);--g2:rgba(130,90,210,.26);--g3:rgba(220,205,255,.55);--gshadow:0 20px 50px -34px rgba(80,50,140,.40);
+--s-decor:#6A3FC8;--s-p:#E06B12;--s-core:#E06B12;--s-moon:rgba(255,214,160,.95);--s-a:#E06B12;--s-b:#7A4FD0;--s-c:#C98A12;--s-face:#3A1A05;--s-stem:#4F6A22;--s-dirt:#7A5A40;--s-dirt-top:#94714F;--s-grave:rgba(106,63,200,.20)}
+:root[data-season="thanksgiving"][data-theme="light"]{--bg:#FFF6EA;--glass-line:rgba(255,255,255,.95);--g1:rgba(255,170,100,.48);--g2:rgba(205,145,60,.30);--g3:rgba(255,222,165,.6);--gshadow:0 20px 50px -34px rgba(120,80,24,.45);
+--s-decor:#8A5E08;--s-p:#B07A12;--s-core:#B07A12;--s-a:#B07A12;--s-b:#B4501A;--s-c:#5E7A2E}
+:root[data-season="christmas"][data-theme="light"]{--bg:#F7FAF6;--glass-line:rgba(255,255,255,.95);--g1:rgba(255,170,100,.42);--g2:rgba(46,140,96,.24);--g3:rgba(190,215,240,.55);--gshadow:0 20px 50px -34px rgba(40,80,70,.40);
+--s-decor:#1F7A55;--s-p:rgba(110,140,170,.38);--s-cap:#FFFFFF;--s-a:#E06B12;--s-b:#6F9CC8;--s-c:#1F7A55}
+:root[data-season="newyear"][data-theme="light"]{--bg:#F8F8FC;--glass-line:rgba(255,255,255,.95);--g1:rgba(255,170,100,.42);--g2:rgba(110,130,210,.24);--g3:rgba(255,230,170,.6);--gshadow:0 20px 50px -34px rgba(50,60,120,.40);
+--s-decor:#8A6A10;--s-core:#B8860B;--s-a:#B8860B;--s-b:#7A8699;--s-c:#E06B12}
+:root[data-season="valentine"][data-theme="light"]{--bg:#FFF6F9;--glass-line:rgba(255,255,255,.95);--g1:rgba(255,170,100,.42);--g2:rgba(235,120,170,.26);--g3:rgba(255,215,230,.6);--gshadow:0 20px 50px -34px rgba(140,40,90,.35);
+--s-decor:#B0306E;--s-core:#C2307A;--s-a:#C2307A;--s-b:#E06B12;--s-c:#E58AB0}
+:root[data-season="july4"][data-theme="light"]{--bg:#F6F8FD;--glass-line:rgba(255,255,255,.95);--g1:rgba(255,170,100,.42);--g2:rgba(90,120,220,.24);--g3:rgba(210,222,250,.6);--gshadow:0 20px 50px -34px rgba(30,50,120,.40);
+--s-decor:#2347A8;--s-core:#2347A8;--s-p:#2347A8;--s-a:#2347A8;--s-b:#C9D2E3;--s-c:#E06B12}
+
+/* ================= decorations ================= */
+.sfx{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden}
+.sfx i{position:absolute;top:0;display:block}
+.sfx .moon{position:absolute;top:-70px;right:30%;width:140px;height:140px;border-radius:50%;background:radial-gradient(circle at 42% 42%,var(--s-moon) 0 34%,transparent 36%),radial-gradient(circle,color-mix(in srgb,var(--s-moon) 30%,transparent) 0%,transparent 70%)}
+[data-season="christmas"] .sfx i{width:3px;height:3px;border-radius:50%;background:var(--s-p);animation:kt-fall var(--d) linear infinite;animation-delay:var(--dl)}
+[data-season="halloween"] .sfx i{width:3px;height:3px;border-radius:50%;background:var(--s-p);box-shadow:0 0 6px var(--s-p);animation:kt-rise var(--d) ease-in infinite;animation-delay:var(--dl)}
+[data-season="thanksgiving"] .sfx i{width:9px;height:9px;border-radius:0 80% 0 80%;opacity:.6;animation:kt-drift var(--d) linear infinite;animation-delay:var(--dl)}
+[data-season="newyear"] .sfx i{width:3px;height:8px;border-radius:1px;opacity:.75;animation:kt-drift var(--d) linear infinite;animation-delay:var(--dl)}
+[data-season="thanksgiving"] .sfx i:nth-child(3n+1),[data-season="newyear"] .sfx i:nth-child(3n+1){background:var(--s-a)}
+[data-season="thanksgiving"] .sfx i:nth-child(3n+2),[data-season="newyear"] .sfx i:nth-child(3n+2){background:var(--s-b)}
+[data-season="thanksgiving"] .sfx i:nth-child(3n),[data-season="newyear"] .sfx i:nth-child(3n){background:var(--s-c)}
+[data-season="valentine"] .sfx i{color:var(--s-a);opacity:.5;animation:kt-rise var(--d) ease-in infinite;animation-delay:var(--dl)}
+[data-season="valentine"] .sfx i:nth-child(2n){color:var(--s-c)}
+[data-season="july4"] .sfx i{color:var(--s-p);opacity:.45;transform:translateY(var(--y));animation:kt-twinkle var(--d) ease-in-out infinite;animation-delay:var(--dl)}
+[data-season="july4"] .sfx i:nth-child(3n){color:var(--s-c)}
+.sfx svg{display:block}
+@keyframes kt-fall{from{transform:translateY(-10px)}to{transform:translateY(105vh)}}
+@keyframes kt-rise{0%{transform:translateY(105vh);opacity:0}15%{opacity:.85}100%{transform:translateY(20vh);opacity:0}}
+@keyframes kt-drift{from{transform:translate(0,-12px) rotate(0)}50%{transform:translate(18px,50vh) rotate(160deg)}to{transform:translate(-8px,105vh) rotate(340deg)}}
+@keyframes kt-twinkle{50%{opacity:.12}}
+@keyframes kt-flicker{40%{filter:drop-shadow(0 0 2px color-mix(in srgb,var(--s-a) 50%,transparent))}60%{filter:drop-shadow(0 0 8px var(--s-a))}}
+@keyframes kt-sway{0%,100%{transform:translateX(-50%) rotate(-6deg)}50%{transform:translateX(-50%) rotate(6deg)}}
+@keyframes kt-burst{0%{opacity:0;transform:translate(-50%,-50%) scale(.3)}12%{opacity:1;transform:translate(-50%,-50%) scale(1)}55%{opacity:.85}80%,100%{opacity:0;transform:translate(-50%,-50%) scale(1.15)}}
+
+/* the strip under the page header */
+.strip{position:relative;height:16px;margin:-12px 4px -6px}
+.strip span{position:absolute;top:4px;transform:translateX(-50%)}
+.strip.bulbs::before,.strip.hang::before{content:"";position:absolute;left:0;right:0;top:3px;border-top:1px solid color-mix(in srgb,var(--fg) 18%,transparent)}
+.strip.bulbs span{width:7px;height:9px;border-radius:50%/40% 40% 60% 60%;animation:kt-twinkle 3.2s ease-in-out infinite}
+.strip.bulbs span:nth-child(3n+1){background:var(--s-a);box-shadow:0 0 9px var(--s-a)}
+.strip.bulbs span:nth-child(3n+2){background:var(--s-b);box-shadow:0 0 9px var(--s-b)}
+.strip.bulbs span:nth-child(3n){background:var(--s-c);box-shadow:0 0 9px var(--s-c)}
+.strip.bulbs span:nth-child(2n){animation-delay:1.6s}
+.strip.leaves span{width:10px;height:10px;top:0;border-radius:0 80% 0 80%}
+.strip.leaves span:nth-child(3n+1){background:var(--s-a)}.strip.leaves span:nth-child(3n+2){background:var(--s-b)}.strip.leaves span:nth-child(3n){background:var(--s-c)}
+.strip.leaves span:nth-child(2n){transform:translateX(-50%) rotate(90deg)}
+.strip.leaves::before{content:"";position:absolute;left:0;right:0;top:5px;border-top:1px solid color-mix(in srgb,var(--s-c) 40%,transparent)}
+.strip.hang{height:24px}
+.strip.hang span{top:2px;transform-origin:50% 0;animation:kt-sway 4.5s ease-in-out infinite}
+.strip.hang span:nth-child(2n){animation-delay:-2.2s}
+.strip.hearts span:nth-child(3n+1){color:var(--s-a)}.strip.hearts span:nth-child(3n+2){color:var(--s-b)}.strip.hearts span:nth-child(3n){color:var(--s-c)}
+.strip.fw{height:40px;margin-top:-16px}
+.strip.fw span{top:50%;animation:kt-burst 3.6s ease-out infinite}
+.strip.patch{height:40px;margin-top:-16px}
+.strip.patch .ground{position:absolute;left:0;right:0;bottom:0;width:100%;height:16px}
+.strip.patch .grave{position:absolute;bottom:9px;top:auto}
+.strip.patch .pk{top:auto;filter:drop-shadow(0 0 5px color-mix(in srgb,var(--s-a) 70%,transparent));animation:kt-flicker 2.6s ease-in-out infinite}
+.strip.patch .pk:nth-of-type(2n){animation-delay:1.1s}
+.strip svg{display:block}
+@media (max-width:760px){.strip.bulbs span:nth-child(2n),.strip.leaves span:nth-child(2n),.strip.hang span:nth-child(2n){display:none}.strip.patch .pk:nth-of-type(n+5),.strip.fw span:nth-child(2n){display:none}}
+
+.pill.season{color:var(--s-decor);background:color-mix(in srgb,var(--s-decor) 14%,transparent);border:1px solid color-mix(in srgb,var(--s-decor) 35%,transparent);text-decoration:none}
+.pill.season:hover{color:var(--s-decor)}
+
+/* settings: theme picker */
+.looks{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;padding:4px 14px 14px}
+.looks button{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:10px;border-radius:16px;border:1px solid var(--sub-line);background:var(--sub);color:var(--fg);cursor:pointer;text-align:left;font:inherit}
+.looks button:hover{border-color:var(--accent-line)}
+.looks button[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.looks .sw8{width:100%;height:46px;border-radius:10px;border:1px solid var(--line);position:relative;overflow:hidden}
+.looks .sw8 i{position:absolute;left:8px;bottom:8px;width:22px;height:8px;border-radius:999px}
+.looks b{font-size:13.5px;font-weight:600}.looks small{font-size:11.5px;color:var(--muted);margin-top:-6px}
+.accents{display:flex;flex-wrap:wrap;gap:10px;padding:0 14px 14px}
+.accents button{width:36px;height:36px;border-radius:50%;border:2px solid var(--line);cursor:pointer;padding:0}
+.accents button[aria-pressed="true"]{border-color:var(--fg);box-shadow:0 0 0 3px var(--bg) inset}
+.looks-head{padding:10px 14px 6px;font-size:12px;font-weight:600;letter-spacing:.1em;color:var(--muted);text-transform:uppercase}
+
+@media (prefers-reduced-motion:reduce){
+.sfx i{animation:none!important;transform:translateY(var(--y))!important;opacity:.5}
+.strip span,.strip .pk{animation:none!important}
+.strip.fw span{opacity:.9}
+}

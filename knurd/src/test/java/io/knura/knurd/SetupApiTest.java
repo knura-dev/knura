@@ -430,7 +430,7 @@ class SetupApiTest {
 
     @Test
     void theSetupPageIsServedWithoutSignInAndWithAStrictPolicy() throws Exception {
-        for (String path : new String[] {"/", "/dashboard/app.js", "/dashboard/app.css", "/setup", "/setup/app.js", "/setup/app.css",
+        for (String path : new String[] {"/", "/dashboard/app.js", "/dashboard/app.css", "/dashboard/themes.js", "/dashboard/themes.css", "/setup", "/setup/app.js", "/setup/app.css",
                 "/setup/words.js", "/setup/icon.svg"}) {
             HttpResponse<String> r = http.send(HttpRequest.newBuilder(uri(path)).build(), HttpResponse.BodyHandlers.ofString());
             assertEquals(200, r.statusCode(), path);

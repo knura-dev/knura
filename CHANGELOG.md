@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Themes in the dashboard**: Settings has a new Appearance section. Pick an everyday theme
+  (Default, Midnight for true black, Mono with no glow, or Your color with six accents), and turn
+  on **Holiday themes by date** (on by default) to get Valentine's Day, 4th of July, Halloween,
+  Thanksgiving, Christmas and New Year's looks automatically in their date windows. A holiday can
+  also be picked to keep it on all year. Saved on each browser, like light and dark. Status colors
+  never change, and the snow, lights and other movement stop when the device asks for less motion.
 - **Security fixes (re-audit, November 2026):**
   - The admin API now refuses browser requests whose `Host` is another web site's name (DNS
     rebinding): without a token, only IP addresses, `localhost` and local names (no dots, or
