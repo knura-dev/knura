@@ -30,7 +30,14 @@ import android.view.animation.LinearInterpolator
 class MarkView(context: Context, private var mode: Mode = Mode.STILL, private val showTile: Boolean = true) : View(context) {
     enum class Mode { STILL, SCANNING, CONNECTING, VERIFIED, REJECTED, DIM, DASHED }
 
-    private val orange = Color.parseColor("#F28C3A")
+    private val orange = Themes.markAccent() ?: Color.parseColor("#F28C3A")
+    /** The holiday theme's touch on the resting mark: a colored core, or snow on top. */
+    private val season = Themes.season(true)
+    private val cap = Path().apply {
+        moveTo(3.2f, 7.6f); cubicTo(3.2f, 4.9f, 5f, 3.2f, 7.6f, 3.2f); lineTo(24.4f, 3.2f); cubicTo(27f, 3.2f, 28.8f, 4.9f, 28.8f, 7.6f)
+        quadTo(27.1f, 8.8f, 25.4f, 7.2f); quadTo(23.6f, 8.6f, 22f, 7.4f); quadTo(20.1f, 8.6f, 18.2f, 7.4f); quadTo(16.3f, 8.6f, 14.4f, 7.4f)
+        quadTo(12.5f, 8.6f, 10.6f, 7.4f); quadTo(8.8f, 8.6f, 7.1f, 7.3f); quadTo(5f, 8.6f, 3.2f, 7.6f); close()
+    }
     private val trace = Color.parseColor("#FFB86B")
     private val core = Color.parseColor("#E8EDF3")
     private val ok = Color.parseColor("#4ADE9B")
@@ -192,7 +199,7 @@ class MarkView(context: Context, private var mode: Mode = Mode.STILL, private va
             }
             Mode.STILL -> {
                 squares = orange
-                coreColor = core
+                coreColor = season?.core ?: core
             }
         }
         stroke.color = squares
@@ -220,6 +227,7 @@ class MarkView(context: Context, private var mode: Mode = Mode.STILL, private va
         rect.set(12.75f, 12.75f, 19.25f, 19.25f)
         canvas.drawRoundRect(rect, 1.8f, 1.8f, fill)
         canvas.restore()
+        if (mode == Mode.STILL) season?.cap?.let { fill.color = it; canvas.drawPath(cap, fill) }
 
         if (mode == Mode.VERIFIED || mode == Mode.REJECTED) {
             val drawn = ramp(t, 0.61f, 0.93f)

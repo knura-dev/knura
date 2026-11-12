@@ -42,6 +42,7 @@ import io.knura.android.Ui.Companion.MATCH
 import io.knura.android.Ui.Companion.WRAP
 import java.io.IOException
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import java.util.concurrent.Executors
@@ -254,7 +255,7 @@ class MainActivity : Activity() {
 
     private val wide: Boolean get() = resources.configuration.screenWidthDp >= 600
     private val night: Boolean
-        get() = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        get() = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES || Themes.alwaysDark
     private val zone: ZoneId get() = ZoneId.systemDefault()
     private val hosted: Boolean get() = vault.url?.contains("/o/") == true
 
@@ -267,6 +268,7 @@ class MainActivity : Activity() {
     /** Rebuilds the current screen from the state above. */
     private fun render() {
         if (!::root.isInitialized) return
+        Themes.load(prefs, LocalDate.now(zone))
         holdTitleView = null
         holdHintView = null
         holdStepsView = null
@@ -306,12 +308,23 @@ class MainActivity : Activity() {
     /** A tab's page: the background with a faint orange glow at the top, and a scrolling column. */
     private fun tabPage(glow: Int = R.color.glow, fill: (LinearLayout) -> Unit): View {
         val page = FrameLayout(this)
-        page.background = LayerDrawable(arrayOf(ColorDrawable(ui.color(R.color.bg)), GradientDrawable().apply {
+        val season = Themes.season(ui.night)
+        val layers = mutableListOf<android.graphics.drawable.Drawable>(ColorDrawable(ui.color(R.color.bg)), GradientDrawable().apply {
             gradientType = GradientDrawable.RADIAL_GRADIENT
             colors = intArrayOf(ui.color(glow), Color.TRANSPARENT)
             gradientRadius = resources.displayMetrics.widthPixels * if (wide) 0.45f else 0.85f
             setGradientCenter(if (wide) 0.25f else 0.5f, 0f)
-        }))
+        })
+        // A holiday theme adds its own color as a second glow in the lower corner.
+        if (season != null) layers += GradientDrawable().apply {
+            gradientType = GradientDrawable.RADIAL_GRADIENT
+            colors = intArrayOf(season.glow2, Color.TRANSPARENT)
+            gradientRadius = resources.displayMetrics.widthPixels * if (wide) 0.5f else 0.95f
+            setGradientCenter(1f, 1f)
+        }
+        page.background = LayerDrawable(layers.toTypedArray())
+        val holiday = Themes.active.holiday
+        if (season != null && holiday != null) page.addView(ParticlesView(this, holiday, season), FrameLayout.LayoutParams(MATCH, MATCH))
         // No fillViewport here: stretching the column to the screen made the action tiles grow to fill it.
         val scroll = ScrollView(this).apply { clipToPadding = false }
         val column = ui.vertical()
@@ -375,7 +388,17 @@ class MainActivity : Activity() {
         val fab = ui.circleButton(R.drawable.ic_ui_tap, "Check a tap", 64, fill = ui.color(R.color.accent),
             tint = ui.color(R.color.on_accent), stroke = null) { start(Action.TAP) }
         fab.elevation = ui.dp(8).toFloat()
-        bar.addView(fab)
+        val season = Themes.season(ui.night)
+        if (season == null) {
+            bar.addView(fab)
+        } else {
+            // A holiday theme hangs small lights around the tap button.
+            val holder = FrameLayout(this).apply { clipChildren = false }
+            holder.addView(RingView(this, season), FrameLayout.LayoutParams(ui.dp(92), ui.dp(92), Gravity.CENTER))
+            holder.addView(fab, FrameLayout.LayoutParams(ui.dp(64), ui.dp(64), Gravity.CENTER))
+            bar.clipChildren = false
+            bar.addView(holder, LinearLayout.LayoutParams(ui.dp(64), ui.dp(64)))
+        }
         return bar
     }
 
@@ -520,7 +543,7 @@ class MainActivity : Activity() {
         tile.addView(MarkView(this, MarkView.Mode.STILL, showTile = false), FrameLayout.LayoutParams(ui.dp(26), ui.dp(26), Gravity.CENTER))
         row.addView(tile, LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)))
         val words = ui.vertical(2)
-        words.addView(ui.text(Words.greeting(LocalTime.now(zone).hour), 13.5f, ui.color(R.color.soft)))
+        words.addView(ui.text(Themes.active.holiday?.greeting ?: Words.greeting(LocalTime.now(zone).hour), 13.5f, ui.color(R.color.soft)))
         val name = prefs.getString("name", null)
         words.addView(ui.text(name ?: "Welcome back", 22f, ui.color(R.color.fg), 700).apply {
             letterSpacing = -0.02f
@@ -537,6 +560,12 @@ class MainActivity : Activity() {
         row.addView(bell)
         row.addView(ui.circleButton(R.drawable.ic_ui_settings, "Settings", 44) { openSettings() })
         col.addView(row, ui.lp(height = ui.dp(52)).apply { height = WRAP })
+        val holiday = Themes.active.holiday
+        val season = Themes.season(ui.night)
+        if (holiday != null && season != null) {
+            val strip = StripView(this, holiday, season, ui.color(R.color.fg))
+            col.addView(strip, ui.lp(height = ui.dp(strip.heightDp), top = 10))
+        }
         noticeLine(col, onDark = false)
     }
 
@@ -1443,9 +1472,22 @@ class MainActivity : Activity() {
             settingRow(R.drawable.ic_ui_home, "Your name", prefs.getString("name", null) ?: "Not set") { editName() },
         )), ui.lp(top = 10))
 
+        col.addView(ui.label("Appearance"), ui.lp(top = 20))
+        val looks = mutableListOf<View>()
+        if (android.os.Build.VERSION.SDK_INT >= 31) looks += themeRow()
+        looks += lookRow()
+        if (prefs.getString("look", "default") == "custom") looks += accentRow()
+        looks += switchRow(R.drawable.ic_ui_theme, "Holiday themes by date",
+            if (prefs.getBoolean("holidays", true)) Holidays.status(LocalDate.now(zone)) else "Off. Pick a holiday below to keep it on.",
+            prefs.getBoolean("holidays", true)) { on ->
+            prefs.edit().putBoolean("holidays", on).apply()
+            render()
+        }
+        looks += holidayRow()
+        col.addView(settingsCard(looks), ui.lp(top = 10))
+
         col.addView(ui.label("App"), ui.lp(top = 20))
         val appRows = mutableListOf<View>()
-        if (android.os.Build.VERSION.SDK_INT >= 31) appRows += themeRow()
         appRows += switchRow(R.drawable.ic_ui_tap, "Vibration", "When a tag is found and on the result", prefs.getBoolean("haptics", true)) { on ->
             prefs.edit().putBoolean("haptics", on).apply()
         }
@@ -1536,14 +1578,83 @@ class MainActivity : Activity() {
         return row
     }
 
+    /** A row of chips that wrap onto more lines, for the theme and holiday pickers. */
+    private fun chipRows(title: String, items: List<Triple<String, String, Boolean>>, perRow: Int, pick: (String) -> Unit): View {
+        val box = ui.vertical(8).apply { setPadding(0, ui.dp(12), 0, ui.dp(12)) }
+        box.addView(ui.text(title, 14.5f, ui.color(R.color.fg), 600))
+        for (chunk in items.chunked(perRow)) {
+            val chips = ui.horizontal(8)
+            for ((key, word, on) in chunk) {
+                val chip = ui.text(word, 13f, if (on) ui.color(R.color.bg) else ui.color(R.color.soft), if (on) 600 else 500).apply {
+                    gravity = Gravity.CENTER
+                    maxLines = 1
+                    setPadding(ui.dp(4), ui.dp(10), ui.dp(4), ui.dp(10))
+                    if (on) stateDescription = "Selected"
+                }
+                ui.pressable(chip, if (on) ui.rounded(ui.color(R.color.fg), 999f) else ui.rounded(ui.color(R.color.icon_bg), 999f)) { pick(key) }
+                chips.addView(chip, LinearLayout.LayoutParams(0, WRAP, 1f))
+            }
+            repeat(perRow - chunk.size) { chips.addView(ui.space(weight = 1f), LinearLayout.LayoutParams(0, 1, 1f)) }
+            box.addView(chips)
+        }
+        return box
+    }
+
+    /** Default, Midnight, Mono or Your color. */
+    private fun lookRow(): View {
+        val chosen = prefs.getString("look", "default")
+        return chipRows("Theme", Themes.LOOKS.map { (id, name) -> Triple(id, name, id == chosen) }, 2) { pickLook(it) }
+    }
+
+    /** The six accents for Your color, as round swatches. */
+    private fun accentRow(): View {
+        val chosen = prefs.getString("accent", "orange")
+        val row = ui.horizontal(10).apply { setPadding(0, ui.dp(4), 0, ui.dp(14)) }
+        for (a in Themes.ACCENTS) {
+            val on = a.id == chosen
+            val dot = View(this).apply {
+                contentDescription = a.label
+                if (on) stateDescription = "Selected"
+            }
+            ui.pressable(dot, ui.oval(if (ui.night || Themes.alwaysDark) a.dark else a.light,
+                null).apply { if (on) setStroke(ui.dp(3), ui.color(R.color.fg)) }) {
+                prefs.edit().putString("accent", a.id).apply()
+                render()
+            }
+            row.addView(dot, LinearLayout.LayoutParams(ui.dp(36), ui.dp(36)))
+        }
+        return row
+    }
+
+    /** The holidays, to keep one on all year. */
+    private fun holidayRow(): View {
+        val chosen = prefs.getString("look", "default")
+        val today = LocalDate.now(zone)
+        return chipRows("Holidays", Holidays.Holiday.values().map { Triple(it.id, it.label, it.id == chosen) }, 2) { pickLook(it) }.also {
+            (it as LinearLayout).addView(ui.text("Tap one to keep it on all year. " + Holidays.Holiday.values().joinToString(", ") {
+                h -> h.label + " " + Holidays.dates(h, today) }.let { d -> "Dates: $d." }, 12f, ui.color(R.color.muted)))
+        }
+    }
+
+    private fun pickLook(id: String) {
+        val now = prefs.getString("look", "default")
+        // Tapping the holiday you already picked goes back to Default.
+        prefs.edit().putString("look", if (id == now && Holidays.Holiday.byId(id) != null) "default" else id).apply()
+        render()
+    }
+
     /** System, light or dark, for this app only (Android 12 and newer). */
     private fun themeRow(): View {
         val box = ui.vertical(10).apply { setPadding(0, ui.dp(12), 0, ui.dp(12)) }
         val head = ui.horizontal(12)
         head.addView(ui.iconBox(R.drawable.ic_ui_theme, 36, 18, ui.color(R.color.accent_stroke), ui.color(R.color.icon_bg), 12f),
             LinearLayout.LayoutParams(ui.dp(36), ui.dp(36)))
-        head.addView(ui.text("Theme", 14.5f, ui.color(R.color.fg), 600), LinearLayout.LayoutParams(0, WRAP, 1f))
+        head.addView(ui.text("Light or dark", 14.5f, ui.color(R.color.fg), 600), LinearLayout.LayoutParams(0, WRAP, 1f))
         box.addView(head)
+        if (Themes.alwaysDark) {
+            box.addView(ui.text("Midnight is always dark.", 12.5f, ui.color(R.color.muted)))
+            return box
+        }
         val chosen = prefs.getString("theme", "system")
         val chips = ui.horizontal(8)
         for ((key, word) in listOf("system" to "System", "light" to "Light", "dark" to "Dark")) {

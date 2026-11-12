@@ -8,6 +8,11 @@
   Thanksgiving, Christmas and New Year's looks automatically in their date windows. A holiday can
   also be picked to keep it on all year. Saved on each browser, like light and dark. Status colors
   never change, and the snow, lights and other movement stop when the device asks for less motion.
+- Android app 0.11.0: the same themes in the app, in a new **Appearance** section of Settings
+  (Light or dark, Theme, Your color's accents, Holiday themes by date, and the holidays to keep one
+  on all year). Holidays add a greeting, a decoration under the header, lights around the tap
+  button and gentle snow, embers, leaves, hearts, stars or confetti, which stay still when the
+  phone has animations turned off. Midnight is always dark.
 - **Security fixes (re-audit, November 2026):**
   - The admin API now refuses browser requests whose `Host` is another web site's name (DNS
     rebinding): without a token, only IP addresses, `localhost` and local names (no dots, or
