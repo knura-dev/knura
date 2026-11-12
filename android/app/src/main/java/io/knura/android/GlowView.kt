@@ -89,8 +89,8 @@ class GlowView(context: Context) : View(context) {
 class BarsView(context: Context) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var values = IntArray(7)
-    private val muted = context.getColor(R.color.fg)
-    private val accent = context.getColor(R.color.accent_stroke)
+    private val muted = Ui(context).color(R.color.fg)
+    private val accent = Ui(context).color(R.color.accent_stroke)
 
     fun setValues(days: IntArray) {
         values = days

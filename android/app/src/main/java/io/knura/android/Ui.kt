@@ -27,7 +27,12 @@ class Ui(val ctx: Context) {
 
     fun dp(value: Number): Int = (value.toFloat() * density + 0.5f).toInt()
 
-    fun color(id: Int): Int = ctx.getColor(id)
+    /** Whether the phone (or this app's setting) is in dark mode. */
+    val night: Boolean = (ctx.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+        android.content.res.Configuration.UI_MODE_NIGHT_YES
+
+    /** A color resource, as the chosen theme (see [Themes]) has it. */
+    fun color(id: Int): Int = Themes.color(id, night) ?: ctx.getColor(id)
 
     fun font(weight: Int, mono: Boolean = false): Typeface =
         Typeface.create(if (mono) Typeface.MONOSPACE else Typeface.SANS_SERIF, weight, false)
