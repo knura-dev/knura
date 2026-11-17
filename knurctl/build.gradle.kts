@@ -6,7 +6,7 @@ plugins {
 
 dependencies {
     implementation(project(":knura-core"))
-    implementation("com.google.zxing:core:3.5.3")
+    implementation("com.google.zxing:core:3.5.4")
 }
 
 application {
